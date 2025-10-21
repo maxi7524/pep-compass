@@ -1,15 +1,8 @@
-from abc import ABC, abstractmethod
-import logging
-
 import numpy as np
 import torch
 from scipy.optimize import root_scalar
 
 from pep_compass.models.encoder_decoder.encoder_decoder import EncoderDecoder
-
-
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
 
 
 class SubRiemannianTangentSpace:
@@ -35,11 +28,7 @@ class SubRiemannianTangentSpace:
         normal = torch.tensor(normal_np, device=self.device).to(torch.float32)
         norm = torch.sum(normal**2) ** 0.5
         result = normal / norm
-
-        # TODO: Marcin M. added this check. Why? Is there some instability?
-        if torch.norm(result).item() > 100:
-            logger.info(torch.norm(result).item())
-
+        
         return result
 
     def sample_horizontal_direction(self):
@@ -361,37 +350,3 @@ class SORBESWithoutManifoldAcceleration(SecondOrderRiemannianBrownianEfficientSa
 
     def _get_horizontal_manifold_acceleration(self, position, velocity, tangent_space):
         return torch.zeros_like(position)
-
-
-# class RiemannianWalkerFactory:
-#     def __init__(self, config: dict, encoder_decoder: EncoderDecoder, device="cpu"):
-#         self.config = config
-#         self.encoder_decoder = encoder_decoder
-#         self.device = device
-
-#     def create(self):
-#         walker_type = self.config["walker_type"]
-
-#         manifold = SubRiemannianManifold(
-#             encoder_decoder=self.encoder_decoder,
-#             horizontal_threshold=self.config["horizontal_threshold"],
-#         )
-
-#         if self.config["walker_type"] == "brownian":
-#             return RiemannianWalkerBrownian(
-#                 manifold,
-#                 self.config["spatial_step"],
-#                 self.config["max_horizontal_update_norm"],
-#                 self.config["max_velocity_update_norm"],
-#                 self.config["vertical_movement"],
-#             )
-#         elif self.config["walker_type"] == "brownian_no_acc":
-#             return RiemannianWalkerBrownianWithoutAcceleration(
-#                 manifold,
-#                 self.config["spatial_step"],
-#                 self.config["max_horizontal_update_norm"],
-#                 self.config["max_velocity_update_norm"],
-#                 self.config["vertical_movement"],
-#             )
-#         else:
-#             raise ValueError(f"Unknown walker type: {walker_type}")
