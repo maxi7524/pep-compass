@@ -90,12 +90,17 @@ class MutationEnumerationInTangentSpace(MutationEnumerator):
         """Compute possible amino acid mutations from tensors S and U.
 
         Args:
-            s: Array of significance scores for directions | shape: [D, n_directions].
-            u: Tangent-space directions (reshaped internally) | shape: [max_len * len(alphabet), ].
+            s: Array of significance scores for directions | shape: [n_directions].
+            u: Tangent-space directions | shape: [max_len * len(alphabet), n_directions].
 
         Returns:
             A dictionary mapping sequence positions to lists of amino acid indices.
         """
+        assert isinstance(s, np.ndarray) and isinstance(u, np.ndarray), ValueError(
+            f"s and u should be numpy arrays, got {type(s)} and {type(u)} instead."
+        )
+        assert s.ndim == 1, ValueError(f"s should be 1D, got {s.ndim}D instead.")
+        assert u.ndim == 2, ValueError(f"u should be 2D, got {u.ndim}D instead.")
         number_of_directions = max(
             (s > self.direction_significance_threshold).sum(),
             self.min_number_of_directions,
@@ -105,7 +110,9 @@ class MutationEnumerationInTangentSpace(MutationEnumerator):
             current_table = np.abs(
                 u[:, direction_nb].reshape((self.max_len, len(self.alphabet)))
             )
-            change_position = current_table.sum(axis=1).argmax()
+            change_position = current_table.sum(
+                axis=1
+            ).argmax()  # NOTE: this looks like an assumption that a single direction in the latent corresponds to change on a single position. wouldnt it make sense to compute SVD over positions separately (even smaller sample size tho)?
 
             for j in range(1, current_table.shape[1]):
                 if current_table[change_position, j] > self.token_threshold:
