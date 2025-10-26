@@ -1,0 +1,22 @@
+# Example configuration for mutation enumeration
+
+dataset_path: results/data/veltri_negative.csv
+output_dir: results/data/mutants
+weights_dir: results/weights/hydramp
+
+# Column containing peptide sequences
+seq_col: Sequence
+
+# Mutation enumeration parameters
+# Can be single values or lists for parameter sweeps
+# If using lists, both must have the same length (paired by index)
+direction_threshold: [0.0001, 0.001, 0.01]  # or single value: 0.0001
+token_threshold: [0.05, 0.1, 0.2]           # or single value: 0.05
+jacobian_mode: approx  # Options: strict, approx
+
+# Map parent dataset columns to output columns
+# Keys: columns to copy from parent dataset
+# Values: new names for these columns in the output
+parent_keep_columns_rename_map:
+  Name: parent_name
+
