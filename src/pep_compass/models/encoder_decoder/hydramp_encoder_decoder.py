@@ -71,10 +71,10 @@ class HydrAMPEncoderDecoder(EncoderDecoder, nn.Module):
         elif log_softmax:
             decoder_output = torch.log_softmax(decoder_output / self.temp, dim=-1)
         if flatten:
-            decoder_output = rearrange(
-                decoder_output, "b seq vocab -> b a", a=self.ambient_dim
-            )
-
+            decoder_output = rearrange(decoder_output, "b seq vocab -> b (seq vocab)")
+        assert decoder_output.shape[-1] == self.ambient_dim, ValueError(
+            f"Decoder output shape is {decoder_output.shape[-1]}, expected {self.ambient_dim}"
+        )
         return decoder_output
 
     def decode_peptides(self, batch: torch.Tensor, batch_size: int = 1) -> list[str]:
