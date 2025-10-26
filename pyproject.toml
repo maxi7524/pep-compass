@@ -21,7 +21,6 @@ dependencies = [
     "pandas~=2.2.2",
     "rapidfuzz~=3.10.0",
     "matplotlib~=3.9.2",
-    "scikit-learn~=1.5.2",
     "levenshtein~=0.26.0",
     "peptides~=0.3.4",
     "Bio~=1.7.1",
@@ -44,7 +43,8 @@ dependencies = [
     "pytest",
     "cachetools~=6.1.0",
     "pybktree~=1.1",
-    "scikit_posthocs~=0.11.4"
+    "scikit_posthocs~=0.11.4",
+    "scikit-learn>=1.5.2",
 ]
 
 [tool.setuptools]
