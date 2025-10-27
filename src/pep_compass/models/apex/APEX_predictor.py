@@ -13,10 +13,25 @@ import math
 
 class PredictorAPEX:
 
-    def __init__(self, device="cpu", batch_size=3000):
+    def __init__(self, device="cpu", batch_size=3000, path = "default"):
         self.device = device
-
-        self.pathogen_list = [
+        self.path = path
+        if path == "default":
+            self.pathogen_list = [
+                "A. baumannii ATCC 19606",
+                "E. coli ATCC 11775",
+                "E. coli AIG221",
+                "E. coli AIG222",
+                "K. pneumoniae ATCC 13883",
+                "P. aeruginosa PA01",
+                "P. aeruginosa PA14",
+                "S. aureus ATCC 12600",
+                "S. aureus (ATCC BAA-1556) - MRSA",
+                "vancomycin-resistant E. faecalis ATCC 700802",
+                "vancomycin-resistant E. faecium ATCC 700221",
+            ]
+        elif path == "all":
+            self.pathogen_list = [
             "A. baumannii ATCC 19606",
             "E. coli ATCC 11775",
             "E. coli AIG221",
@@ -28,7 +43,34 @@ class PredictorAPEX:
             "S. aureus (ATCC BAA-1556) - MRSA",
             "vancomycin-resistant E. faecalis ATCC 700802",
             "vancomycin-resistant E. faecium ATCC 700221",
-        ]
+            # Additional bacteria from APEX_FULL
+            "A. muciniphila ATCC BAA-835",
+            "B. fragilis ATCC25285",
+            "B. vulgatus ATCC8482",
+            "C. aerofaciens ATCC25986",
+            "C. scindens ATCC35704",
+            "B. thetaiotaomicron ATCC29148",
+            "B. thetaiotaomicron Complemmented",
+            "B. thetaiotaomicron Mutant",
+            "B. uniformis ATCC8492",
+            "B. eggerthi ATCC27754",
+            "C. spiroforme ATCC29900",
+            "P. distasonis ATCC8503",
+            "P. copri DSMZ18205",
+            "B. ovatus ATCC8483",
+            "E. rectale ATCC33656",
+            "C. symbiosum",
+            "R. obeum",
+            "R. torques",
+            "E. coli Nissle",
+            "Salmonella enterica ATCC 9150 (BEIRES NR-515)",
+            "Salmonella enterica (BEIRES NR-170)",
+            "Salmonella enterica ATCC 9150 (BEIRES NR-174)",
+            "L. monocytogenes ATCC 19111 (BEIRES NR-106)",
+            ]
+
+        else:
+            raise ValueError("Path option not recognized. Use 'default' or 'all'.")
 
         self.max_len = 52  # maximum seq length; 52 = start character + maximum peptide length (50 aa) + end character; longer peptides will be truncated
         self.word2idx, self.idx2word = make_vocab()  # make amino acid vocabulary
@@ -38,11 +80,16 @@ class PredictorAPEX:
         # Load pretrained APEX models (8 in total)
         self.APEX_models = []
         self.file_dir = os.path.dirname(os.path.abspath(__file__))
-
-        for a_model in glob.glob(f"{file_dir}/APEX_pathogen_models/APEX_*"):
-            model = torch.load(a_model, map_location=torch.device(self.device), weights_only=False)
-            model.eval()
-            self.APEX_models.append(model)
+        if path == "default":
+            for a_model in glob.glob(f"{file_dir}/APEX_pathogen_models/APEX_*"):
+                model = torch.load(a_model, map_location=torch.device(self.device), weights_only=False)
+                model.eval()
+                self.APEX_models.append(model)
+        elif path == "all":
+            for a_model in glob.glob(f"{file_dir}/Full_APEX_pathogen_models/trained_*"):
+                model = torch.load(a_model, map_location=torch.device(self.device), weights_only=False)
+                model.eval()
+                self.APEX_models.append(model)
 
         self.batch_size = batch_size  # change according to your GPU memory
 
@@ -161,10 +208,26 @@ class PredictorAPEX_Probs:
     Input as probs, not sequence
     '''
 
-    def __init__(self, device="cpu", batch_size=3000):
+    def __init__(self, device="cpu", batch_size=3000, path="default"):
         self.device = device
-
-        self.pathogen_list = [
+        self.path = path
+        if path == "default":
+            self.pathogen_list = [
+                "A. baumannii ATCC 19606",
+                "E. coli ATCC 11775",
+                "E. coli AIG221",
+                "E. coli AIG222",
+                "K. pneumoniae ATCC 13883",
+                "P. aeruginosa PA01",
+                "P. aeruginosa PA14",
+                "S. aureus ATCC 12600",
+                "S. aureus (ATCC BAA-1556) - MRSA",
+                "vancomycin-resistant E. faecalis ATCC 700802",
+                "vancomycin-resistant E. faecium ATCC 700221",
+            ]
+        
+        elif path == "all":
+            self.pathogen_list = [
             "A. baumannii ATCC 19606",
             "E. coli ATCC 11775",
             "E. coli AIG221",
@@ -176,26 +239,56 @@ class PredictorAPEX_Probs:
             "S. aureus (ATCC BAA-1556) - MRSA",
             "vancomycin-resistant E. faecalis ATCC 700802",
             "vancomycin-resistant E. faecium ATCC 700221",
-        ]
+            # Additional bacteria from APEX_FULL
+            "A. muciniphila ATCC BAA-835",
+            "B. fragilis ATCC25285",
+            "B. vulgatus ATCC8482",
+            "C. aerofaciens ATCC25986",
+            "C. scindens ATCC35704",
+            "B. thetaiotaomicron ATCC29148",
+            "B. thetaiotaomicron Complemmented",
+            "B. thetaiotaomicron Mutant",
+            "B. uniformis ATCC8492",
+            "B. eggerthi ATCC27754",
+            "C. spiroforme ATCC29900",
+            "P. distasonis ATCC8503",
+            "P. copri DSMZ18205",
+            "B. ovatus ATCC8483",
+            "E. rectale ATCC33656",
+            "C. symbiosum",
+            "R. obeum",
+            "R. torques",
+            "E. coli Nissle",
+            "Salmonella enterica ATCC 9150 (BEIRES NR-515)",
+            "Salmonella enterica (BEIRES NR-170)",
+            "Salmonella enterica ATCC 9150 (BEIRES NR-174)",
+            "L. monocytogenes ATCC 19111 (BEIRES NR-106)",
+            ]
+
+        else:
+            raise ValueError("Path option not recognized. Use 'default' or 'all'.")
 
         self.max_len = 52  # maximum seq length; 52 = start character + maximum peptide length (50 aa) + end character; longer peptides will be truncated
         self.word2idx, self.idx2word = make_vocab()  # make amino acid vocabulary
         # emb, AAindex_dict = AAindex('./aaindex1.csv', word2idx) #make amino acid embeddings
 
 
-        # Load pretrained APEX models (8 in total)
+        # Load pretrained APEX models (8 in total for default, 40 for full)
         self.APEX_models = []
         self.file_dir = os.path.dirname(os.path.abspath(__file__))
-        
-        for a_model in glob.glob(f"{file_dir}/APEX_pathogen_models/APEX_*"):
-            model = torch.load(a_model, map_location=torch.device(self.device), weights_only=False)
-            self.APEX_models.append(model)
-
+        if path == "default":
+            for a_model in glob.glob(f"{file_dir}/APEX_pathogen_models/APEX_*"):
+                model = torch.load(a_model, map_location=torch.device(self.device), weights_only=False)
+                self.APEX_models.append(model)
+        elif path == "all":
+            for a_model in glob.glob(f"{file_dir}/Full_APEX_pathogen_models/trained_*"):
+                model = torch.load(a_model, map_location=torch.device(self.device), weights_only=False)
+                self.APEX_models.append(model)
         self.batch_size = batch_size  # change according to your GPU memory
 
 
     # Use pretrained APEX models to predict species-specific antimicrobial activity (i.e., minimum inhibitory concentration [MIC]; unit: uM)
-    # 8 pretrained APEX models are provided, and predictions are averaged
+    # 8 pretrained APEX models or 40 for Full APEX are provided, and predictions are averaged
     def predict(self, probs, return_x=False):
         AMP_sum = 0
         expanded_probs_saved = None
