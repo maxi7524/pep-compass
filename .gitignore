@@ -217,5 +217,9 @@ __marimo__/
 
 results/
 
+src/pep_compass/models/apex/APEX_pathogen_models/
+src/pep_compass/models/apex/Full_APEX_pathogen_models/
+src/pep_compass/models/apex/test_apex_all.py
+
 # model weights
 src/pep_compass/models/hydramp/weights/
