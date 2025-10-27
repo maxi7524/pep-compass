@@ -1,3 +1,4 @@
+from abc import ABC
 import numpy as np
 import torch
 from scipy.optimize import root_scalar
@@ -138,8 +139,18 @@ class SubRiemannianManifold:
     def get_latent_position(self, ambient_position):
         return self.encoder_decoder.encoder_forward(ambient_position)
 
+class SamplingWalker(ABC):
+    """
+    Abstract base class for sampling walkers in latent space.
 
-class SecondOrderRiemannianBrownianEfficientSampling:
+    This class defines the interface for sampling walkers that perform steps in a latent space,
+    typically used in sampling algorithms or optimization routines. Subclasses must implement
+    the `step` method to define how a single step is taken from a given latent position.
+    """
+    def step(self, latent_position: torch.Tensor) -> tuple:
+        raise NotImplementedError("This method should be overridden by subclasses.")
+
+class SecondOrderRiemannianBrownianEfficientSampling(SamplingWalker):
     # TODO: review the docstring
     """
     Efficient second-order sampler for sub-Riemannian Brownian motion horizontal
@@ -156,8 +167,8 @@ class SecondOrderRiemannianBrownianEfficientSampling:
     `max_horizontal_update_norm` by shrinking the effective sqrt(dt) when needed.
 
     Parameters
-    - manifold: object exposing the minimal SubRiemannianManifoldProtocol interface.
-    - spatial_step: float spatial discretization step. time_step = spatial_step ** 2.
+    - manifold: object exposing SubRiemannianManifold interface.
+    - time_step: float time discretization step.
     - max_horizontal_update_norm: maximum allowed Euclidean norm of the horizontal position update.
     - vertical_movement: if True, add an isotropic vertical diffusion term sampled from tangent space.
     """
@@ -290,10 +301,10 @@ class SecondOrderRiemannianBrownianEfficientSampling:
         adjusted_dt = min(adjusted_sqrt_t**2, self.time_step)
         return float(adjusted_dt)
 
-    def step(self, latent_position: torch.Tensor) -> tuple[torch.Tensor, float]:
+    def step(self, latent_position: torch.Tensor) -> tuple[torch.Tensor, dict]:
         """
         Take a single sampling step from `latent_position` and return a tuple
-        (new_latent_position, adjusted_time_step).
+        (new_latent_position, step_info).
 
         Parameters
         - latent_position: torch.Tensor representing the current latent point.
@@ -328,8 +339,13 @@ class SecondOrderRiemannianBrownianEfficientSampling:
 
         new_latent_position = latent_position + position_update
 
-        return new_latent_position, adjusted_time_step
+        step_info = {
+            "adjusted_time_step": adjusted_time_step,
+            "S": tangent_space.S,
+            "U": tangent_space.U,
+        }
 
+        return new_latent_position, step_info
 
 class SORBESWithoutManifoldAcceleration(SecondOrderRiemannianBrownianEfficientSampling):
     def __init__(

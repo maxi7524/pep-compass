@@ -6,11 +6,11 @@ from botorch.models.fully_bayesian import SaasFullyBayesianSingleTaskGP
 from botorch.models.transforms import Standardize
 from botorch.optim import optimize_acqf
 
-from pep_compass.optimization.optimizer import AbstractOptimizer
+from pep_compass.optimization.optimizer import Optimizer
 from pep_compass.utils.utils import set_seed
 
 
-class SaasboOptimizer(AbstractOptimizer):
+class SaasboOptimizer(Optimizer):
     """
     Sparse Axis-Aligned Subspace Bayesian Optimization (SAASBO) implementation.
     
