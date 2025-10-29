@@ -5,6 +5,7 @@ from pep_compass.models.hydramp.hydramp import HydrAMPDecoder, HydrAMPEncoder
 from pep_compass.models.encoder_decoder.encoder_decoder import EncoderDecoder
 from pep_compass.utils.sequence_utils import to_one_hot, translate_generated_peptide
 from einops import repeat, rearrange
+import os
 
 
 class HydrAMPEncoderDecoder(EncoderDecoder, nn.Module):
@@ -33,6 +34,24 @@ class HydrAMPEncoderDecoder(EncoderDecoder, nn.Module):
 
         self.encoder = HydrAMPEncoder(device=device)
         self.decoder = HydrAMPDecoder(device=device)
+
+        self._load_weights()
+
+    def _load_weights(self):
+        file_dir = os.path.dirname(os.path.abspath(__file__))
+        weights_dir = f"{file_dir}/../hydramp/weights"
+
+        if not os.path.exists(weights_dir):
+            raise FileNotFoundError(
+                f"Weights directory {weights_dir} not found. To get the HydrAMP weights follow the instructtions in README.md under 'Download Model Weights' section."
+            )
+
+        self.encoder.load_state_dict(
+            torch.load(f"{weights_dir}/encoder_weights.pickle", weights_only=True)
+        )
+        self.decoder.load_state_dict(
+            torch.load(f"{weights_dir}/decoder_weights.pickle", weights_only=True)
+        )
 
     @property
     def latent_dim(self):
