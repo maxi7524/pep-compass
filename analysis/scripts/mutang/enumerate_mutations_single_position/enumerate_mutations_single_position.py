@@ -18,7 +18,6 @@ from pep_compass.models.encoder_decoder.hydramp_encoder_decoder import (
 
 
 def load_hydramp_model(
-    weights_dir: Path,
     jacobian_mode: str = "approx",
     jacobian_eps: float = 1e-6,
     field_eps: float = 1e-6,
@@ -34,15 +33,7 @@ def load_hydramp_model(
         field_eps=field_eps,
         device=device,
     )
-    encoder_path = weights_dir / "encoder_weights.pickle"
-    decoder_path = weights_dir / "decoder_weights.pickle"
-    if not encoder_path.exists():
-        raise FileNotFoundError(f"Encoder weights not found at {encoder_path}")
-    if not decoder_path.exists():
-        raise FileNotFoundError(f"Decoder weights not found at {decoder_path}")
-    hydramp.encoder.load_state_dict(torch.load(encoder_path, map_location=device))
-    hydramp.decoder.load_state_dict(torch.load(decoder_path, map_location=device))
-    logger.success("Model loaded successfully")
+    logger.success("Model initialized")
     return hydramp
 
 
@@ -120,9 +111,6 @@ class Config(BaseModel):
         description="Path to input CSV file containing peptide sequences"
     )
     output_dir: Path = Field(description="Directory to save output CSV files")
-    weights_dir: Path = Field(
-        description="Directory containing encoder_weights.pickle and decoder_weights.pickle"
-    )
     seq_col: str = Field(
         default="Sequence",
         description="Name of the column containing peptide sequences",
@@ -176,15 +164,8 @@ def main():
     project_root = (script_dir / ".." / ".." / ".." / "..").resolve()
     logger.info(f"Project root: {project_root}")
 
-    weights_dir = config.weights_dir
-    if not weights_dir.is_absolute():
-        weights_dir = project_root / weights_dir
-    logger.info(f"Weights directory: {weights_dir}")
-
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    hydramp = load_hydramp_model(
-        weights_dir, jacobian_mode=config.jacobian_mode, device=device
-    )
+    hydramp = load_hydramp_model(jacobian_mode=config.jacobian_mode, device=device)
 
     dataset_path = config.dataset_path
     if not dataset_path.is_absolute():
