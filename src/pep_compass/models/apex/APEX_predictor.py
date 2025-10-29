@@ -105,10 +105,21 @@ class PredictorAPEX:
         AMP_sum = 0
 
         data_len = len(seq_list)
-        pbar = tqdm(total=data_len, desc="Sequences") if use_tqdm else None
+        num_models = len(self.APEX_models)
+        outer_bar = tqdm(total=num_models, desc="Models") if use_tqdm else None
 
-        for ensemble_id in range(len(self.APEX_models)):
+        for ensemble_id in range(num_models):
             AMP_model = self.APEX_models[ensemble_id].to(self.device).eval()
+
+            inner_bar = (
+                tqdm(
+                    total=data_len,
+                    desc=f"Sequences [{ensemble_id + 1}/{num_models}]",
+                    leave=False,
+                )
+                if use_tqdm
+                else None
+            )
 
             batch_iter = range(int(math.ceil(data_len / float(self.batch_size))))
             for i in batch_iter:
@@ -130,8 +141,8 @@ class PredictorAPEX:
                 else:
                     AMP_pred = np.vstack([AMP_pred, AMP_pred_batch])
 
-                if pbar is not None and ensemble_id == 0:
-                    pbar.update(len(seq_batch))
+                if inner_bar is not None:
+                    inner_bar.update(len(seq_batch))
 
             # sum up the predictions made by different APEX models
             if ensemble_id == 0:
@@ -139,8 +150,13 @@ class PredictorAPEX:
             else:
                 AMP_sum += AMP_pred
 
-        if pbar is not None:
-            pbar.close()
+            if inner_bar is not None:
+                inner_bar.close()
+            if outer_bar is not None:
+                outer_bar.update(1)
+
+        if outer_bar is not None:
+            outer_bar.close()
 
         AMP_pred = AMP_sum / float(len(self.APEX_models))  # average the predictions
 
