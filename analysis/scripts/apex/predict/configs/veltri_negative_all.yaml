@@ -7,4 +7,4 @@ use_tqdm: true
 apex_predictor_kwargs:
   path: all
   device: cuda
-  batch_size: 1000
+  batch_size: 10000
