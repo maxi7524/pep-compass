@@ -6,7 +6,7 @@ import pandas as pd
 import yaml
 from pydantic import BaseModel, Field
 from loguru import logger
-
+from tqdm import tqdm
 from pep_compass.models.apex.APEX_predictor import PredictorAPEX
 
 
@@ -36,10 +36,9 @@ def run_predictions_on_df(
         raise ValueError(f"Column '{sequence_column}' not found in input dataframe")
     sequences = df[sequence_column].astype(str).tolist()
     preds = predictor.predict(sequences, use_tqdm=use_tqdm)
-    for i, pathogen in enumerate(predictor.pathogen_list):
-        df[pathogen] = preds[:, i]
-    return df
-
+    # Vectorized assignment: create a DataFrame from predictions and assign all columns at once
+    pred_df = pd.DataFrame(preds, columns=predictor.pathogen_list, index=df.index)
+    return pd.concat([df, pred_df], axis=1)
 
 def load_config(config_path: Path) -> PredictConfig:
     with open(config_path, "r") as f:
@@ -89,7 +88,7 @@ def main():
         logger.error(f"No files matching '{cfg.file_glob}' found in {input_dir}")
         sys.exit(1)
 
-    for input_path in files:
+    for input_path in tqdm(files, desc="Processing files"):
         df = pd.read_csv(input_path)
         df = run_predictions_on_df(
             df,
