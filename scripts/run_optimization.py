@@ -40,7 +40,7 @@ for i in range(10):
         rng_seed = int(time.time())  # Create a unique rng_seed for each iteration
         observer.initialize_observer(
             black_box.get_black_box_info(),
-            {"experiment_id": f"{sequence}_{datetime.now().strftime('%Y%m%d_%H%M%S')}", "experiment_path": "./results"},
+            {"experiment_id": f"{sequence}_{rng_seed}_{datetime.now().strftime('%Y%m%d_%H%M%S')}", "experiment_path": "./results"},
             rng_seed,
             encoder_decoder=black_box.encoder_decoder,
         )
