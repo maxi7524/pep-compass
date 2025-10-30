@@ -11,6 +11,7 @@ from pep_compass.models.encoder_decoder.hydramp_encoder_decoder import HydrAMPEn
 class APEXBlackBox(AbstractBlackBox):
     def __init__(
         self,
+        *,
         mic_aggregate: str = "mean",
         mic_bacteria: str | list = "all",
         batch_size: int = None,
@@ -72,6 +73,7 @@ class APEXBlackBox(AbstractBlackBox):
 class HydrAMPAPEXBlackBox(AbstractBlackBox):
     def __init__(
         self,
+        *,
         mic_aggregate: str = "mean",
         mic_bacteria: str | list = "all",
         batch_size: int = None,
@@ -80,6 +82,8 @@ class HydrAMPAPEXBlackBox(AbstractBlackBox):
         evaluation_budget: int = float("inf"),
         force_isolation: bool = False,
         device: str = "cpu",
+        jacobian_eps: float,
+        field_eps: float,
     ):
         super().__init__(
             batch_size=batch_size,
@@ -105,9 +109,11 @@ class HydrAMPAPEXBlackBox(AbstractBlackBox):
         
         self.encoder_decoder = HydrAMPEncoderDecoder(
             device=device,
-            default_condition=torch.Tensor(np.array([1, 1])).view(1, -1).to(device),
+            default_condition=torch.tensor([1, 1], device=device),
             temp=1,
             jacobian_mode="approx",
+            jacobian_eps=jacobian_eps,
+            field_eps=field_eps,
         )
 
         self.cache = [] 
