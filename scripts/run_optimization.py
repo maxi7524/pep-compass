@@ -7,12 +7,14 @@ from pep_compass.optimization.black_box.apex_black_box import (
 )
 from pep_compass.optimization.black_box.csv_observer import CSVObserver
 
-DEVICE = "cuda:3"
+DEVICE = "cuda:0"
 
 black_box = HydrAMPAPEXBlackBox(
     mic_aggregate="mean",
     mic_bacteria=[1, 2, 3],
     device=DEVICE,
+    jacobian_eps=0.1,
+    field_eps=0.1,
 )
 observer = CSVObserver()
 black_box.set_observer(observer)
