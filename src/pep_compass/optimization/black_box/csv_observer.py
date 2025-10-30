@@ -77,7 +77,7 @@ class CSVObserver(AbstractObserver):
         self.csv_file_path = self.experiment_path / f"{self.experiment_id}.csv"
         self.save_header()
 
-        self.best_score = -float("inf")
+        self.best_score = float("inf")
         self.best_sequence = None
 
         self.has_been_initialized = True
@@ -122,7 +122,7 @@ class CSVObserver(AbstractObserver):
 
         scores = [y_i for y_i in y.flatten()]
 
-        self.best_score = max(self.best_score, max(scores))
+        self.best_score = min(self.best_score, min(scores))
         if self.best_score in scores:
             self.best_sequence = sequences[scores.index(self.best_score)]
 
