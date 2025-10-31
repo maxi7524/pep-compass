@@ -1,7 +1,7 @@
 # Example configuration for mutation enumeration
 
-dataset_path: results/data/veltri_negative.csv
-output_dir: results/data/mutants/veltri_negative
+dataset_path: data/veltri_negative.csv
+output_dir: results/mutants/veltri_negative
 weights_dir: results/weights/hydramp
 
 # Column containing peptide sequences
