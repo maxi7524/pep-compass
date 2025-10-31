@@ -2,7 +2,6 @@
 
 dataset_path: data/veltri_positive.csv
 output_dir: results/mutants/veltri_positive
-weights_dir: results/weights/hydramp
 
 # Column containing peptide sequences
 seq_col: Sequence

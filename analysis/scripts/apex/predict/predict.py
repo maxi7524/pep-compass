@@ -4,7 +4,7 @@ from typing import Any
 import argparse
 import pandas as pd
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from loguru import logger
 from tqdm import tqdm
 from pep_compass.models.apex.APEX_predictor import PredictorAPEX
@@ -13,7 +13,12 @@ from pep_compass.models.apex.APEX_predictor import PredictorAPEX
 class PredictConfig(BaseModel):
     """Configuration for APEX batch predictions."""
 
-    input_dir: Path = Field(description="Directory containing input CSV files")
+    input_dir: Path | None = Field(
+        default=None, description="Directory containing input CSV files"
+    )
+    input_files: list[Path] | None = Field(
+        default=None, description="List of input CSV files to process"
+    )
     output_dir: Path = Field(description="Directory to write output CSV files")
     file_glob: str = Field(
         default="*.csv", description="Glob pattern to select input files in input_dir"
@@ -27,6 +32,19 @@ class PredictConfig(BaseModel):
     use_tqdm: bool = Field(
         default=False, description="Show a tqdm progress bar over sequences"
     )
+
+    @model_validator(mode='after')
+    def validate_input_source(self) -> 'PredictConfig':
+        """Validate that exactly one of input_dir or input_files is provided."""
+        sources = [
+            self.input_dir is not None,
+            self.input_files is not None,
+        ]
+        if sum(sources) != 1:
+            raise ValueError(
+                "Exactly one of 'input_dir' or 'input_files' must be provided"
+            )
+        return self
 
 
 def run_predictions_on_df(
@@ -48,7 +66,7 @@ def load_config(config_path: Path) -> PredictConfig:
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Run APEX predictions on all CSVs in a directory using a YAML config"
+        description="Run APEX predictions on CSV file(s) using a YAML config. Can process a list of files or all CSVs in a directory."
     )
     parser.add_argument(
         "--config", type=str, required=True, help="Path to YAML configuration file"
@@ -66,27 +84,41 @@ def main():
     script_dir = Path(__file__).parent
     project_root = (script_dir / ".." / ".." / ".." / "..").resolve()
 
-    input_dir = (
-        cfg.input_dir if cfg.input_dir.is_absolute() else (project_root / cfg.input_dir)
-    )
     output_dir = (
         cfg.output_dir
         if cfg.output_dir.is_absolute()
         else (project_root / cfg.output_dir)
     )
-
-    if not input_dir.exists():
-        logger.error(f"Input directory not found at {input_dir}")
-        sys.exit(1)
-
     output_dir.mkdir(parents=True, exist_ok=True)
 
     predictor = PredictorAPEX(**cfg.apex_predictor_kwargs)
 
-    files = sorted(input_dir.glob(cfg.file_glob))
-    if not files:
-        logger.error(f"No files matching '{cfg.file_glob}' found in {input_dir}")
-        sys.exit(1)
+    # Determine input files to process
+    if cfg.input_files is not None:
+        files = []
+        for input_file in cfg.input_files:
+            input_path = (
+                input_file
+                if input_file.is_absolute()
+                else (project_root / input_file)
+            )
+            if not input_path.exists():
+                logger.error(f"Input file not found at {input_path}")
+                sys.exit(1)
+            files.append(input_path)
+    else:
+        input_path = (
+            cfg.input_dir
+            if cfg.input_dir.is_absolute()
+            else (project_root / cfg.input_dir)
+        )
+        if not input_path.exists():
+            logger.error(f"Input directory not found at {input_path}")
+            sys.exit(1)
+        files = sorted(input_path.glob(cfg.file_glob))
+        if not files:
+            logger.error(f"No files matching '{cfg.file_glob}' found in {input_path}")
+            sys.exit(1)
 
     for input_path in tqdm(files, desc="Processing files"):
         df = pd.read_csv(input_path)
