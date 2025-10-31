@@ -224,5 +224,8 @@ src/pep_compass/models/apex/test_apex_all.py
 # model weights
 src/pep_compass/models/hydramp/weights/
 
+# data
+data/
+
 # Karol's trash
 scripts/first_mic_trials.ipynb
