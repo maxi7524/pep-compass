@@ -1,6 +1,6 @@
 # APEX prediction config for mutants (veltri_negative) using full pathogen set
 input_dir: results/mutants/veltri_negative
-output_dir: results/apex_predictions/veltri_negative/all
+output_dir: results/apex_predictions/results/mutants/veltri_negative/all
 file_glob: "*.csv"
 sequence_column: mutant
 use_tqdm: true
