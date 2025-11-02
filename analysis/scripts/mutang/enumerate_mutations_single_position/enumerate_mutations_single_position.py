@@ -130,6 +130,18 @@ class Config(BaseModel):
         default_factory=dict,
         description="Map parent dataset columns to output column names",
     )
+    deduplicate: bool = Field(
+        default=True,
+        description="Remove duplicate rows where both parent and mutant sequences are the same",
+    )
+    filter_identities: bool = Field(
+        default=True,
+        description="Filter out cases where parent sequence equals mutant sequence",
+    )
+    filter_length_mismatch: bool = Field(
+        default=True,
+        description="Filter out cases where parent and mutant have different lengths after stripping whitespace",
+    )
 
 
 def load_config(config_path: Path) -> Config:
@@ -226,6 +238,37 @@ def main():
 
         logger.info(f"Total mutants generated: {len(mutants_df)}")
         logger.info(f"Unique mutants: {mutants_df['mutant'].nunique()}")
+
+        # Filter identities (where parent == mutant)
+        if config.filter_identities:
+            initial_count = len(mutants_df)
+            mutants_df = mutants_df[mutants_df["mutant"] != mutants_df["parent"]]
+            filtered_count = initial_count - len(mutants_df)
+            logger.info(
+                f"Filtered {filtered_count} identity cases (parent == mutant). Remaining: {len(mutants_df)}"
+            )
+
+        # Filter length mismatches (where parent and mutant have different lengths after strip)
+        if config.filter_length_mismatch:
+            initial_count = len(mutants_df)
+            parent_lengths = mutants_df["parent"].str.strip().str.len()
+            mutant_lengths = mutants_df["mutant"].str.strip().str.len()
+            mutants_df = mutants_df[parent_lengths == mutant_lengths]
+            filtered_count = initial_count - len(mutants_df)
+            logger.info(
+                f"Filtered {filtered_count} length mismatch cases (different lengths after strip). Remaining: {len(mutants_df)}"
+            )
+
+        # Deduplicate rows where both parent and mutant sequences are the same
+        if config.deduplicate:
+            initial_count = len(mutants_df)
+            mutants_df = mutants_df.drop_duplicates(
+                subset=["parent", "mutant"], keep="first"
+            )
+            dedup_count = initial_count - len(mutants_df)
+            logger.info(
+                f"Removed {dedup_count} duplicate rows (same parent and mutant). Remaining: {len(mutants_df)}"
+            )
 
         # Generate filename based on input name + parameters
         output_filename = f"{input_stem}_direction_threshold={d_thresh}_token_threshold={t_thresh}_jacobian_mode={config.jacobian_mode}.csv"
