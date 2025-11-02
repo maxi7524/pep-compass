@@ -34,3 +34,10 @@ Notes:
 - `analysis/scripts/apex/predict/configs/veltri_negative_default.yaml`
 - `analysis/scripts/apex/predict/configs/veltri_positive_all.yaml`
 - `analysis/scripts/apex/predict/configs/veltri_positive_default.yaml`
+
+## Note
+When specifying output directories within the results for organisational purposes include the input directory as a subpath e.g.
+
+`input_dir: results/mutants/veltri_positive`
+
+`output_dir: results/apex_predictions/results/mutants/veltri_positive/default`
