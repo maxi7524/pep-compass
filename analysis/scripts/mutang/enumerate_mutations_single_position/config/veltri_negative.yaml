@@ -1,7 +1,7 @@
 # Example configuration for mutation enumeration
 
 dataset_path: data/veltri_negative.csv
-output_dir: results/mutants/veltri_negative
+output_dir: results/mutants/data/veltri_negative
 
 # Column containing peptide sequences
 seq_col: Sequence
@@ -12,6 +12,11 @@ seq_col: Sequence
 direction_threshold: [0.0001, 0.001, 0.01]  # or single value: 0.0001
 token_threshold: [0.05, 0.1, 0.2]           # or single value: 0.05
 jacobian_mode: approx  # Options: strict, approx
+
+# Post-processing options
+deduplicate: true  # Remove duplicate rows where both parent and mutant sequences are the same
+filter_identities: true  # Filter out cases where parent sequence equals mutant sequence
+filter_length_mismatch: true  # Filter out cases where parent and mutant have different lengths after stripping whitespace
 
 # Map parent dataset columns to output columns
 # Keys: columns to copy from parent dataset
