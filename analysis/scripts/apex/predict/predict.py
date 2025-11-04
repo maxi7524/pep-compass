@@ -80,15 +80,8 @@ def main():
 
     cfg = load_config(config_path)
 
-    # Resolve relative paths against project root (same style as reference script)
-    script_dir = Path(__file__).parent
-    project_root = (script_dir / ".." / ".." / ".." / "..").resolve()
-
-    output_dir = (
-        cfg.output_dir
-        if cfg.output_dir.is_absolute()
-        else (project_root / cfg.output_dir)
-    )
+    # Resolve paths
+    output_dir = cfg.output_dir if cfg.output_dir.is_absolute() else (config_path.parent / cfg.output_dir).resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
 
     predictor = PredictorAPEX(**cfg.apex_predictor_kwargs)
@@ -97,21 +90,13 @@ def main():
     if cfg.input_files is not None:
         files = []
         for input_file in cfg.input_files:
-            input_path = (
-                input_file
-                if input_file.is_absolute()
-                else (project_root / input_file)
-            )
+            input_path = input_file if input_file.is_absolute() else (config_path.parent / input_file).resolve()
             if not input_path.exists():
                 logger.error(f"Input file not found at {input_path}")
                 sys.exit(1)
             files.append(input_path)
     else:
-        input_path = (
-            cfg.input_dir
-            if cfg.input_dir.is_absolute()
-            else (project_root / cfg.input_dir)
-        )
+        input_path = cfg.input_dir if cfg.input_dir.is_absolute() else (config_path.parent / cfg.input_dir).resolve()
         if not input_path.exists():
             logger.error(f"Input directory not found at {input_path}")
             sys.exit(1)

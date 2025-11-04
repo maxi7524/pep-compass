@@ -172,16 +172,11 @@ def main():
 
     config = load_config(config_path)
 
-    script_dir = Path(__file__).parent
-    project_root = (script_dir / ".." / ".." / ".." / "..").resolve()
-    logger.info(f"Project root: {project_root}")
-
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     hydramp = load_hydramp_model(jacobian_mode=config.jacobian_mode, device=device)
 
+    # Use dataset path directly (relative paths work relative to current working directory)
     dataset_path = config.dataset_path
-    if not dataset_path.is_absolute():
-        dataset_path = project_root / dataset_path
     if not dataset_path.exists():
         logger.error(f"Dataset file not found at {dataset_path}")
         sys.exit(1)
@@ -213,10 +208,8 @@ def main():
     param_pairs = list(zip(direction_thresholds, token_thresholds))
     logger.info(f"Running {len(param_pairs)} parameter pairs")
 
-    # Get output directory
+    # Use output directory directly (relative paths work relative to current working directory)
     output_dir = config.output_dir
-    if not output_dir.is_absolute():
-        output_dir = project_root / output_dir
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # Get base filename from input dataset
