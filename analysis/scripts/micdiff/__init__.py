@@ -7,7 +7,7 @@ from .mutations import (
     process_bootstrap_mutations,
 )
 from .utils import compute_diff, compute_total_nonidentity_ngram_mutations
-from .micdiff_app import filter_parents_and_mutants
+from .filtering import filter_parents_and_mutants
 from .analysis import (
     mutation_statistics_generator,
     compute_bootstrap_sample_ranks,
