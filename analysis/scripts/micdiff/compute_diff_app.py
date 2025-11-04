@@ -30,28 +30,18 @@ def main():
 
     config = load_compute_diff_config(config_path)
 
-    # Find project root: analysis/scripts/micdiff/ -> project root (3 levels up)
-    script_dir = Path(__file__).parent
-    project_root = (script_dir / ".." / ".." / "..").resolve()
-
-    # Resolve paths
+    # Use paths directly (relative paths work relative to current working directory)
     parents_path = config.parents_dataset_path
-    if not parents_path.is_absolute():
-        parents_path = project_root / parents_path
     if not parents_path.exists():
         logger.error(f"Parents dataset file not found at {parents_path}")
         sys.exit(1)
 
     mutants_path = config.mutants_dataset_path
-    if not mutants_path.is_absolute():
-        mutants_path = project_root / mutants_path
     if not mutants_path.exists():
         logger.error(f"Mutants dataset file not found at {mutants_path}")
         sys.exit(1)
 
     output_path = config.output_path
-    if not output_path.is_absolute():
-        output_path = project_root / output_path
 
     # Create output directory if needed
     output_path.parent.mkdir(parents=True, exist_ok=True)

@@ -17,7 +17,6 @@ from tqdm import tqdm
 def process_single_pair(
     pair: PairConfig,
     config: Config,
-    project_root: Path,
     pair_idx: int | None = None,
     total_pairs: int | None = None,
     parent_filter_config: ParentFilterConfig | None = None,
@@ -31,17 +30,13 @@ def process_single_pair(
 
     filter_label = f"_{parent_filter_config.name}" if parent_filter_config else ""
 
-    # Resolve dataset paths
+    # Use paths directly (relative paths work relative to current working directory)
     parents_path = pair.parent
-    if not parents_path.is_absolute():
-        parents_path = project_root / parents_path
     if not parents_path.exists():
         logger.error(f"{pair_label} Parents dataset file not found at {parents_path}")
         return
 
     mutants_path = pair.mutant
-    if not mutants_path.is_absolute():
-        mutants_path = project_root / mutants_path
     if not mutants_path.exists():
         logger.error(f"{pair_label} Mutants dataset file not found at {mutants_path}")
         return
@@ -99,7 +94,7 @@ def process_single_pair(
         ]
     ):
         logger.info(f"{pair_label} Applying mutation filters...")
-        from analysis.utils import (
+        from utils import (
             filter_identities,
             filter_length_mismatches,
             deduplicate_mutations,
@@ -136,10 +131,8 @@ def process_single_pair(
             f"{pair_label} After filtering: {len(mutants_df)} rows (removed {initial_count - len(mutants_df)})"
         )
 
-    # Resolve output directory
+    # Use output directory directly (relative paths work relative to current working directory)
     output_dir = pair.output_dir
-    if not output_dir.is_absolute():
-        output_dir = project_root / output_dir
 
     # Add filter subdirectory if filtering is applied
     if parent_filter_config is not None:
@@ -303,10 +296,6 @@ def main():
 
     config = load_config(config_path)
 
-    # Find project root: analysis/scripts/micdiff/ -> project root (3 levels up)
-    script_dir = Path(__file__).parent
-    project_root = (script_dir / ".." / ".." / "..").resolve()
-
     # Determine pairs to process
     if config.pairs is not None:
         pairs_to_process = [
@@ -361,7 +350,6 @@ def main():
                 process_single_pair(
                     pair=pair,
                     config=config,
-                    project_root=project_root,
                     pair_idx=pair_idx,
                     total_pairs=total_pairs,
                     parent_filter_config=parent_filter,
