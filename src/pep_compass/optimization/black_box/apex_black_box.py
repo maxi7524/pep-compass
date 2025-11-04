@@ -1,9 +1,10 @@
 
 import numpy as np
 import torch
-from poli_baselines.core.abstract_solver import AbstractSolver, AbstractBlackBox
+from poli_baselines.core.abstract_solver import AbstractBlackBox
 from poli.core.black_box_information import BlackBoxInformation
 import torch.nn.functional as F
+from einops import rearrange
 
 from pep_compass.models.apex.APEX_predictor import PredictorAPEX
 from pep_compass.models.encoder_decoder.hydramp_encoder_decoder import HydrAMPEncoderDecoder
@@ -137,7 +138,7 @@ class HydrAMPAPEXBlackBox(AbstractBlackBox):
         )
 
     def _black_box(self, x: np.ndarray, context: dict = None) -> np.ndarray:
-        x_tensor = torch.Tensor(x).to(self.encoder_decoder.device)
+        x_tensor = torch.tensor(x, device=self.encoder_decoder.device)
         decoded_peptides = self.encoder_decoder.decode_peptides(x_tensor)
         predictions = self.peptide_scorer(decoded_peptides)
         
