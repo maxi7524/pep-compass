@@ -239,6 +239,11 @@ def process_single_pair(
         seed=config.bootstrap.seed,
     )
 
+    # Create subdirectory for bootstrap samples
+    bootstrap_samples_dir = output_dir / f"{mutant_name}_{seed_str}_bootstrap_samples"
+    bootstrap_samples_dir.mkdir(parents=True, exist_ok=True)
+    logger.info(f"{pair_label} Bootstrap samples directory: {bootstrap_samples_dir}")
+
     # Process bootstrap samples with progress bar
     all_mutation_keys = list(aggregate_counter.keys())
 
@@ -259,10 +264,8 @@ def process_single_pair(
                 aggregation_func=config.rank.aggregation_func,
             )
 
-            # Save this bootstrap sample's ranks to a separate file
-            sample_file = (
-                output_dir / f"{mutant_name}_{seed_str}_bootstrap{sample_idx:04d}.pkl"
-            )
+            # Save this bootstrap sample's ranks to a separate file (numbered without leading zeros)
+            sample_file = bootstrap_samples_dir / f"{sample_idx}.pkl"
             with open(sample_file, "wb") as f:
                 pickle.dump(sample_ranks, f)
 
@@ -270,7 +273,7 @@ def process_single_pair(
             pbar.refresh()  # Force refresh to update display
 
     logger.success(
-        f"{pair_label} Saved {config.bootstrap.n_bootstrap_samples} bootstrap sample files"
+        f"{pair_label} Saved {config.bootstrap.n_bootstrap_samples} bootstrap sample files to {bootstrap_samples_dir}"
     )
     logger.info(f"{pair_label} Files for {len(all_mutation_keys)} mutations")
 
