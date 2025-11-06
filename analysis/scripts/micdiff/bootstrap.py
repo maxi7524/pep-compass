@@ -74,3 +74,48 @@ def bootstrap_df_generator(
             [group_to_ilocs[gk] for gk in sampled_groups["_group_key"]]
         )
         yield df.iloc[iloc_indices].copy()
+
+from collections import defaultdict
+from typing import List, Dict, Any
+
+
+def merge_bootstrap_samples(bootstrap_samples: List[Dict[Any, Dict[str, float]]]) -> Dict[Any, Dict[str, List[float]]]:
+    """
+    Merge multiple bootstrap samples into a single dictionary.
+    
+    Each bootstrap sample is a dictionary mapping mutation keys to dictionaries
+    of bacteria ranks. This function collects all rank values for each mutation
+    key and bacteria into lists.
+    
+    Args:
+        bootstrap_samples: List of bootstrap sample dictionaries, where each
+            sample maps mutation keys to dictionaries of bacteria rank values.
+    
+    Returns:
+        Dictionary where each mutation key maps to a dictionary of bacteria
+        names mapping to lists of rank values from all bootstrap samples.
+    
+    Example:
+        Input:
+        [
+            {('L', 'N'): {'A. baumannii_diff_rank': 304.0, ...}},
+            {('L', 'N'): {'A. baumannii_diff_rank': 310.0, ...}},
+        ]
+        
+        Output:
+        {
+            ('L', 'N'): {
+                'A. baumannii_diff_rank': [304.0, 310.0, ...],
+                ...
+            }
+        }
+    """
+    merged = defaultdict(lambda: defaultdict(list))
+    
+    for sample in bootstrap_samples:
+        for mutation_key, ranks_dict in sample.items():
+            for bacteria, rank_value in ranks_dict.items():
+                merged[mutation_key][bacteria].append(rank_value)
+    
+    # Convert defaultdict to regular dict
+    return {k: dict(v) for k, v in merged.items()}
