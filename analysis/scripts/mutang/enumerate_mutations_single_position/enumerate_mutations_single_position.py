@@ -172,16 +172,11 @@ def main():
 
     config = load_config(config_path)
 
-    script_dir = Path(__file__).parent
-    project_root = (script_dir / ".." / ".." / ".." / "..").resolve()
-    logger.info(f"Project root: {project_root}")
-
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     hydramp = load_hydramp_model(jacobian_mode=config.jacobian_mode, device=device)
 
+    # Use dataset path directly (relative paths work relative to current working directory)
     dataset_path = config.dataset_path
-    if not dataset_path.is_absolute():
-        dataset_path = project_root / dataset_path
     if not dataset_path.exists():
         logger.error(f"Dataset file not found at {dataset_path}")
         sys.exit(1)
@@ -213,10 +208,8 @@ def main():
     param_pairs = list(zip(direction_thresholds, token_thresholds))
     logger.info(f"Running {len(param_pairs)} parameter pairs")
 
-    # Get output directory
+    # Use output directory directly (relative paths work relative to current working directory)
     output_dir = config.output_dir
-    if not output_dir.is_absolute():
-        output_dir = project_root / output_dir
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # Get base filename from input dataset
@@ -239,35 +232,30 @@ def main():
         logger.info(f"Total mutants generated: {len(mutants_df)}")
         logger.info(f"Unique mutants: {mutants_df['mutant'].nunique()}")
 
-        # Filter identities (where parent == mutant)
+        # Apply filtering and deduplication using general utils
+        from analysis.utils import (
+            filter_identities,
+            filter_length_mismatches,
+            deduplicate_mutations,
+        )
+
         if config.filter_identities:
-            initial_count = len(mutants_df)
-            mutants_df = mutants_df[mutants_df["mutant"] != mutants_df["parent"]]
-            filtered_count = initial_count - len(mutants_df)
-            logger.info(
-                f"Filtered {filtered_count} identity cases (parent == mutant). Remaining: {len(mutants_df)}"
+            mutants_df = filter_identities(
+                mutants_df, parent_col="parent", mutant_col="mutant", log_progress=True
             )
 
-        # Filter length mismatches (where parent and mutant have different lengths after strip)
         if config.filter_length_mismatch:
-            initial_count = len(mutants_df)
-            parent_lengths = mutants_df["parent"].str.strip().str.len()
-            mutant_lengths = mutants_df["mutant"].str.strip().str.len()
-            mutants_df = mutants_df[parent_lengths == mutant_lengths]
-            filtered_count = initial_count - len(mutants_df)
-            logger.info(
-                f"Filtered {filtered_count} length mismatch cases (different lengths after strip). Remaining: {len(mutants_df)}"
+            mutants_df = filter_length_mismatches(
+                mutants_df, parent_col="parent", mutant_col="mutant", log_progress=True
             )
 
-        # Deduplicate rows where both parent and mutant sequences are the same
         if config.deduplicate:
-            initial_count = len(mutants_df)
-            mutants_df = mutants_df.drop_duplicates(
-                subset=["parent", "mutant"], keep="first"
-            )
-            dedup_count = initial_count - len(mutants_df)
-            logger.info(
-                f"Removed {dedup_count} duplicate rows (same parent and mutant). Remaining: {len(mutants_df)}"
+            mutants_df = deduplicate_mutations(
+                mutants_df,
+                parent_col="parent",
+                mutant_col="mutant",
+                keep="first",
+                log_progress=True,
             )
 
         # Generate filename based on input name + parameters

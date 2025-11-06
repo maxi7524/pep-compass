@@ -44,9 +44,12 @@ dependencies = [
     "cachetools~=6.1.0",
     "pybktree~=1.1",
     "scikit_posthocs~=0.11.4",
-    "scikit-learn>=1.5.2",
+    "scikit-learn>=1.7",
     "loguru>=0.7.3",
 ]
+
+[workspace]
+members = ["analysis"]
 
 [tool.setuptools]
 include-package-data = true
