@@ -231,3 +231,9 @@ data/
 scripts/first_mic_trials.ipynb
 analysis/notebooks/dev/aa_scatters/
 analysis/notebooks/dev/aa_block_plots/
+analysis/notebooks/dev/aa_block_plots_position_7/
+analysis/notebooks/dev/aa_scatters_position_7/
+analysis/notebooks/dev/all_mic.png
+analysis/notebooks/dev/last_7_mic.png
+analysis/notebooks/dev/neg_polarity.png
+analysis/notebooks/dev/pos_polarity.png
