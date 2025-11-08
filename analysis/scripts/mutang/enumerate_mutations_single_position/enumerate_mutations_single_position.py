@@ -2,7 +2,7 @@
 """Enumerate single-position mutations from peptide sequences using HydrAMP."""
 import sys
 from pathlib import Path
-from typing import Generator
+from typing import Generator, Optional
 import pandas as pd
 import torch
 import yaml
@@ -19,6 +19,7 @@ from pep_compass.models.encoder_decoder.hydramp_encoder_decoder import (
 from utils.filtering import (
     filter_identities,
     filter_length_mismatches,
+    filter_by_length,
     deduplicate_mutations,
 )
 
@@ -113,6 +114,10 @@ class Config(BaseModel):
         description="Path to input CSV file containing peptide sequences"
     )
     output_dir: Path = Field(description="Directory to save output CSV files")
+    csv_separator: str = Field(
+        default=",",
+        description="Separator/delimiter for the input CSV file (e.g., ',', '\t', ';')",
+    )
     seq_col: str = Field(
         default="Sequence",
         description="Name of the column containing peptide sequences",
@@ -148,6 +153,10 @@ class Config(BaseModel):
         default=True,
         description="Filter out cases where parent and mutant have different lengths after stripping whitespace",
     )
+    max_sequence_length: Optional[int] = Field(
+        default=None,
+        description="Maximum sequence length to process (inclusive). Sequences with length <= max_sequence_length are kept. If None, no length filtering is applied.",
+    )
 
 
 def load_config(config_path: Path) -> Config:
@@ -173,7 +182,19 @@ def process_single_config(config: Config):
         sys.exit(1)
 
     logger.info(f"Loading dataset from: {dataset_path}")
-    df = pd.read_csv(dataset_path)
+    df = pd.read_csv(dataset_path, sep=config.csv_separator)
+    logger.info(f"Total sequences loaded: {len(df)}")
+
+    # Filter by sequence length if specified (before processing)
+    if config.max_sequence_length is not None:
+        logger.info(f"Filtering sequences by length (<= {config.max_sequence_length})")
+        df = filter_by_length(
+            df,
+            seq_col=config.seq_col,
+            max_length=config.max_sequence_length,
+            log_progress=True,
+        )
+
     logger.info(f"Total sequences to process: {len(df)}")
 
     # Normalize parameters to lists
@@ -245,7 +266,12 @@ def process_single_config(config: Config):
             )
 
         # Generate filename based on input name + parameters
-        output_filename = f"{input_stem}_direction_threshold={d_thresh}_token_threshold={t_thresh}_jacobian_mode={config.jacobian_mode}_jacobian_eps={config.jacobian_eps}.csv"
+        # Add length filter suffix if applied
+        length_filter_suffix = ""
+        if config.max_sequence_length is not None:
+            length_filter_suffix = f"_parentleq{config.max_sequence_length}"
+        
+        output_filename = f"{input_stem}{length_filter_suffix}_direction_threshold={d_thresh}_token_threshold={t_thresh}_jacobian_mode={config.jacobian_mode}_jacobian_eps={config.jacobian_eps}.csv"
         output_path = output_dir / output_filename
 
         logger.info(f"Saving results to: {output_path}")
