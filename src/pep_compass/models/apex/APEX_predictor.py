@@ -1,17 +1,33 @@
+import os
+import pickle
 import numpy as np
 import torch
-import torch.nn as nn
-import torch.nn.functional as F
 import glob
-import sys
-import os
-
-file_dir = os.path.dirname(os.path.abspath(__file__))
-sys.path.append(f"{file_dir}")
 from pep_compass.models.apex.APEX_models import AMP_model
 from pep_compass.models.apex.utils import make_vocab, onehot_encoding
 import math
 from tqdm import tqdm
+
+
+class APEXUnpickler(pickle.Unpickler):
+    """Custom unpickler that maps old module names to current ones."""
+    
+    def find_class(self, module, name):
+        # Map old top-level module names to the correct package paths
+        if module == "APEX_models":
+            module = "pep_compass.models.apex.APEX_models"
+        elif module == "AMP_DL_model_twohead":
+            module = "pep_compass.models.apex.APEX_models"
+        return super().find_class(module, name)
+
+
+# Create a simple module-like object for torch.load
+class APEXPickleModule:
+    """Custom pickle module for torch.load."""
+    Unpickler = APEXUnpickler
+    # Delegate everything else to pickle
+    def __getattr__(self, name):
+        return getattr(pickle, name)
 
 
 class PredictorAPEX:
@@ -80,19 +96,26 @@ class PredictorAPEX:
         # emb, AAindex_dict = AAindex('./aaindex1.csv', word2idx) #make amino acid embeddings
 
         # Load pretrained APEX models (8 in total)
-        self.APEX_models = []
+        # Use custom pickle module to handle old module name references
         self.file_dir = os.path.dirname(os.path.abspath(__file__))
+        self.APEX_models = []
         if path == "default":
-            for a_model in glob.glob(f"{file_dir}/APEX_pathogen_models/APEX_*"):
+            for a_model in glob.glob(f"{self.file_dir}/APEX_pathogen_models/APEX_*"):
                 model = torch.load(
-                    a_model, map_location=torch.device(self.device), weights_only=False
+                    a_model,
+                    map_location=torch.device(self.device),
+                    weights_only=False,
+                    pickle_module=APEXPickleModule,
                 )
                 model.eval()
                 self.APEX_models.append(model)
         elif path == "all":
-            for a_model in glob.glob(f"{file_dir}/Full_APEX_pathogen_models/trained_*"):
+            for a_model in glob.glob(f"{self.file_dir}/Full_APEX_pathogen_models/trained_*"):
                 model = torch.load(
-                    a_model, map_location=torch.device(self.device), weights_only=False
+                    a_model,
+                    map_location=torch.device(self.device),
+                    weights_only=False,
+                    pickle_module=APEXPickleModule,
                 )
                 model.eval()
                 self.APEX_models.append(model)
@@ -310,18 +333,25 @@ class PredictorAPEX_Probs:
         # emb, AAindex_dict = AAindex('./aaindex1.csv', word2idx) #make amino acid embeddings
 
         # Load pretrained APEX models (8 in total for default, 40 for full)
-        self.APEX_models = []
+        # Use custom pickle module to handle old module name references
         self.file_dir = os.path.dirname(os.path.abspath(__file__))
+        self.APEX_models = []
         if path == "default":
-            for a_model in glob.glob(f"{file_dir}/APEX_pathogen_models/APEX_*"):
+            for a_model in glob.glob(f"{self.file_dir}/APEX_pathogen_models/APEX_*"):
                 model = torch.load(
-                    a_model, map_location=torch.device(self.device), weights_only=False
+                    a_model,
+                    map_location=torch.device(self.device),
+                    weights_only=False,
+                    pickle_module=APEXPickleModule,
                 )
                 self.APEX_models.append(model)
         elif path == "all":
-            for a_model in glob.glob(f"{file_dir}/Full_APEX_pathogen_models/trained_*"):
+            for a_model in glob.glob(f"{self.file_dir}/Full_APEX_pathogen_models/trained_*"):
                 model = torch.load(
-                    a_model, map_location=torch.device(self.device), weights_only=False
+                    a_model,
+                    map_location=torch.device(self.device),
+                    weights_only=False,
+                    pickle_module=APEXPickleModule,
                 )
                 self.APEX_models.append(model)
         self.batch_size = batch_size  # change according to your GPU memory
