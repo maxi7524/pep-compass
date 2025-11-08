@@ -18,10 +18,11 @@ jacobian_eps: 0.05 # Epsilon value for jacobian computation
 deduplicate: true  # Remove duplicate rows where both parent and mutant sequences are the same
 filter_identities: true  # Filter out cases where parent sequence equals mutant sequence
 filter_length_mismatch: true  # Filter out cases where parent and mutant have different lengths after stripping whitespace
+max_sequence_length: 25  # Maximum sequence length to process (sequences with length <= 25 are kept)
 
 # Map parent dataset columns to output columns
 # Keys: columns to copy from parent dataset
 # Values: new names for these columns in the output
 parent_keep_columns_rename_map:
-  Name: parent_name
+  Name: parent_id
 
