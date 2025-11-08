@@ -16,6 +16,12 @@ from pep_compass.models.encoder_decoder.hydramp_encoder_decoder import (
     HydrAMPEncoderDecoder,
 )
 
+from utils.filtering import (
+    filter_identities,
+    filter_length_mismatches,
+    deduplicate_mutations,
+)
+
 
 def load_hydramp_model(
     jacobian_mode: str = "approx",
@@ -217,12 +223,7 @@ def process_single_config(config: Config):
         logger.info(f"Total mutants generated: {len(mutants_df)}")
         logger.info(f"Unique mutants: {mutants_df['mutant'].nunique()}")
 
-        # Apply filtering and deduplication using general utils
-        from analysis.utils import (
-            filter_identities,
-            filter_length_mismatches,
-            deduplicate_mutations,
-        )
+        
 
         if config.filter_identities:
             mutants_df = filter_identities(
