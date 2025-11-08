@@ -1,10 +1,10 @@
 # Example configuration for mutation enumeration
 
-dataset_path: data/veltri_negative.csv
-output_dir: results/mutants/data/veltri_negative
+dataset_path: data/hydramp/dbaasp/csv/dbaasp_clean.csv
+output_dir: results/mutants/data/hydramp/dbaasp/dbaasp_clean
 
 # Column containing peptide sequences
-seq_col: Sequence
+seq_col: sequence
 
 # Mutation enumeration parameters
 # Can be single values or lists for parameter sweeps
@@ -23,5 +23,6 @@ filter_length_mismatch: true  # Filter out cases where parent and mutant have di
 # Keys: columns to copy from parent dataset
 # Values: new names for these columns in the output
 parent_keep_columns_rename_map:
-  Name: parent_name
+  id: parent_id
+  description: parent_description
 

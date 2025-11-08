@@ -9,9 +9,10 @@ seq_col: Sequence
 # Mutation enumeration parameters
 # Can be single values or lists for parameter sweeps
 # If using lists, both must have the same length (paired by index)
-direction_threshold: [0.0001, 0.001, 0.01]  # or single value: 0.0001
-token_threshold: [0.05, 0.1, 0.2]           # or single value: 0.05
+direction_threshold: [0.000001]  # or single value: 0.0001
+token_threshold: [0.1]           # or single value: 0.05
 jacobian_mode: approx  # Options: strict, approx
+jacobian_eps: 0.05 # Epsilon value for jacobian computation
 
 # Post-processing options
 deduplicate: true  # Remove duplicate rows where both parent and mutant sequences are the same

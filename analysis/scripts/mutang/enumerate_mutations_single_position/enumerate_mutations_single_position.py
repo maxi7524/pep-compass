@@ -87,8 +87,6 @@ def get_mutants_from_single_position_mutations_from_df(
                 mutant,
                 pos,
                 seq,
-                direction_significance_threshold,
-                token_threshold,
             ] + [getattr(row, col) for col in parent_keep_columns_rename_map.keys()]
             new_rows.append(new_row)
     return pd.DataFrame(
@@ -97,8 +95,6 @@ def get_mutants_from_single_position_mutations_from_df(
             "mutant",
             "position",
             "parent",
-            "direction_significance_threshold",
-            "token_threshold",
         ]
         + list(parent_keep_columns_rename_map.values()),
     )
@@ -125,6 +121,10 @@ class Config(BaseModel):
     )
     jacobian_mode: str = Field(
         default="approx", description="Jacobian computation mode: 'strict' or 'approx'"
+    )
+    jacobian_eps: float = Field(
+        default=1e-6,
+        description="Epsilon value for jacobian computation",
     )
     parent_keep_columns_rename_map: dict[str, str] = Field(
         default_factory=dict,
@@ -173,7 +173,11 @@ def main():
     config = load_config(config_path)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    hydramp = load_hydramp_model(jacobian_mode=config.jacobian_mode, device=device)
+    hydramp = load_hydramp_model(
+        jacobian_mode=config.jacobian_mode,
+        jacobian_eps=config.jacobian_eps,
+        device=device,
+    )
 
     # Use dataset path directly (relative paths work relative to current working directory)
     dataset_path = config.dataset_path
@@ -259,7 +263,7 @@ def main():
             )
 
         # Generate filename based on input name + parameters
-        output_filename = f"{input_stem}_direction_threshold={d_thresh}_token_threshold={t_thresh}_jacobian_mode={config.jacobian_mode}.csv"
+        output_filename = f"{input_stem}_direction_threshold={d_thresh}_token_threshold={t_thresh}_jacobian_mode={config.jacobian_mode}_jacobian_eps={config.jacobian_eps}.csv"
         output_path = output_dir / output_filename
 
         logger.info(f"Saving results to: {output_path}")
