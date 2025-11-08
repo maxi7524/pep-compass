@@ -151,27 +151,8 @@ def load_config(config_path: Path) -> Config:
     return Config(**config_dict)
 
 
-def main():
-    import argparse
-
-    parser = argparse.ArgumentParser(
-        description="Enumerate single-position mutations from peptide sequences"
-    )
-    parser.add_argument(
-        "--config",
-        type=str,
-        required=True,
-        help="Path to YAML configuration file",
-    )
-    args = parser.parse_args()
-
-    config_path = Path(args.config)
-    if not config_path.exists():
-        logger.error(f"Config file not found at {config_path}")
-        sys.exit(1)
-
-    config = load_config(config_path)
-
+def process_single_config(config: Config):
+    """Process a single configuration."""
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     hydramp = load_hydramp_model(
         jacobian_mode=config.jacobian_mode,
@@ -270,6 +251,57 @@ def main():
         mutants_df.to_csv(output_path, index=False)
 
     logger.success("All combinations complete!")
+
+
+def main():
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="Enumerate single-position mutations from peptide sequences"
+    )
+    parser.add_argument(
+        "--config",
+        type=str,
+        required=True,
+        help="Path to YAML configuration file or directory containing YAML config files",
+    )
+    args = parser.parse_args()
+
+    config_path = Path(args.config)
+    if not config_path.exists():
+        logger.error(f"Config path not found at {config_path}")
+        sys.exit(1)
+
+    # Determine if it's a file or directory
+    if config_path.is_file():
+        # Single config file
+        config_files = [config_path]
+    elif config_path.is_dir():
+        # Directory with configs - find all YAML files
+        config_files = sorted(config_path.glob("*.yaml")) + sorted(
+            config_path.glob("*.yml")
+        )
+        if not config_files:
+            logger.error(f"No YAML config files found in directory {config_path}")
+            sys.exit(1)
+        logger.info(f"Found {len(config_files)} config file(s) in directory")
+    else:
+        logger.error(f"Config path is neither a file nor a directory: {config_path}")
+        sys.exit(1)
+
+    # Process each config sequentially
+    total_configs = len(config_files)
+    for idx, config_file in enumerate(config_files, 1):
+        logger.info(
+            f"\n{'='*80}\n"
+            f"Processing config {idx}/{total_configs}: {config_file.name}\n"
+            f"{'='*80}"
+        )
+        config = load_config(config_file)
+        process_single_config(config)
+        logger.success(f"Completed config {idx}/{total_configs}: {config_file.name}")
+
+    logger.success(f"\nAll {total_configs} config(s) processed successfully!")
 
 
 if __name__ == "__main__":
