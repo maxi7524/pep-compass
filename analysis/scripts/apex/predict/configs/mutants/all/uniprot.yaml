@@ -3,7 +3,7 @@ input_files:
   - results/mutants/data/hydramp/uniprot_0_25_train/Uniprot_0_25_train_parentleq25_direction_threshold=1e-06_token_threshold=0.1_jacobian_mode=approx_jacobian_eps=0.05.csv
   - results/mutants/data/hydramp/uniprot_0_25_test/Uniprot_0_25_test_parentleq25_direction_threshold=1e-06_token_threshold=0.1_jacobian_mode=approx_jacobian_eps=0.05.csv
   - results/mutants/data/hydramp/uniprot_0_25_val/Uniprot_0_25_val_parentleq25_direction_threshold=1e-06_token_threshold=0.1_jacobian_mode=approx_jacobian_eps=0.05.csv
-output_dir: results/apex_predictions/data/hydramp/uniprot/all
+output_dir: results/apex_predictions/mutants/hydramp/uniprot/all
 sequence_column: mutant
 max_sequence_length: 25
 use_tqdm: true

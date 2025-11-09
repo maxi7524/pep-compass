@@ -1,7 +1,7 @@
 # APEX prediction config for mutants (ampsphere_amp) using full pathogen set
 input_files:
   - results/mutants/data/ampsphere/amp/AMP_parentleq25_direction_threshold=1e-06_token_threshold=0.1_jacobian_mode=approx_jacobian_eps=0.05.csv
-output_dir: results/apex_predictions/data/ampsphere/amp/all
+output_dir: results/apex_predictions/mutants/ampsphere/amp/all
 sequence_column: mutant
 max_sequence_length: 25
 use_tqdm: true

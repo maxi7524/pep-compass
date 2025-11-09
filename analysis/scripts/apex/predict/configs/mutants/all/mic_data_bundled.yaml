@@ -2,7 +2,7 @@
 input_files:
   - results/mutants/data/hydramp/mic_data/mic_data_direction_threshold=1e-06_token_threshold=0.1_jacobian_mode=approx_jacobian_eps=0.05.csv
   - results/mutants/data/hydramp/mic_data/mic_data_parentleq25_direction_threshold=1e-06_token_threshold=0.1_jacobian_mode=approx_jacobian_eps=0.05.csv
-output_dir: results/apex_predictions/data/hydramp/mic_data/all
+output_dir: results/apex_predictions/mutants/hydramp/mic_data/all
 sequence_column: mutant
 max_sequence_length: 25
 use_tqdm: true

@@ -2,7 +2,7 @@
 input_files:
   - results/mutants/data/hydramp/veltri_negative/veltri_negative_parentleq25_direction_threshold=1e-06_token_threshold=0.1_jacobian_mode=approx_jacobian_eps=0.05.csv
   - results/mutants/data/hydramp/veltri_positive/veltri_positive_parentleq25_direction_threshold=1e-06_token_threshold=0.1_jacobian_mode=approx_jacobian_eps=0.05.csv
-output_dir: results/apex_predictions/data/hydramp/veltri/all
+output_dir: results/apex_predictions/mutants/hydramp/veltri/all
 sequence_column: mutant
 max_sequence_length: 25
 use_tqdm: true
