@@ -2,7 +2,7 @@
 """Enumerate single-position mutations from peptide sequences using HydrAMP."""
 import sys
 from pathlib import Path
-from typing import Generator
+from typing import Generator, Optional
 import pandas as pd
 import torch
 import yaml
@@ -14,6 +14,13 @@ from pep_compass.local_enumeration.mutation.mutation_enumerator import (
 )
 from pep_compass.models.encoder_decoder.hydramp_encoder_decoder import (
     HydrAMPEncoderDecoder,
+)
+
+from utils.filtering import (
+    filter_identities,
+    filter_length_mismatches,
+    filter_by_length,
+    deduplicate_mutations,
 )
 
 
@@ -87,8 +94,6 @@ def get_mutants_from_single_position_mutations_from_df(
                 mutant,
                 pos,
                 seq,
-                direction_significance_threshold,
-                token_threshold,
             ] + [getattr(row, col) for col in parent_keep_columns_rename_map.keys()]
             new_rows.append(new_row)
     return pd.DataFrame(
@@ -97,8 +102,6 @@ def get_mutants_from_single_position_mutations_from_df(
             "mutant",
             "position",
             "parent",
-            "direction_significance_threshold",
-            "token_threshold",
         ]
         + list(parent_keep_columns_rename_map.values()),
     )
@@ -111,6 +114,10 @@ class Config(BaseModel):
         description="Path to input CSV file containing peptide sequences"
     )
     output_dir: Path = Field(description="Directory to save output CSV files")
+    csv_separator: str = Field(
+        default=",",
+        description="Separator/delimiter for the input CSV file (e.g., ',', '\t', ';')",
+    )
     seq_col: str = Field(
         default="Sequence",
         description="Name of the column containing peptide sequences",
@@ -125,6 +132,10 @@ class Config(BaseModel):
     )
     jacobian_mode: str = Field(
         default="approx", description="Jacobian computation mode: 'strict' or 'approx'"
+    )
+    jacobian_eps: float = Field(
+        default=1e-6,
+        description="Epsilon value for jacobian computation",
     )
     parent_keep_columns_rename_map: dict[str, str] = Field(
         default_factory=dict,
@@ -142,6 +153,10 @@ class Config(BaseModel):
         default=True,
         description="Filter out cases where parent and mutant have different lengths after stripping whitespace",
     )
+    max_sequence_length: Optional[int] = Field(
+        default=None,
+        description="Maximum sequence length to process (inclusive). Sequences with length <= max_sequence_length are kept. If None, no length filtering is applied.",
+    )
 
 
 def load_config(config_path: Path) -> Config:
@@ -151,29 +166,14 @@ def load_config(config_path: Path) -> Config:
     return Config(**config_dict)
 
 
-def main():
-    import argparse
-
-    parser = argparse.ArgumentParser(
-        description="Enumerate single-position mutations from peptide sequences"
-    )
-    parser.add_argument(
-        "--config",
-        type=str,
-        required=True,
-        help="Path to YAML configuration file",
-    )
-    args = parser.parse_args()
-
-    config_path = Path(args.config)
-    if not config_path.exists():
-        logger.error(f"Config file not found at {config_path}")
-        sys.exit(1)
-
-    config = load_config(config_path)
-
+def process_single_config(config: Config):
+    """Process a single configuration."""
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    hydramp = load_hydramp_model(jacobian_mode=config.jacobian_mode, device=device)
+    hydramp = load_hydramp_model(
+        jacobian_mode=config.jacobian_mode,
+        jacobian_eps=config.jacobian_eps,
+        device=device,
+    )
 
     # Use dataset path directly (relative paths work relative to current working directory)
     dataset_path = config.dataset_path
@@ -182,7 +182,19 @@ def main():
         sys.exit(1)
 
     logger.info(f"Loading dataset from: {dataset_path}")
-    df = pd.read_csv(dataset_path)
+    df = pd.read_csv(dataset_path, sep=config.csv_separator)
+    logger.info(f"Total sequences loaded: {len(df)}")
+
+    # Filter by sequence length if specified (before processing)
+    if config.max_sequence_length is not None:
+        logger.info(f"Filtering sequences by length (<= {config.max_sequence_length})")
+        df = filter_by_length(
+            df,
+            seq_col=config.seq_col,
+            max_length=config.max_sequence_length,
+            log_progress=True,
+        )
+
     logger.info(f"Total sequences to process: {len(df)}")
 
     # Normalize parameters to lists
@@ -232,12 +244,7 @@ def main():
         logger.info(f"Total mutants generated: {len(mutants_df)}")
         logger.info(f"Unique mutants: {mutants_df['mutant'].nunique()}")
 
-        # Apply filtering and deduplication using general utils
-        from analysis.utils import (
-            filter_identities,
-            filter_length_mismatches,
-            deduplicate_mutations,
-        )
+        
 
         if config.filter_identities:
             mutants_df = filter_identities(
@@ -259,13 +266,69 @@ def main():
             )
 
         # Generate filename based on input name + parameters
-        output_filename = f"{input_stem}_direction_threshold={d_thresh}_token_threshold={t_thresh}_jacobian_mode={config.jacobian_mode}.csv"
+        # Add length filter suffix if applied
+        length_filter_suffix = ""
+        if config.max_sequence_length is not None:
+            length_filter_suffix = f"_parentleq{config.max_sequence_length}"
+        
+        output_filename = f"{input_stem}{length_filter_suffix}_direction_threshold={d_thresh}_token_threshold={t_thresh}_jacobian_mode={config.jacobian_mode}_jacobian_eps={config.jacobian_eps}.csv"
         output_path = output_dir / output_filename
 
         logger.info(f"Saving results to: {output_path}")
         mutants_df.to_csv(output_path, index=False)
 
     logger.success("All combinations complete!")
+
+
+def main():
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="Enumerate single-position mutations from peptide sequences"
+    )
+    parser.add_argument(
+        "--config",
+        type=str,
+        required=True,
+        help="Path to YAML configuration file or directory containing YAML config files",
+    )
+    args = parser.parse_args()
+
+    config_path = Path(args.config)
+    if not config_path.exists():
+        logger.error(f"Config path not found at {config_path}")
+        sys.exit(1)
+
+    # Determine if it's a file or directory
+    if config_path.is_file():
+        # Single config file
+        config_files = [config_path]
+    elif config_path.is_dir():
+        # Directory with configs - find all YAML files
+        config_files = sorted(config_path.glob("*.yaml")) + sorted(
+            config_path.glob("*.yml")
+        )
+        if not config_files:
+            logger.error(f"No YAML config files found in directory {config_path}")
+            sys.exit(1)
+        logger.info(f"Found {len(config_files)} config file(s) in directory")
+    else:
+        logger.error(f"Config path is neither a file nor a directory: {config_path}")
+        sys.exit(1)
+
+    # Process each config sequentially
+    total_configs = len(config_files)
+    for idx, config_file in enumerate(config_files, 1):
+        logger.info(
+            f"\n{'='*80}\n"
+            f"Processing config {idx}/{total_configs}: {config_file.name}\n"
+            f"{'='*80}"
+        )
+        config = load_config(config_file)
+        process_single_config(config)
+        logger.success(f"Completed config {idx}/{total_configs}: {config_file.name}")
+
+    logger.success(f"\nAll {total_configs} config(s) processed successfully!")
 
 
 if __name__ == "__main__":

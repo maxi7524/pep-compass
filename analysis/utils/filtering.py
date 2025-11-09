@@ -69,6 +69,53 @@ def filter_length_mismatches(
     return df_filtered
 
 
+def filter_by_length(
+    df: pd.DataFrame,
+    seq_col: str,
+    max_length: Optional[int] = None,
+    min_length: Optional[int] = None,
+    log_progress: bool = True,
+) -> pd.DataFrame:
+    """
+    Filter sequences by length (keep sequences with length <= max_length and >= min_length).
+
+    Args:
+        df: DataFrame with sequence column
+        seq_col: Column name containing sequences
+        max_length: Maximum sequence length (inclusive). If None, no upper limit.
+        min_length: Minimum sequence length (inclusive). If None, no lower limit.
+        log_progress: Whether to log filtering progress
+
+    Returns:
+        Filtered DataFrame with sequences within the specified length range
+    """
+    initial_count = len(df)
+    seq_lengths = df[seq_col].str.strip().str.len()
+    
+    mask = pd.Series(True, index=df.index)
+    if max_length is not None:
+        mask = mask & (seq_lengths <= max_length)
+    if min_length is not None:
+        mask = mask & (seq_lengths >= min_length)
+    
+    df_filtered = df[mask].copy()
+    filtered_count = initial_count - len(df_filtered)
+
+    if log_progress:
+        length_desc = []
+        if min_length is not None:
+            length_desc.append(f">= {min_length}")
+        if max_length is not None:
+            length_desc.append(f"<= {max_length}")
+        length_str = " and ".join(length_desc) if length_desc else "all lengths"
+        logger.info(
+            f"Filtered {filtered_count} sequences (length {length_str}). "
+            f"Remaining: {len(df_filtered)}"
+        )
+
+    return df_filtered
+
+
 def deduplicate_mutations(
     df: pd.DataFrame,
     parent_col: str = "parent",

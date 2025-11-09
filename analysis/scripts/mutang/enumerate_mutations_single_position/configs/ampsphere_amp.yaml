@@ -1,10 +1,13 @@
-# Example configuration for mutation enumeration
+# Configuration for AMPSphere AMP.tsv dataset
 
-dataset_path: data/hydramp/veltri_negative.csv
-output_dir: results/mutants/data/hydramp/veltri_negative
+dataset_path: data/ampsphere/AMP.tsv
+output_dir: results/mutants/data/ampsphere/amp
+
+# CSV separator (tab-separated values)
+csv_separator: "\t"
 
 # Column containing peptide sequences
-seq_col: Sequence
+seq_col: sequence
 
 # Mutation enumeration parameters
 # Can be single values or lists for parameter sweeps
@@ -24,5 +27,5 @@ max_sequence_length: 25  # Maximum sequence length to process (sequences with le
 # Keys: columns to copy from parent dataset
 # Values: new names for these columns in the output
 parent_keep_columns_rename_map:
-  Name: parent_id
+  accession: parent_id
 

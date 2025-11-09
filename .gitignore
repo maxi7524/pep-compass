@@ -217,6 +217,8 @@ __marimo__/
 
 results/
 
+# apex model weights
+src/pep_compass/models/apex/APEX_pathogen_models/
 src/pep_compass/models/apex/APEX_pathogen_models/
 src/pep_compass/models/apex/Full_APEX_pathogen_models/
 src/pep_compass/models/apex/test_apex_all.py
@@ -229,6 +231,7 @@ data/
 
 # Karol's trash
 scripts/first_mic_trials.ipynb
+analysis/notebooks/dev/karol_linear.ipynb
 analysis/notebooks/dev/aa_scatters/
 analysis/notebooks/dev/aa_block_plots/
 analysis/notebooks/dev/aa_block_plots_position_7/

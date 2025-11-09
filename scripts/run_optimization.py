@@ -7,12 +7,14 @@ from pep_compass.optimization.black_box.apex_black_box import (
 )
 from pep_compass.optimization.black_box.csv_observer import CSVObserver
 
-DEVICE = "cuda:3"
+DEVICE = "cuda:0"
 
 black_box = HydrAMPAPEXBlackBox(
     mic_aggregate="mean",
     mic_bacteria=[1, 2, 3],
     device=DEVICE,
+    jacobian_eps=0.1,
+    field_eps=0.1,
 )
 observer = CSVObserver()
 black_box.set_observer(observer)
@@ -40,7 +42,7 @@ for i in range(10):
         rng_seed = int(time.time())  # Create a unique rng_seed for each iteration
         observer.initialize_observer(
             black_box.get_black_box_info(),
-            {"experiment_id": f"{sequence}_{datetime.now().strftime('%Y%m%d_%H%M%S')}", "experiment_path": "./results"},
+            {"experiment_id": f"{sequence}_{rng_seed}_{datetime.now().strftime('%Y%m%d_%H%M%S')}", "experiment_path": "./results"},
             rng_seed,
             encoder_decoder=black_box.encoder_decoder,
         )

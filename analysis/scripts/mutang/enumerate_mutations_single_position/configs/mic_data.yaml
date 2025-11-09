@@ -1,10 +1,10 @@
 # Example configuration for mutation enumeration
 
-dataset_path: data/hydramp/veltri_negative.csv
-output_dir: results/mutants/data/hydramp/veltri_negative
+dataset_path: data/hydramp/mic_data.csv
+output_dir: results/mutants/data/hydramp/mic_data
 
 # Column containing peptide sequences
-seq_col: Sequence
+seq_col: sequence
 
 # Mutation enumeration parameters
 # Can be single values or lists for parameter sweeps
@@ -23,6 +23,6 @@ max_sequence_length: 25  # Maximum sequence length to process (sequences with le
 # Map parent dataset columns to output columns
 # Keys: columns to copy from parent dataset
 # Values: new names for these columns in the output
-parent_keep_columns_rename_map:
-  Name: parent_id
+# Note: mic_data.csv has no ID column, so no columns are mapped
+parent_keep_columns_rename_map: {}
 
