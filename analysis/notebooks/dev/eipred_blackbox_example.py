@@ -33,14 +33,7 @@ def demo_eipred_blackbox():
     
     # Example peptide sequences to evaluate
     print("\n2. Testing with example sequences...")
-    test_sequences = [
-        "ACDEFGHIKLMNPQRSTVWY",  # All 20 amino acids
-        "KWKLFKKIEKVGQNIRDGIIKAGPAVAVVGQATQIAK",  # Antimicrobial peptide
-        "MKTIIALSYIFCLVFA",  # Shorter peptide
-        "GGG",  # Very short
-        "RRWWRF",  # Cationic peptide
-        "AAAEQLKTTRNAYHQKY" #should have -1.502
-    ]
+    test_sequences = ["KYCRRFRWLTFRWL", "KFRNRHRWKFKLIFRN",  "KKYWLIRKWIRLWFLT",  "FLYKWWIRIGRLKL",  "KTLKIIRLLF", "RMARNLVRYVQGLKKKKVI"]
     
     print("   Test sequences:")
     for i, seq in enumerate(test_sequences, 1):
@@ -51,17 +44,17 @@ def demo_eipred_blackbox():
     scores = eipred_bb.peptide_scorer(test_sequences)
     
     print("   Results:")
-    print(f"     Scores: {scores}")
-    print(f"     Score range: {scores.min():.3f} to {scores.max():.3f}")
-    print(f"     Mean score: {scores.mean():.3f}")
+    print(f"     Raw predictions: {scores}")
+    print(f"     Prediction range: {scores.min():.3f} to {scores.max():.3f}")
+    print(f"     Mean prediction: {scores.mean():.3f}")
     
-    # Interpret scores (higher = better antimicrobial activity)
-    print("\n4. Sequence ranking by predicted activity:")
-    ranked_indices = np.argsort(-scores)  # Sort descending (higher scores better)
+    # Show sequence rankings by raw predictions
+    print("\n4. Sequence ranking by predicted values:")
+    ranked_indices = np.argsort(scores)  # Sort by prediction values
     for rank, idx in enumerate(ranked_indices, 1):
         seq = test_sequences[idx]
-        score = scores[idx]
-        print(f"     {rank}. {seq[:30]}{'...' if len(seq) > 30 else ''} (score: {score:.3f})")
+        pred = scores[idx]
+        print(f"     {rank}. {seq[:30]}{'...' if len(seq) > 30 else ''} (prediction: {pred:.3f})")
     
     return eipred_bb, test_sequences, scores
 
@@ -90,15 +83,15 @@ def demo_black_box_interface():
     
     # Simulate what happens in optimization
     context = {}
-    # scores_1 = bb.peptide_scorer(test_seqs)
+    scores_1 = bb.peptide_scorer(test_seqs)
     
-    # print(f"   First call scores: {scores_1}")
-    # print(f"   Cache size after first call: {len(bb.cache)}")
+    print(f"   First call predictions: {scores_1}")
+    print(f"   Cache size after first call: {len(bb.cache)}")
     
-    # # Second call with same sequences (should use cache or be consistent)
-    # scores_2 = bb.peptide_scorer(test_seqs)
-    # print(f"   Second call scores: {scores_2}")
-    # print(f"   Consistent results? {np.allclose(scores_1, scores_2)}")
+    # Second call with same sequences (should use cache or be consistent)
+    scores_2 = bb.peptide_scorer(test_seqs)
+    print(f"   Second call predictions: {scores_2}")
+    print(f"   Consistent results? {np.allclose(scores_1, scores_2)}")
     
     return bb
 
@@ -116,7 +109,8 @@ def compare_with_apex():
     print("1. Creating both black boxes...")
     eipred_bb = EIPredBlackBox(mic_aggregate="mean")
     apex_bb = HydrAMPAPEXBlackBox(
-        mic_aggregate="mean", 
+        mic_aggregate="mean",
+        mic_bacteria=[1],  # Index 1 corresponds to "E. coli ATCC 11775"
         device="cpu",
         jacobian_eps=1e-6, 
         field_eps=1e-6
@@ -127,18 +121,18 @@ def compare_with_apex():
     apex_scores = apex_bb.peptide_scorer(seqs)
     
     print("\n3. Results comparison:")
-    print("   Sequence                    EIPred Score    APEX Score")
+    print("   Sequence                    EIPred Pred     APEX Score")
     print("   " + "="*55)
     for i, seq in enumerate(seqs):
         seq_display = seq[:20] + "..." if len(seq) > 20 else seq
         print(f"   {seq_display:<25} {eipred_scores[i]:8.3f}      {apex_scores[i]:8.3f}")
     
     print(f"\n   EIPred range: {eipred_scores.min():.3f} to {eipred_scores.max():.3f}")
-    print(f"   APEX range:   {apex_scores.min():.3f} to {apex_scores.max():.3f}")
+    print(f"   APEX range: {apex_scores.min():.3f} to {apex_scores.max():.3f}")
     
-    # Check if rankings are similar
-    eipred_ranking = np.argsort(-eipred_scores)
-    apex_ranking = np.argsort(-apex_scores)
+    # Check if rankings are similar (sort by prediction values)
+    eipred_ranking = np.argsort(eipred_scores)   # Sort by raw prediction
+    apex_ranking = np.argsort(-apex_scores)      # Higher APEX score is better
     
     print(f"\n   EIPred ranking: {eipred_ranking + 1}")  # 1-indexed for display
     print(f"   APEX ranking:   {apex_ranking + 1}")
@@ -159,7 +153,7 @@ if __name__ == "__main__":
         print("\nNext steps:")
         print("- Use EIPredBlackBox in optimization algorithms")
         print("- Compare optimization results with HydrAMPAPEXBlackBox") 
-        print("- Adjust scale factor (currently +10.5) if needed for your use case")
+        print("- Note: EIPred returns raw model predictions (y_pred values)")
         
     except Exception as e:
         print(f"\n❌ Example failed: {e}")

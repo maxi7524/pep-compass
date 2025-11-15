@@ -1620,7 +1620,7 @@ class EIPredPredictor:
             self.selected_features = ff['SelectedFeatures'].tolist()
             print("EIPred selected features loaded successfully.")
     
-    def predict_log10(self, seq_list):
+    def predict_log2(self, seq_list):
         """Predict log2(MIC) for a list of sequences (raw model output).
         
         Args:
@@ -1642,19 +1642,20 @@ class EIPredPredictor:
         return y_pred.reshape(-1, 1)
     
     def predict(self, seq_list):
-        """Predict MIC (uM) for a list of sequences.
+        """Predict 10**(-y_pred) for a list of sequences.
         
         Args:
             seq_list: list of strings (sequences)
             
         Returns:
-            numpy array of shape (n_sequences, 1) with MIC values in uM
+            numpy array of shape (n_sequences,) with 10**(-y_pred) values
         """
-        # Get log2 predictions and convert to MIC(uM)
-        log10_preds = self.predict_log10(seq_list)
-        mic_uM = - 10 ** log10_preds
+        # Get raw model predictions (y_pred)
+        log2_preds = self.predict_log2(seq_list)
+        y_pred = log2_preds.flatten()
         
-        return mic_uM
+        # Return 10**(-y_pred)
+        return 10**(-y_pred)
 
 
 class PredictorEIPred:

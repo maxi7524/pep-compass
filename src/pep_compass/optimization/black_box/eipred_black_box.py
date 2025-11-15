@@ -35,10 +35,8 @@ class EIPredBlackBox(AbstractBlackBox):
         else:
             raise ValueError("mic_aggregate must be 'mean' or 'max'")
 
-        # EIPred model outputs log2(MIC) but on a different scale than APEX
-        # Need to adjust scale to be comparable: EIPred raw ~ -2.3, APEX log2 ~ 8
-        # Apply scale adjustment to bring EIPred into similar range as APEX
-        self.peptide_scorer = lambda seqs: mic_aggregate_func((self.predictor.predict(seqs)))
+        # EIPred model outputs 10**(-y_pred), apply log2 transformation
+        self.peptide_scorer = lambda seqs: mic_aggregate_func(np.log2(self.predictor.predict(seqs)).reshape(-1, 1))
 
         self.cache = []
         self.shift = 0.0
