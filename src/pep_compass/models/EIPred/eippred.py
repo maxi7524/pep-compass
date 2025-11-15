@@ -1611,14 +1611,16 @@ class EIPredPredictor:
                 raise FileNotFoundError(f"EIPred model not found: {self.model_path}")
             with open(self.model_path, 'rb') as f:
                 self.clf = pickle.load(f)
+                print("EIPred model loaded successfully.")
                 
         if self.selected_features is None:
             if not os.path.exists(self.features_path):
                 raise FileNotFoundError(f"EIPred features not found: {self.features_path}")
             ff = pd.read_csv(self.features_path)
             self.selected_features = ff['SelectedFeatures'].tolist()
+            print("EIPred selected features loaded successfully.")
     
-    def predict_log2(self, seq_list):
+    def predict_log10(self, seq_list):
         """Predict log2(MIC) for a list of sequences (raw model output).
         
         Args:
@@ -1634,6 +1636,7 @@ class EIPredPredictor:
         
         # Predict using model (returns log2 MIC values)
         y_pred = self.clf.predict(X_test)
+        print(f"y_pred straight from the model: {y_pred}")
         
         # Return raw log2 MIC values
         return y_pred.reshape(-1, 1)
@@ -1648,8 +1651,8 @@ class EIPredPredictor:
             numpy array of shape (n_sequences, 1) with MIC values in uM
         """
         # Get log2 predictions and convert to MIC(uM)
-        log2_preds = self.predict_log2(seq_list)
-        mic_uM = 2 ** log2_preds
+        log10_preds = self.predict_log10(seq_list)
+        mic_uM = - 10 ** log10_preds
         
         return mic_uM
 

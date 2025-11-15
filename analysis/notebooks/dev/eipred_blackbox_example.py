@@ -39,6 +39,7 @@ def demo_eipred_blackbox():
         "MKTIIALSYIFCLVFA",  # Shorter peptide
         "GGG",  # Very short
         "RRWWRF",  # Cationic peptide
+        "AAAEQLKTTRNAYHQKY" #should have -1.502
     ]
     
     print("   Test sequences:")
@@ -89,15 +90,15 @@ def demo_black_box_interface():
     
     # Simulate what happens in optimization
     context = {}
-    scores_1 = bb.peptide_scorer(test_seqs)
+    # scores_1 = bb.peptide_scorer(test_seqs)
     
-    print(f"   First call scores: {scores_1}")
-    print(f"   Cache size after first call: {len(bb.cache)}")
+    # print(f"   First call scores: {scores_1}")
+    # print(f"   Cache size after first call: {len(bb.cache)}")
     
-    # Second call with same sequences (should use cache or be consistent)
-    scores_2 = bb.peptide_scorer(test_seqs)
-    print(f"   Second call scores: {scores_2}")
-    print(f"   Consistent results? {np.allclose(scores_1, scores_2)}")
+    # # Second call with same sequences (should use cache or be consistent)
+    # scores_2 = bb.peptide_scorer(test_seqs)
+    # print(f"   Second call scores: {scores_2}")
+    # print(f"   Consistent results? {np.allclose(scores_1, scores_2)}")
     
     return bb
 
