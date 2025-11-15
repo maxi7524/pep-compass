@@ -107,8 +107,7 @@ The EIPred model uses:
   - AAC: Amino Acid Composition (8 features)
   - TPC: Tripeptide Composition (682 features) 
   - Other: Various physicochemical and structural features
-- **Output**: log₂(MIC) values, scaled to match APEX range
-
+- **Output**: log₂(MIC) values
 ### Feature Calculation
 
 The black box automatically calculates features from sequences:
@@ -122,7 +121,7 @@ The black box automatically calculates features from sequences:
 
 - **Higher scores = Better antimicrobial activity**
 - **Typical range**: 8.0 to 8.2 for most peptides
-- **Scale**: log₂(MIC) + adjustment factor (10.5) to match APEX
+- **Scale**: log₂(MIC) 
 - **Compatible**: Values can be directly compared with APEX scores
 
 ## Examples
