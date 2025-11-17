@@ -1,0 +1,67 @@
+mkdir: cannot create directory ‘/raid’: Permission denied
+/opt/slurm/spool/slurmd/job02884/slurm_script: line 21: /raid/kjurasz/results/kappa_ranks/logs_20251117_005527.txt: No such file or directory
+=== SLURM Job Started at Mon Nov 17 12:55:27 AM CET 2025 ===
+Job ID: 2884
+Node: szary
+User: kjurasz
+Timestamp: 20251117_005527
+Output directory: /raid/kjurasz/results/kappa_ranks
+Log file: /raid/kjurasz/results/kappa_ranks/logs_20251117_005527.txt
+Activating virtual environment...
+Virtual environment activated: /home/kjurasz/pep-compass/.venv
+Changing to project directory...
+Current directory: /home/kjurasz/pep-compass
+Script found: analysis/notebooks/dev/calculate_ranks.py
+Checking GPU availability...
+Mon Nov 17 00:55:27 2025       
++-----------------------------------------------------------------------------------------+
+| NVIDIA-SMI 565.57.01              Driver Version: 565.57.01      CUDA Version: 12.7     |
+|-----------------------------------------+------------------------+----------------------+
+| GPU  Name                 Persistence-M | Bus-Id          Disp.A | Volatile Uncorr. ECC |
+| Fan  Temp   Perf          Pwr:Usage/Cap |           Memory-Usage | GPU-Util  Compute M. |
+|                                         |                        |               MIG M. |
+|=========================================+========================+======================|
+|   0  NVIDIA RTX 5000 Ada Gene...    On  |   00000000:C3:00.0 Off |                  Off |
+| 32%   52C    P5             44W /  250W |       2MiB /  32760MiB |      0%      Default |
+|                                         |                        |                  N/A |
++-----------------------------------------+------------------------+----------------------+
+                                                                                         
++-----------------------------------------------------------------------------------------+
+| Processes:                                                                              |
+|  GPU   GI   CI        PID   Type   Process name                              GPU Memory |
+|        ID   ID                                                               Usage      |
+|=========================================================================================|
+|  No running processes found                                                             |
++-----------------------------------------------------------------------------------------+
+CUDA version: nvcc not found
+=== Starting rank calculation at Mon Nov 17 12:55:27 AM CET 2025 ===
+Output file: /raid/kjurasz/results/kappa_ranks/ranks_multi_20251117_005527.csv
+Found HydrAMP weights at: /home/kjurasz/pep-compass/src/pep_compass/models/hydramp/weights
+Successfully initialized HydrAMP model on device: cuda
+Computing SVD for peptides:   0%|          | 0/5 [00:00<?, ?it/s]Computing SVD for peptides:  20%|██        | 1/5 [00:10<00:43, 10.82s/it]Computing SVD for peptides:  80%|████████  | 4/5 [00:10<00:02,  2.08s/it]Computing SVD for peptides: 100%|██████████| 5/5 [00:10<00:00,  2.20s/it]
+Traceback (most recent call last):
+  File "/home/kjurasz/pep-compass/analysis/notebooks/dev/calculate_ranks.py", line 430, in <module>
+    main()
+  File "/home/kjurasz/pep-compass/analysis/notebooks/dev/calculate_ranks.py", line 400, in main
+    results_df.to_csv(output_path, index=False)
+  File "/home/kjurasz/pep-compass/.venv/lib/python3.12/site-packages/pandas/util/_decorators.py", line 333, in wrapper
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/home/kjurasz/pep-compass/.venv/lib/python3.12/site-packages/pandas/core/generic.py", line 3967, in to_csv
+    return DataFrameRenderer(formatter).to_csv(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/kjurasz/pep-compass/.venv/lib/python3.12/site-packages/pandas/io/formats/format.py", line 1014, in to_csv
+    csv_formatter.save()
+  File "/home/kjurasz/pep-compass/.venv/lib/python3.12/site-packages/pandas/io/formats/csvs.py", line 251, in save
+    with get_handle(
+         ^^^^^^^^^^^
+  File "/home/kjurasz/pep-compass/.venv/lib/python3.12/site-packages/pandas/io/common.py", line 749, in get_handle
+    check_parent_directory(str(handle))
+  File "/home/kjurasz/pep-compass/.venv/lib/python3.12/site-packages/pandas/io/common.py", line 616, in check_parent_directory
+    raise OSError(rf"Cannot save file into a non-existent directory: '{parent}'")
+OSError: Cannot save file into a non-existent directory: '/raid/kjurasz/results/kappa_ranks'
+=== Script finished with exit code: 1 ===
+ERROR: Script failed with exit code 1
+=== Job completed at Mon Nov 17 12:55:58 AM CET 2025 ===
+Log file: /raid/kjurasz/results/kappa_ranks/logs_20251117_005527.txt
+Results directory: /raid/kjurasz/results/kappa_ranks
