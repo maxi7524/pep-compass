@@ -32,7 +32,7 @@ class PredictorBattleAMP:
             
         # Load the pre-trained BattleAMP model
         self.file_dir = os.path.dirname(os.path.abspath(__file__))
-        model_path = os.path.join(self.file_dir, "model")
+        model_path = os.path.join(self.file_dir, "model.h5")
         
         if not os.path.exists(model_path):
             raise FileNotFoundError(f"BattleAMP model not found at {model_path}")
