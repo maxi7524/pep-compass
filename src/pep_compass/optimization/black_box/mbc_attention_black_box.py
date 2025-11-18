@@ -5,9 +5,9 @@ from poli.core.black_box_information import BlackBoxInformation
 import torch.nn.functional as F
 from einops import rearrange
 
-from pep_compass.models.battleamp.BattleAMPPredictor import PredictorBattleAMP
+from pep_compass.models.mbc_attention.MBC_Attention_Predictor import PredictorMBCAttention
 
-class BattleAMPBlackBox(AbstractBlackBox):
+class MBCAttentionBlackBox(AbstractBlackBox):
     def __init__(
         self,
         *,
@@ -27,16 +27,16 @@ class BattleAMPBlackBox(AbstractBlackBox):
         )
         
         self.device = device
-        self.battleamp_predictor = PredictorBattleAMP(device=device)
+        self.mbc_attention_predictor = PredictorMBCAttention(device=device)
         
-        # BattleAMP returns a single prediction value, so no aggregation needed
-        self.peptide_scorer = lambda x: np.log2(self.battleamp_predictor.predict(x).flatten())
+        # MBC Attention returns a single prediction value, so no aggregation needed
+        self.peptide_scorer = lambda x: np.log2(self.mbc_attention_predictor.predict(x).flatten())
 
         self.cache = []
 
     def get_black_box_info(self) -> BlackBoxInformation:
         return BlackBoxInformation(
-            name="BattleAMP",
+            name="MBCAttention",
             max_sequence_length=25,
             aligned=False,
             fixed_length=False,
