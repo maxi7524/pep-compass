@@ -1,0 +1,40 @@
+import numpy as np
+from poli_baselines.solvers.simple.random_mutation import RandomMutation
+
+from pep_compass.optimization.optimizer import AbstractOptimizer
+from pep_compass.utils.utils import set_seed
+
+
+class RandomMutationOptimizer(AbstractOptimizer):
+    
+    def __init__(
+        self,
+        black_box,
+        device,
+    ):
+        super().__init__(black_box)
+        self.device = device
+    
+    def optimize(
+        self, 
+        evaluation_budget: int, 
+        starting_point, 
+        rng_seed: int | None = None,
+    ):
+        set_seed(rng_seed)
+        
+        random_mutation_solver = RandomMutation(
+            black_box=self.black_box,
+            x0=np.array([starting_point]),
+            y0=self.black_box(np.array([starting_point])),
+        )
+        
+        solver_result = random_mutation_solver.solve(max_iter=evaluation_budget)
+        
+        result = {
+            'best_x': "".join(solver_result[0][0]),
+            'best_y': abs(solver_result[1].item()),
+        }
+        
+        print(f"RandomMutationOptimizer result: {result}")
+        return result
