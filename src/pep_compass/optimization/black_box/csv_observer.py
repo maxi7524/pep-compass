@@ -31,9 +31,10 @@ class CSVObserver(AbstractObserver):
     A simple observer that logs to a CSV file, appending rows on each query.
     """
 
-    def __init__(self):
+    def __init__(self,  maximize: bool):
         self.has_been_initialized = False
         super().__init__()
+        self.maximize = maximize
 
     def initialize_observer(
         self,
@@ -41,6 +42,7 @@ class CSVObserver(AbstractObserver):
         caller_info: CSVObserverInitInfo | dict,
         seed: int,
         encoder_decoder: HydrAMPEncoderDecoder | None = None,
+       
     ) -> object:
         """
         Initializes the observer with the given information.
@@ -77,7 +79,7 @@ class CSVObserver(AbstractObserver):
         self.csv_file_path = self.experiment_path / f"{self.experiment_id}.csv"
         self.save_header()
 
-        self.best_score = float("inf")
+        self.best_score = float("-inf") if self.maximize else float("inf")
         self.best_sequence = None
 
         self.has_been_initialized = True
@@ -122,7 +124,11 @@ class CSVObserver(AbstractObserver):
 
         scores = [y_i for y_i in y.flatten()]
 
-        self.best_score = min(self.best_score, min(scores))
+        if self.maximize:
+            self.best_score = max(self.best_score, max(scores))
+        else:
+            self.best_score = min(self.best_score, min(scores))
+        
         if self.best_score in scores:
             self.best_sequence = sequences[scores.index(self.best_score)]
 

@@ -12,9 +12,11 @@ from pep_compass.optimization.black_box.apex_black_box import (
 )
 from pep_compass.optimization.black_box.battleamp_black_box import BattleAMPBlackBox
 from pep_compass.optimization.black_box.csv_observer import CSVObserver
+from pep_compass.optimization.black_box.hydrophobicity_black_box import HydrophobicityBlackBox
+from pep_compass.optimization.black_box.toxipep_black_box import ToxiPepBlackBox
 from pep_compass.optimization.lebo.local_enumeration_bayesian_optimizer import LocalEnumerationBayesianOptimizer
 
-DEVICE = "cuda:0"
+DEVICE = "cuda:1"
 OUTPUT_PATH = "./results/lebo"
 EVALUATION_BUDGET = 1400
 
@@ -34,9 +36,11 @@ logging.basicConfig(
 #     device=DEVICE,
 # )
 
-black_box = BattleAMPBlackBox(device=DEVICE)
+# black_box = BattleAMPBlackBox(device=DEVICE)
+# black_box = ToxiPepBlackBox(device=DEVICE)
+black_box = HydrophobicityBlackBox(device=DEVICE)
 
-observer = CSVObserver()
+observer = CSVObserver(black_box.maximize)
 black_box.set_observer(observer)
 
 

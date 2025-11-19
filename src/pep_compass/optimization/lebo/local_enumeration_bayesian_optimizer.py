@@ -77,6 +77,11 @@ class LocalEnumerationBayesianOptimizer(AbstractOptimizer):
             self.peptide_features = LRUCache(maxsize=5_000_000)
             
             self.timer = Timer()
+            
+            if self.black_box.maximize:
+                self.scorer = lambda peptides: -black_box(np.array(peptides))[:, 0]
+            else:
+                self.scorer = lambda peptides: black_box(np.array(peptides))[:, 0]
 
 
     def _turbo_filter(self):
@@ -213,7 +218,7 @@ class LocalEnumerationBayesianOptimizer(AbstractOptimizer):
 
         with self.timer("evaluate"):
             # Evaluate the most promising peptides
-            best_scores = self.black_box(np.array(peptides_to_evaluate))[:, 0]
+            best_scores = self.scorer(peptides_to_evaluate)
             self.black_box_calls += len(peptides_to_evaluate)
 
             for peptide, score in zip(peptides_to_evaluate, best_scores):
@@ -306,7 +311,7 @@ class LocalEnumerationBayesianOptimizer(AbstractOptimizer):
         np.random.shuffle(initial_peptides)
         initial_peptides = initial_peptides[: self.initial_peptides_number]
 
-        initial_scores = self.black_box(np.array(initial_peptides))[:, 0]
+        initial_scores = self.scorer(initial_peptides)
         self.black_box_calls += len(initial_peptides)
 
         for peptide, score in zip(initial_peptides, initial_scores):
@@ -325,7 +330,7 @@ class LocalEnumerationBayesianOptimizer(AbstractOptimizer):
         self.trust_region_distance = self.turbo_distance_init
 
         with torch.no_grad():
-            starting_peptide_score = self.black_box(np.array([starting_point])).item()
+            starting_peptide_score = self.scorer([starting_point]).item()
 
             
         self.scored_peptides = {starting_point: starting_peptide_score}

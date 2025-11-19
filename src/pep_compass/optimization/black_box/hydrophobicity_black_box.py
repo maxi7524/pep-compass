@@ -44,13 +44,8 @@ class HydrophobicityBlackBox(AbstractBlackBox):
         )
         
         self.cache = []
-        self.observer = None
-        
         self.maximize = True  # Higher hydrophobicity is better
 
-    def set_observer(self, observer):
-        """Set observer for tracking optimization progress."""
-        self.observer = observer
 
     def get_black_box_info(self) -> BlackBoxInformation:
         return BlackBoxInformation(
