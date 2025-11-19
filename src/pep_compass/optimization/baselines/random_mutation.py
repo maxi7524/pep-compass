@@ -10,10 +10,8 @@ class RandomMutationOptimizer(AbstractOptimizer):
     def __init__(
         self,
         black_box,
-        device,
     ):
         super().__init__(black_box)
-        self.device = device
     
     def optimize(
         self, 

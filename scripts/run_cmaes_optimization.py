@@ -1,27 +1,37 @@
 from datetime import datetime
 import time
-from pep_compass.optimization.baselines.random_mutation import RandomMutationOptimizer
+from pep_compass.optimization.baselines.latent_cmaes import LatentCMAESOptimizer
+from pep_compass.optimization.black_box.apex_black_box import APEXBlackBox
 from pep_compass.optimization.black_box.battleamp_black_box import BattleAMPBlackBox
 from pep_compass.optimization.black_box.csv_observer import CSVObserver
 from pep_compass.optimization.black_box.toxipep_black_box import ToxiPepBlackBox
+from pep_compass.optimization.black_box.hydramp_black_box_wrapper import HydrAMPBlackBoxWrapper
 
 DEVICE = "cuda"
 
-# black_box = APEXBlackBox(
+# discrete_black_box = APEXBlackBox(
 #     mic_aggregate="mean",
 #     mic_bacteria=[1, 2, 3],
 #     device=DEVICE,
 # )
 
-black_box = BattleAMPBlackBox(device=DEVICE)
+# discrete_black_box = BattleAMPBlackBox(device=DEVICE)
 
-# black_box = ToxiPepBlackBox(device=DEVICE)
+discrete_black_box = ToxiPepBlackBox(device=DEVICE)
+
+black_box = HydrAMPBlackBoxWrapper(
+    black_box=discrete_black_box,
+    device=DEVICE,
+    jacobian_eps=0.1,
+    field_eps=0.1,
+)
 
 observer = CSVObserver()
 black_box.set_observer(observer)
 
-optimizer = RandomMutationOptimizer(
+optimizer = LatentCMAESOptimizer(
     black_box=black_box,
+    device=DEVICE,
 )
 
 proteins = {
@@ -41,10 +51,10 @@ for i in range(5):
             black_box.get_black_box_info(),
             {
                 "experiment_id": f"{sequence}_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
-                "experiment_path": "./results/random_mutation",
+                "experiment_path": "./results/cma_es",
             },
             rng_seed,
-            
+            encoder_decoder=black_box.encoder_decoder,
         )
         optimizer.optimize(
             evaluation_budget=1400, starting_point=sequence, rng_seed=rng_seed
