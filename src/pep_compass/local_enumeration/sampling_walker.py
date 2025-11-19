@@ -105,7 +105,7 @@ class SubRiemannianManifold:
         if latent_position.ndim == 1:
             latent_position = latent_position.unsqueeze(0)
 
-        decoder_jacobian = self.encoder_decoder.decoder_jacobian(latent_position[0])
+        decoder_jacobian = self.encoder_decoder.decoder_jacobian(latent_position)[0]
 
         U, S, V = torch.linalg.svd(decoder_jacobian, full_matrices=False)
 
@@ -175,12 +175,15 @@ class SecondOrderRiemannianBrownianEfficientSampling(SamplingWalker):
 
     def __init__(
         self,
-        manifold: SubRiemannianManifold,
+        encoder_decoder: EncoderDecoder,
+        horizontal_threshold: float,
         time_step: float,
         max_horizontal_update_norm: float,
         vertical_movement: bool = True,
     ):
-        self.manifold = manifold
+        self.manifold = SubRiemannianManifold(
+            encoder_decoder=encoder_decoder, horizontal_threshold=horizontal_threshold
+        )
         self.time_step = time_step
         self.max_horizontal_update_norm = max_horizontal_update_norm
         self.vertical_movement = vertical_movement
@@ -249,7 +252,7 @@ class SecondOrderRiemannianBrownianEfficientSampling(SamplingWalker):
 
         adjusted_sqrt_t = root_scalar(root_func, bracket=(0.0, default_sqrt_t))
 
-        return adjusted_sqrt_t
+        return adjusted_sqrt_t.root
 
     def _get_horizontal_position_update(
         self,

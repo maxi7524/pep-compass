@@ -39,6 +39,8 @@ class HydrAMPBlackBoxWrapper(AbstractBlackBox):
 
         self.shift = 0.0
         
+        self.maximize = black_box.maximize
+        
     def set_shift(self, shift: float):
         self.shift = shift
 

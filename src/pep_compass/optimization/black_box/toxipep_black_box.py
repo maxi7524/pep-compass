@@ -30,6 +30,8 @@ from ToxiPepPredictor import PredictorToxiPep
 
 class ToxiPepBlackBox(AbstractBlackBox):
     """
+    TODO: review docstring. It is inconssistent with the PredictorToxiPep docstring.
+    
     Black box interface for ToxiPep toxicity prediction model
     
     This class provides a standardized interface for the ToxiPep model within
@@ -75,6 +77,8 @@ class ToxiPepBlackBox(AbstractBlackBox):
         
         # Cache for storing results
         self.cache = []
+        
+        self.maximize = False  # Lower toxicity is better
         
         print(f"ToxiPep Black Box initialized on {device}")
     

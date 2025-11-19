@@ -18,7 +18,6 @@ from pep_compass.utils.sequence_utils import translate_generated_peptide
 
 logger = logging.getLogger(__name__)
 
-
 class LocalEnumerator(ABC):
 
     def local_enumeration(self, center_sequence: str) -> set[str]:
@@ -34,7 +33,7 @@ class SamplingMutationLocalEnumerator(LocalEnumerator):
         self,
         encoder_decoder: HydrAMPEncoderDecoder,
         sampling_walker: SamplingWalker,
-        mutation_generator: MutationEnumerator,
+        mutation_enumerator: MutationEnumerator,
         walker_trajectories_number: int,
         time_walk_budget: float,
         max_neighbour_levenstein: int | None = None,
@@ -43,7 +42,7 @@ class SamplingMutationLocalEnumerator(LocalEnumerator):
         super().__init__()
         self.encoder_decoder = encoder_decoder
         self.sampling_walker = sampling_walker
-        self.mutation_generator = mutation_generator
+        self.mutation_enumerator = mutation_enumerator
         self.walker_trajectories_number = walker_trajectories_number
         self.time_walk_budget = time_walk_budget
         self.max_neighbour_levenstein = max_neighbour_levenstein
@@ -72,16 +71,16 @@ class SamplingMutationLocalEnumerator(LocalEnumerator):
                     current_latent_position
                 )
                 adjusted_time_step = step_info["adjusted_time_step"]
-                U = step_info["U"]
-                S = step_info["S"]
+                U = step_info["U"].cpu().detach().numpy()
+                S = step_info["S"].cpu().detach().numpy()
 
-                mutated_peptides = self.mutation_generator.mutate(
+                mutated_peptides = self.mutation_enumerator.mutate(
                     current_peptide, U=U, S=S
                 )
 
                 with torch.no_grad():
                     current_peptide = self.encoder_decoder.decode_peptides(
-                        [new_latent_position]
+                        new_latent_position
                     )[0]
                 current_latent_position = new_latent_position
                 time_walk += adjusted_time_step

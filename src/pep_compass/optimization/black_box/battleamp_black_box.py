@@ -32,6 +32,8 @@ class BattleAMPBlackBox(AbstractBlackBox):
         # BattleAMP returns a single prediction value, so no aggregation needed
         self.peptide_scorer = lambda x: np.log2(self.battleamp_predictor.predict(x).flatten())
 
+        self.maximize = False
+
         self.cache = []
 
     def get_black_box_info(self) -> BlackBoxInformation:
