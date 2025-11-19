@@ -2,6 +2,7 @@ from datetime import datetime
 import time
 from pep_compass.optimization.baselines.latent_cmaes import LatentCMAESOptimizer
 from pep_compass.optimization.black_box.hydrophobicity_black_box import HydrophobicityBlackBox
+from pep_compass.optimization.black_box.hydramp_black_box_wrapper import HydrAMPBlackBoxWrapper
 from pep_compass.optimization.black_box.csv_observer import CSVObserver
 
 # Check if CUDA is available, fallback to CPU
@@ -9,9 +10,17 @@ import torch
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 print(f"Using device: {DEVICE}")
 
-# Use hydrophobicity black box with Eisenberg scale
-black_box = HydrophobicityBlackBox(
+# Create the discrete hydrophobicity black box
+discrete_black_box = HydrophobicityBlackBox(
     scale="eisenberg",
+    device=DEVICE,
+    jacobian_eps=1e-3,
+    field_eps=1e-3,
+)
+
+# Wrap it with HydrAMPBlackBoxWrapper to enable latent space optimization
+black_box = HydrAMPBlackBoxWrapper(
+    black_box=discrete_black_box,
     device=DEVICE,
     jacobian_eps=1e-3,
     field_eps=1e-3,
