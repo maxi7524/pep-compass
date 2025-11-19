@@ -30,6 +30,12 @@ class HydrophobicityBlackBox(AbstractBlackBox):
         self.peptide_scorer = lambda x: self.hydrophobicity_predictor.predict(x).flatten()
 
         self.cache = []
+        self.observer = None
+        self.encoder_decoder = None  # Hydrophobicity doesn't use encoder_decoder
+
+    def set_observer(self, observer):
+        """Set observer for tracking optimization progress."""
+        self.observer = observer
 
     def get_black_box_info(self) -> BlackBoxInformation:
         return BlackBoxInformation(
