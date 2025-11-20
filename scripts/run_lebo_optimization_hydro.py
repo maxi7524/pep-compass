@@ -109,12 +109,12 @@ optimizer = LocalEnumerationBayesianOptimizer(
 )
 
 proteins = {
-    "middle-1": ("FLYKWWIRIGRLKL", 10),
-    "jurand-4": ("KYCRRFRWLTFRWL", 10),
-    "jurand-2": ("KFRNRHRWKFKLIFRN", 10),
-    "jurand-7": ("KKYWLIRKWIRLWFLT", 10),
-    "mammuthusin-3": ("KTLKIIRLLF", 10),
-    "hydrodamin-2": ("RMARNLVRYVQGLKKKKVI", 10),
+    "middle-1": ("FLYKWWIRIGRLKL", 0),
+    "jurand-4": ("KYCRRFRWLTFRWL", 5),
+    "jurand-2": ("KFRNRHRWKFKLIFRN", 5),
+    "jurand-7": ("KKYWLIRKWIRLWFLT", 5),
+    "mammuthusin-3": ("KTLKIIRLLF", 5),
+    "hydrodamin-2": ("RMARNLVRYVQGLKKKKVI", 5),
 }
 
 for name, (sequence, num) in proteins.items():
