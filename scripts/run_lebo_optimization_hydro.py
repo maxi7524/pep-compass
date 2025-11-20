@@ -10,10 +10,8 @@ from pep_compass.models.encoder_decoder.hydramp_encoder_decoder import HydrAMPEn
 from pep_compass.optimization.black_box.apex_black_box import (
     APEXBlackBox,
 )
-from pep_compass.optimization.black_box.battleamp_black_box import BattleAMPBlackBox
 from pep_compass.optimization.black_box.csv_observer import CSVObserver
 from pep_compass.optimization.black_box.hydrophobicity_black_box import HydrophobicityBlackBox
-from pep_compass.optimization.black_box.toxipep_black_box import ToxiPepBlackBox
 from pep_compass.optimization.lebo.local_enumeration_bayesian_optimizer import LocalEnumerationBayesianOptimizer
 
 DEVICE = "cuda:1"
