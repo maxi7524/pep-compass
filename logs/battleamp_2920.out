@@ -1,0 +1,68 @@
+Starting BattleAMP optimization at Thu Nov 20 12:54:12 AM CET 2025
+GPU device: 
+Initializing BattleAMP Black Box on cuda...
+CUDA requested but no GPUs available, using CPU
+BattleAMP Black Box initialized on cuda
+Starting optimization for middle-1, iteration 1
+RandomMutationOptimizer result: {'best_x': 'WWWWWWMLLYYLCR', 'best_y': 0.6818363666534424}
+Starting optimization for jurand-4, iteration 1
+RandomMutationOptimizer result: {'best_x': 'IWWWWWLWMYWLHW', 'best_y': 0.5549536943435669}
+Starting optimization for jurand-2, iteration 1
+RandomMutationOptimizer result: {'best_x': 'FWWWWWWWYFYLIKYD', 'best_y': 0.3259361982345581}
+Starting optimization for jurand-7, iteration 1
+RandomMutationOptimizer result: {'best_x': 'WWWWWIWIWMMRIRRH', 'best_y': 0.04149455949664116}
+Starting optimization for mammuthusin-3, iteration 1
+RandomMutationOptimizer result: {'best_x': 'IWWRWWYWMI', 'best_y': 0.9979828596115112}
+Starting optimization for hydrodamin-2, iteration 1
+RandomMutationOptimizer result: {'best_x': 'WWWWWWYWFWWFMMMMMMI', 'best_y': 0.7425773739814758}
+Starting optimization for middle-1, iteration 2
+RandomMutationOptimizer result: {'best_x': 'IWWWWWYWLYWLRW', 'best_y': 0.5282138586044312}
+Starting optimization for jurand-4, iteration 2
+RandomMutationOptimizer result: {'best_x': 'WWWWWFWWIYMYYW', 'best_y': 0.5031819343566895}
+Starting optimization for jurand-2, iteration 2
+RandomMutationOptimizer result: {'best_x': 'IWWWWFWWIYRIRNRM', 'best_y': 0.192775160074234}
+Starting optimization for jurand-7, iteration 2
+RandomMutationOptimizer result: {'best_x': 'WWWWFFWFWYRVHCRL', 'best_y': 0.2346964031457901}
+Starting optimization for mammuthusin-3, iteration 2
+RandomMutationOptimizer result: {'best_x': 'KKWWWWWWYL', 'best_y': 0.9564061760902405}
+Starting optimization for hydrodamin-2, iteration 2
+RandomMutationOptimizer result: {'best_x': 'WWWWWYWWFCVRRWHMKMK', 'best_y': 0.482441246509552}
+Starting optimization for middle-1, iteration 3
+RandomMutationOptimizer result: {'best_x': 'IRFWWWYWMYCLRW', 'best_y': 0.3756416440010071}
+Starting optimization for jurand-4, iteration 3
+RandomMutationOptimizer result: {'best_x': 'WWWWWYWWLMYRLY', 'best_y': 0.42122748494148254}
+Starting optimization for jurand-2, iteration 3
+RandomMutationOptimizer result: {'best_x': 'WWYWVKWWWWIYHMRM', 'best_y': 0.12261111289262772}
+Starting optimization for jurand-7, iteration 3
+RandomMutationOptimizer result: {'best_x': 'WWRWWWMMMYHQYWRR', 'best_y': 0.4550062119960785}
+Starting optimization for mammuthusin-3, iteration 3
+RandomMutationOptimizer result: {'best_x': 'IWWWWWYWYL', 'best_y': 0.9136877059936523}
+Starting optimization for hydrodamin-2, iteration 3
+RandomMutationOptimizer result: {'best_x': 'WWWWWWFIYKWYWMMMKKR', 'best_y': 1.0310295820236206}
+Starting optimization for middle-1, iteration 4
+RandomMutationOptimizer result: {'best_x': 'ILWWWWWVMMMRHF', 'best_y': 0.2573626637458801}
+Starting optimization for jurand-4, iteration 4
+RandomMutationOptimizer result: {'best_x': 'WWWWWKWWYMYKCR', 'best_y': 0.416494220495224}
+Starting optimization for jurand-2, iteration 4
+RandomMutationOptimizer result: {'best_x': 'FWWWWWIYWIYYRARN', 'best_y': 0.3471055030822754}
+Starting optimization for jurand-7, iteration 4
+RandomMutationOptimizer result: {'best_x': 'WKWWWWWWYWYLCRRW', 'best_y': 0.2787701487541199}
+Starting optimization for mammuthusin-3, iteration 4
+RandomMutationOptimizer result: {'best_x': 'IWWWWWYWYL', 'best_y': 0.9136877059936523}
+Starting optimization for hydrodamin-2, iteration 4
+RandomMutationOptimizer result: {'best_x': 'WWFWWIWFWWIMHMRMKNR', 'best_y': 1.033210277557373}
+Starting optimization for middle-1, iteration 5
+RandomMutationOptimizer result: {'best_x': 'IWWWWWYWMLYKRW', 'best_y': 0.3918047249317169}
+Starting optimization for jurand-4, iteration 5
+RandomMutationOptimizer result: {'best_x': 'IWWWWWWWMYRIRR', 'best_y': 0.31974583864212036}
+Starting optimization for jurand-2, iteration 5
+RandomMutationOptimizer result: {'best_x': 'KKWWWWWYWYRMIHIR', 'best_y': 0.07753372192382812}
+Starting optimization for jurand-7, iteration 5
+RandomMutationOptimizer result: {'best_x': 'IWWWWWWWLYHVRMRM', 'best_y': 0.060922570526599884}
+Starting optimization for mammuthusin-3, iteration 5
+RandomMutationOptimizer result: {'best_x': 'IWWRWWYWMI', 'best_y': 0.9979828596115112}
+Starting optimization for hydrodamin-2, iteration 5
+RandomMutationOptimizer result: {'best_x': 'WWWWWWWWYLYIVMMMRKR', 'best_y': 1.101824402809143}
+BattleAMP optimization completed at Thu Nov 20 01:01:30 AM CET 2025
+=== BattleAMP Results ===
+No results directory found

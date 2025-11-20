@@ -1,7 +1,12 @@
+import sys
+import os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
+
 from datetime import datetime
 import time
 from pep_compass.optimization.baselines.latent_cmaes import LatentCMAESOptimizer
 from pep_compass.optimization.black_box.hydrophobicity_black_box import HydrophobicityBlackBox
+from pep_compass.optimization.black_box.hydramp_black_box_wrapper import HydrAMPBlackBoxWrapper
 from pep_compass.optimization.black_box.csv_observer import CSVObserver
 
 # Check if CUDA is available, fallback to CPU
@@ -9,15 +14,23 @@ import torch
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 print(f"Using device: {DEVICE}")
 
-# Use hydrophobicity black box with Eisenberg scale
-black_box = HydrophobicityBlackBox(
+# Create the discrete hydrophobicity black box
+discrete_black_box = HydrophobicityBlackBox(
     scale="eisenberg",
     device=DEVICE,
     jacobian_eps=1e-3,
     field_eps=1e-3,
 )
 
-observer = CSVObserver()
+# Wrap it with HydrAMPBlackBoxWrapper to enable latent space optimization
+black_box = HydrAMPBlackBoxWrapper(
+    black_box=discrete_black_box,
+    device=DEVICE,
+    jacobian_eps=1e-3,
+    field_eps=1e-3,
+)
+
+observer = CSVObserver(maximize=True)
 black_box.set_observer(observer)
 
 optimizer = LatentCMAESOptimizer(
@@ -41,7 +54,7 @@ for i in range(5):
         observer.initialize_observer(
             black_box.get_black_box_info(),
             {
-                "experiment_id": f"hydro_{sequence}_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
+                "experiment_id": f"{sequence}_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
                 "experiment_path": "./results/cma_es_hydrophobicity",
             },
             rng_seed,

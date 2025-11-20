@@ -1,5 +1,4 @@
 from datetime import datetime
-from datetime import datetime
 import time
 import sys
 import os
@@ -28,46 +27,25 @@ except ImportError:
 # Redirect stderr to suppress various C++ warnings (like NNPACK)
 import io
 from contextlib import redirect_stderr
-import time
-import sys
-import os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
-from pep_compass.optimization.baselines.latent_cmaes import LatentCMAESOptimizer
-from pep_compass.optimization.black_box.apex_black_box import APEXBlackBox
+
+# Add the src directory to the Python path
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'src'))
+
+from pep_compass.optimization.baselines.random_mutation import RandomMutationOptimizer
 from pep_compass.optimization.black_box.battleamp_black_box import BattleAMPBlackBox
 from pep_compass.optimization.black_box.csv_observer import CSVObserver
-from pep_compass.optimization.black_box.toxipep_black_box import ToxiPepBlackBox
-from pep_compass.optimization.black_box.hydramp_black_box_wrapper import HydrAMPBlackBoxWrapper
-import torch
-DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
-# discrete_black_box = APEXBlackBox(
-#     mic_aggregate="mean",
-#     mic_bacteria=[1, 2, 3],
-#     device=DEVICE,
-# )
+# Initialize black box and optimizer
+DEVICE = "cuda" if __name__ == "__main__" else "cpu"
+print(f"Initializing BattleAMP Black Box on {DEVICE}...")
+black_box = BattleAMPBlackBox(device=DEVICE)
+print(f"BattleAMP Black Box initialized on {DEVICE}")
 
-# discrete_black_box = BattleAMPBlackBox(device=DEVICE)
-
-discrete_black_box = ToxiPepBlackBox(device=DEVICE)
-
-# Wrap it with HydrAMPBlackBoxWrapper to enable latent space optimization
-black_box = HydrAMPBlackBoxWrapper(
-    black_box=discrete_black_box,
-    device=DEVICE,
-    jacobian_eps=1e-3,
-    field_eps=1e-3,
-)
-
-observer = CSVObserver(maximize=True)
+optimizer = RandomMutationOptimizer(black_box=black_box)
+observer = CSVObserver(maximize=True)  # BattleAMP: lower is better
 black_box.set_observer(observer)
 
-optimizer = LatentCMAESOptimizer(
-    black_box=black_box,
-    device=DEVICE,
-)
-
-
+# Define proteins to optimize
 proteins = {
     "middle-1": ("FLYKWWIRIGRLKL", 5),
     "jurand-4": ("KYCRRFRWLTFRWL", 5),
@@ -85,10 +63,10 @@ for i in range(5):
             black_box.get_black_box_info(),
             {
                 "experiment_id": f"{sequence}_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
-                "experiment_path": "./results/cma_es",
+                "experiment_path": "./results/random_mutation",
             },
             rng_seed,
-            encoder_decoder=black_box.encoder_decoder,
+            
         )
         # Suppress stderr during optimization to hide RDKit and NNPACK warnings
         devnull = io.StringIO()
@@ -101,4 +79,3 @@ for i in range(5):
                 )
         finally:
             sys.stderr = old_stderr
-

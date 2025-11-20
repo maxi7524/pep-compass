@@ -1,23 +1,54 @@
 from datetime import datetime
 import time
+import sys
+import os
+import warnings
+import logging
+
+# Comprehensive warning suppression
+warnings.filterwarnings('ignore')
+os.environ['RDKIT_QUIET'] = '1'
+os.environ['PYTHONWARNINGS'] = 'ignore'
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # TensorFlow warnings
+os.environ['CUDA_LAUNCH_BLOCKING'] = '0'
+
+# Suppress all logging
+logging.getLogger().setLevel(logging.ERROR)
+for logger_name in ['rdkit', 'tensorflow', 'torch', 'transformers', 'pytorch']:
+    logging.getLogger(logger_name).setLevel(logging.ERROR)
+
+# Also set RDKit logger to suppress messages
+try:
+    from rdkit import RDLogger
+    RDLogger.DisableLog('rdApp.*')
+except ImportError:
+    pass
+
+# Redirect stderr to suppress various C++ warnings (like NNPACK)
+import io
+from contextlib import redirect_stderr
+
+# Add the src directory to the Python path
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'src'))
+
 from pep_compass.optimization.baselines.random_mutation import RandomMutationOptimizer
 from pep_compass.optimization.black_box.battleamp_black_box import BattleAMPBlackBox
 from pep_compass.optimization.black_box.csv_observer import CSVObserver
 from pep_compass.optimization.black_box.toxipep_black_box import ToxiPepBlackBox
 
 DEVICE = "cuda"
-
+DEVICE = "cpu"
 # black_box = APEXBlackBox(
 #     mic_aggregate="mean",
 #     mic_bacteria=[1, 2, 3],
 #     device=DEVICE,
 # )
 
-black_box = BattleAMPBlackBox(device=DEVICE)
+# black_box = BattleAMPBlackBox(device=DEVICE)
 
-# black_box = ToxiPepBlackBox(device=DEVICE)
+black_box = ToxiPepBlackBox(device=DEVICE)
 
-observer = CSVObserver()
+observer = CSVObserver(maximize = True)
 black_box.set_observer(observer)
 
 optimizer = RandomMutationOptimizer(
@@ -46,7 +77,15 @@ for i in range(5):
             rng_seed,
             
         )
-        optimizer.optimize(
-            evaluation_budget=1400, starting_point=sequence, rng_seed=rng_seed
-        )
+        # Suppress stderr during optimization to hide RDKit and NNPACK warnings
+        devnull = io.StringIO()
+        old_stderr = sys.stderr
+        try:
+            sys.stderr = devnull
+            with redirect_stderr(devnull):
+                optimizer.optimize(
+                    evaluation_budget=1400, starting_point=sequence, rng_seed=rng_seed
+                )
+        finally:
+            sys.stderr = old_stderr
 
