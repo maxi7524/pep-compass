@@ -72,13 +72,13 @@ class ToxiPepBlackBox(AbstractBlackBox):
         self.toxipep_predictor = PredictorToxiPep(device=device)
         
         # Define the peptide scoring function
-        # Returns toxicity probabilities directly (no log transformation needed)
-        self.peptide_scorer = lambda sequences: self.toxipep_predictor.predict(sequences).flatten()
+        # Returns NEGATIVE toxicity probabilities for minimization (lower toxicity = higher score)
+        self.peptide_scorer = lambda sequences: -self.toxipep_predictor.predict(sequences).flatten()
         
         # Cache for storing results
         self.cache = []
         
-        self.maximize = False  # Lower toxicity is better
+        self.maximize = True  # Higher score is better (negative toxicity)
         
         print(f"ToxiPep Black Box initialized on {device}")
     

@@ -34,27 +34,18 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'
 from pep_compass.optimization.baselines.random_mutation import RandomMutationOptimizer
 from pep_compass.optimization.black_box.battleamp_black_box import BattleAMPBlackBox
 from pep_compass.optimization.black_box.csv_observer import CSVObserver
-from pep_compass.optimization.black_box.toxipep_black_box import ToxiPepBlackBox
 
-DEVICE = "cuda"
-DEVICE = "cpu"
-# black_box = APEXBlackBox(
-#     mic_aggregate="mean",
-#     mic_bacteria=[1, 2, 3],
-#     device=DEVICE,
-# )
+# Initialize black box and optimizer
+DEVICE = "cuda" if __name__ == "__main__" else "cpu"
+print(f"Initializing BattleAMP Black Box on {DEVICE}...")
+black_box = BattleAMPBlackBox(device=DEVICE)
+print(f"BattleAMP Black Box initialized on {DEVICE}")
 
-# black_box = BattleAMPBlackBox(device=DEVICE)
-
-black_box = ToxiPepBlackBox(device=DEVICE)
-
-observer = CSVObserver(maximize = True)
+optimizer = RandomMutationOptimizer(black_box=black_box)
+observer = CSVObserver(maximize=True)  # BattleAMP: lower is better
 black_box.set_observer(observer)
 
-optimizer = RandomMutationOptimizer(
-    black_box=black_box,
-)
-
+# Define proteins to optimize
 proteins = {
     "middle-1": ("FLYKWWIRIGRLKL", 5),
     "jurand-4": ("KYCRRFRWLTFRWL", 5),
@@ -88,4 +79,3 @@ for i in range(5):
                 )
         finally:
             sys.stderr = old_stderr
-

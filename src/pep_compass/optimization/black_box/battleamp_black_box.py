@@ -30,7 +30,7 @@ class BattleAMPBlackBox(AbstractBlackBox):
         self.battleamp_predictor = PredictorBattleAMP(device=device)
         
         # BattleAMP returns a single prediction value, so no aggregation needed
-        self.peptide_scorer = lambda x: np.log2(self.battleamp_predictor.predict(x).flatten())
+        self.peptide_scorer = lambda x: -np.log2(self.battleamp_predictor.predict(x).flatten())
 
         self.maximize = False
 

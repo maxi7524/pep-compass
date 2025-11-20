@@ -50,8 +50,8 @@ class HydrophobicityPredictor:
                 score = self.hydrophobicity_model.__call__(seq)
                 scores.append(score)
             except Exception as e:
-                print(f"Warning: Error scoring sequence '{seq}': {e}. Using 0.0")
-                scores.append(0.0)
+                print(f"Warning: Error scoring sequence '{seq}': {e}. Using -100")
+                scores.append(-100.0)
         
         # Return as numpy array with shape (N, 1) to match other predictors
         return np.array(scores).reshape(-1, 1)
