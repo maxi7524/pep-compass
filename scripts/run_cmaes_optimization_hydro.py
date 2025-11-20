@@ -1,3 +1,7 @@
+import sys
+import os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
+
 from datetime import datetime
 import time
 from pep_compass.optimization.baselines.latent_cmaes import LatentCMAESOptimizer
@@ -26,7 +30,7 @@ black_box = HydrAMPBlackBoxWrapper(
     field_eps=1e-3,
 )
 
-observer = CSVObserver()
+observer = CSVObserver(maximize=True)
 black_box.set_observer(observer)
 
 optimizer = LatentCMAESOptimizer(
