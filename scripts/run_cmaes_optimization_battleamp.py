@@ -1,4 +1,14 @@
 from datetime import datetime
+import time
+import sys
+import os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
+from pep_compass.optimization.baselines.latent_cmaes import LatentCMAESOptimizer
+from pep_compass.optimization.black_box.apex_black_box import APEXBlackBox
+from pep_compass.optimization.black_box.battleamp_black_box import BattleAMPBlackBox
+from pep_compass.optimization.black_box.csv_observer import CSVObserver
+from pep_compass.optimization.black_box.toxipep_black_box import ToxiPepBlackBox
+from pep_compass.optimization.black_box.hydramp_black_box_wrapper import HydrAMPBlackBoxWrapper
 from datetime import datetime
 import time
 import sys
@@ -28,18 +38,16 @@ except ImportError:
 # Redirect stderr to suppress various C++ warnings (like NNPACK)
 import io
 from contextlib import redirect_stderr
-import time
-import sys
-import os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
-from pep_compass.optimization.baselines.latent_cmaes import LatentCMAESOptimizer
-from pep_compass.optimization.black_box.apex_black_box import APEXBlackBox
+
+# Add the src directory to the Python path
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'src'))
+
+from pep_compass.optimization.baselines.random_mutation import RandomMutationOptimizer
 from pep_compass.optimization.black_box.battleamp_black_box import BattleAMPBlackBox
 from pep_compass.optimization.black_box.csv_observer import CSVObserver
-from pep_compass.optimization.black_box.toxipep_black_box import ToxiPepBlackBox
-from pep_compass.optimization.black_box.hydramp_black_box_wrapper import HydrAMPBlackBoxWrapper
 import torch
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+print(f"Using device: {DEVICE}")
 
 # discrete_black_box = APEXBlackBox(
 #     mic_aggregate="mean",
@@ -47,9 +55,9 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 #     device=DEVICE,
 # )
 
-# discrete_black_box = BattleAMPBlackBox(device=DEVICE)
+discrete_black_box = BattleAMPBlackBox(device=DEVICE)
 
-discrete_black_box = ToxiPepBlackBox(device=DEVICE)
+# discrete_black_box = ToxiPepBlackBox(device=DEVICE)
 
 # Wrap it with HydrAMPBlackBoxWrapper to enable latent space optimization
 black_box = HydrAMPBlackBoxWrapper(
@@ -90,15 +98,7 @@ for i in range(5):
             rng_seed,
             encoder_decoder=black_box.encoder_decoder,
         )
-        # Suppress stderr during optimization to hide RDKit and NNPACK warnings
-        devnull = io.StringIO()
-        old_stderr = sys.stderr
-        try:
-            sys.stderr = devnull
-            with redirect_stderr(devnull):
-                optimizer.optimize(
-                    evaluation_budget=1400, starting_point=sequence, rng_seed=rng_seed
-                )
-        finally:
-            sys.stderr = old_stderr
+        optimizer.optimize(
+            evaluation_budget=1400, starting_point=sequence, rng_seed=rng_seed
+        )
 

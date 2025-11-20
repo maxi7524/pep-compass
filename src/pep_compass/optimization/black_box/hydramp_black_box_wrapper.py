@@ -56,15 +56,37 @@ class HydrAMPBlackBoxWrapper(AbstractBlackBox):
         x_tensor = torch.tensor(x, device=self.encoder_decoder.device)
         decoded_peptides = self.encoder_decoder.decode_peptides(x_tensor.to(torch.float32))
         
-        predictions = self.wrapped_black_box._black_box(decoded_peptides)
+        # Handle empty peptides by applying penalty or fallback
+        processed_peptides = []
+        penalties = []
+        
+        for i, seq in enumerate(decoded_peptides):
+            if len(seq.strip()) == 0:  # Empty or whitespace-only peptide
+                # Strategy 1: Penalty approach - assign worst possible score
+                penalties.append(True)
+                processed_peptides.append("A")  # Minimal fallback peptide
+            else:
+                penalties.append(False)
+                processed_peptides.append(seq)
+        
+        predictions = self.wrapped_black_box._black_box(processed_peptides)
+        
+        # Apply penalties for empty peptides
+        for i, is_penalty in enumerate(penalties):
+            if is_penalty:
+                # Assign very bad score (opposite of maximize direction)
+                if self.maximize:
+                    predictions[i] = -1000.0  # Very low score for maximization
+                else:
+                    predictions[i] = 1000.0   # Very high score for minimization
         
         if context is not None and isinstance(context, dict):
-            context['sequences'] = decoded_peptides
+            context['sequences'] = decoded_peptides  # Keep original sequences for logging
         
         for i, seq in enumerate(decoded_peptides):
             self.cache.append((x_tensor[i].tolist(), seq, predictions[i].item()))
 
-        return predictions.reshape(-1, 1) + self.shift  # Reshape to match the expected output shape
+        return predictions.reshape(-1, 1) + self.shift
 
     def clear_cache(self):
         self.cache = []

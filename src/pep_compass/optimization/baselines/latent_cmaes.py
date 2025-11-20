@@ -16,7 +16,8 @@ class LatentCMAESOptimizer(AbstractOptimizer):
         super().__init__(black_box)
         self.device = device
         self.population_size = 10
-        self.initial_sigma = 1.0
+        self.initial_sigma = 1.  # Reduced initial sigma to stay closer to valid regions
+        self.constraint_penalty = -1000.0
     
     def optimize(
         self, 

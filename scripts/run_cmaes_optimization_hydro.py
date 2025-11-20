@@ -54,7 +54,7 @@ for i in range(5):
         observer.initialize_observer(
             black_box.get_black_box_info(),
             {
-                "experiment_id": f"hydro_{sequence}_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
+                "experiment_id": f"{sequence}_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
                 "experiment_path": "./results/cma_es_hydrophobicity",
             },
             rng_seed,
