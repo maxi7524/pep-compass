@@ -4,6 +4,11 @@
 
 We suggest using [uv](https://docs.astral.sh/uv/) for dependency management. To install the package with dependencies, run:
 
+Install uv
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
 ```bash
 uv sync
 ```
