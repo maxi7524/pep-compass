@@ -78,7 +78,7 @@ class ToxiPepBlackBox(AbstractBlackBox):
         # Cache for storing results
         self.cache = []
         
-        self.maximize = True  # Higher score is better (negative toxicity)
+        self.maximize = False 
         
         print(f"ToxiPep Black Box initialized on {device}")
     
