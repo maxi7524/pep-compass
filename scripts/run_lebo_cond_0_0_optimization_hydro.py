@@ -2,25 +2,20 @@ from datetime import datetime
 import logging
 import time
 
-import numpy as np
 import torch
 from pep_compass.local_enumeration.local_enumerator import SamplingMutationLocalEnumerator
 from pep_compass.local_enumeration.mutation_enumerator import MutationEnumerationInTangentSpace
 from pep_compass.local_enumeration.sampling_walker import SecondOrderRiemannianBrownianEfficientSampling
 from pep_compass.models.encoder_decoder.hydramp_encoder_decoder import HydrAMPEncoderDecoder
+from pep_compass.optimization.black_box.apex_black_box import (
+    APEXBlackBox,
+)
 from pep_compass.optimization.black_box.csv_observer import CSVObserver
-from pep_compass.optimization.black_box.toxipep_black_box import ToxiPepBlackBox
+from pep_compass.optimization.black_box.hydrophobicity_black_box import HydrophobicityBlackBox
 from pep_compass.optimization.lebo.local_enumeration_bayesian_optimizer import LocalEnumerationBayesianOptimizer
 
-import warnings
-warnings.filterwarnings("ignore", message=".*GetValence.*", category=DeprecationWarning)
-from rdkit import RDLogger
-RDLogger.DisableLog('rdApp.*')
-
-DEVICE = "cuda:0"
-K_MUTANG = 1e-6
-K_SORBES = float("inf")
-OUTPUT_PATH = f"./results/lebo_K_MUTANG_{K_MUTANG}_K_SORBES_{K_SORBES}/"
+DEVICE = "cuda:1"
+OUTPUT_PATH = "./results/lebo_cond_0_0"
 EVALUATION_BUDGET = 1400
 
 logging.basicConfig(
@@ -40,8 +35,8 @@ logging.basicConfig(
 # )
 
 # black_box = BattleAMPBlackBox(device=DEVICE)
-black_box = ToxiPepBlackBox(device=DEVICE)
-# black_box = HydrophobicityBlackBox(device=DEVICE)
+# black_box = ToxiPepBlackBox(device=DEVICE)
+black_box = HydrophobicityBlackBox()
 
 observer = CSVObserver(black_box.maximize)
 black_box.set_observer(observer)
@@ -51,7 +46,7 @@ black_box.set_observer(observer)
 encoder_decoder = HydrAMPEncoderDecoder(
     jacobian_mode="approx",
     device=DEVICE,
-    default_condition=torch.tensor([1.0, 1.0]),
+    default_condition=torch.tensor([0.0, 0.0]),
     temp=1.0,
     jacobian_eps=0.05,
     field_eps=0.05,
@@ -60,7 +55,7 @@ encoder_decoder = HydrAMPEncoderDecoder(
 # Define sampling walker
 sampling_walker = SecondOrderRiemannianBrownianEfficientSampling(
     encoder_decoder=encoder_decoder,
-    horizontal_threshold=np.sqrt(K_SORBES),
+    horizontal_threshold=0.1,
     time_step=0.01,
     max_horizontal_update_norm=0.5,
     vertical_movement=True,
@@ -69,7 +64,7 @@ sampling_walker = SecondOrderRiemannianBrownianEfficientSampling(
 # Define mutation enumerator
 mutation_enumerator = MutationEnumerationInTangentSpace(
     max_len=25,
-    direction_significance_threshold=np.sqrt(K_MUTANG),
+    direction_significance_threshold=1e-3,
     min_number_of_directions=5,
     token_threshold=0.1,
 )
@@ -111,32 +106,23 @@ optimizer = LocalEnumerationBayesianOptimizer(
     turbo_decrease_step = 1,
 )
 
+# proteins = {
+#     "hydrodamin-2": ("RMARNLVRYVQGLKKKKVI", 5),
+#     "mammuthusin-3": ("KTLKIIRLLF", 5),
+#     "jurand-7": ("KKYWLIRKWIRLWFLT", 5),
+#     "jurand-2": ("KFRNRHRWKFKLIFRN", 5),
+#     "jurand-4": ("KYCRRFRWLTFRWL", 5),
+#     "middle-1": ("FLYKWWIRIGRLKL", 5),
+# }
+
 proteins = {
-    "hydrodamin-2": ("RMARNLVRYVQGLKKKKVI", 5),
-    "mammuthusin-3": ("KTLKIIRLLF", 5),
-    "jurand-7": ("KKYWLIRKWIRLWFLT", 5),
-    "jurand-2": ("KFRNRHRWKFKLIFRN", 5),
-    "jurand-4": ("KYCRRFRWLTFRWL", 5),
     "middle-1": ("FLYKWWIRIGRLKL", 5),
+    "jurand-4": ("KYCRRFRWLTFRWL", 5),
+    "jurand-2": ("KFRNRHRWKFKLIFRN", 5),
+    "jurand-7": ("KKYWLIRKWIRLWFLT", 5),
+    "mammuthusin-3": ("KTLKIIRLLF", 5),
+    "hydrodamin-2": ("RMARNLVRYVQGLKKKKVI", 5),
 }
-
-# proteins = {
-#     "middle-1": ("FLYKWWIRIGRLKL", 5),
-#     "jurand-4": ("KYCRRFRWLTFRWL", 5),
-#     "jurand-2": ("KFRNRHRWKFKLIFRN", 5),
-#     "jurand-7": ("KKYWLIRKWIRLWFLT", 5),
-#     "mammuthusin-3": ("KTLKIIRLLF", 5),
-#     "hydrodamin-2": ("RMARNLVRYVQGLKKKKVI", 5),
-# }
-
-# proteins = {
-#     "jurand-7": ("KKYWLIRKWIRLWFLT", 5),
-#     "jurand-2": ("KFRNRHRWKFKLIFRN", 5),
-#     "jurand-4": ("KYCRRFRWLTFRWL", 5),
-#     "mammuthusin-3": ("KTLKIIRLLF", 5),
-#     "middle-1": ("FLYKWWIRIGRLKL", 5),
-#     "hydrodamin-2": ("RMARNLVRYVQGLKKKKVI", 5),
-# }
 
 for name, (sequence, num) in proteins.items():
     for i in range(num):

@@ -109,7 +109,7 @@ optimizer = LocalEnumerationBayesianOptimizer(
 )
 
 proteins = {
-    "middle-1": ("FLYKWWIRIGRLKL", 4),
+    "middle-1": ("FLYKWWIRIGRLKL", 5),
     "jurand-4": ("KYCRRFRWLTFRWL", 5),
     "jurand-2": ("KFRNRHRWKFKLIFRN", 5),
     "jurand-7": ("KKYWLIRKWIRLWFLT", 5),

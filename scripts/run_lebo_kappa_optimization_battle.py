@@ -8,6 +8,7 @@ from pep_compass.local_enumeration.local_enumerator import SamplingMutationLocal
 from pep_compass.local_enumeration.mutation_enumerator import MutationEnumerationInTangentSpace
 from pep_compass.local_enumeration.sampling_walker import SecondOrderRiemannianBrownianEfficientSampling
 from pep_compass.models.encoder_decoder.hydramp_encoder_decoder import HydrAMPEncoderDecoder
+from pep_compass.optimization.black_box.battleamp_black_box import BattleAMPBlackBox
 from pep_compass.optimization.black_box.csv_observer import CSVObserver
 from pep_compass.optimization.black_box.toxipep_black_box import ToxiPepBlackBox
 from pep_compass.optimization.lebo.local_enumeration_bayesian_optimizer import LocalEnumerationBayesianOptimizer
@@ -17,7 +18,7 @@ warnings.filterwarnings("ignore", message=".*GetValence.*", category=Deprecation
 from rdkit import RDLogger
 RDLogger.DisableLog('rdApp.*')
 
-DEVICE = "cuda:0"
+DEVICE = "cuda:1"
 K_MUTANG = 1e-6
 K_SORBES = float("inf")
 OUTPUT_PATH = f"./results/lebo_K_MUTANG_{K_MUTANG}_K_SORBES_{K_SORBES}/"
@@ -39,8 +40,8 @@ logging.basicConfig(
 #     device=DEVICE,
 # )
 
-# black_box = BattleAMPBlackBox(device=DEVICE)
-black_box = ToxiPepBlackBox(device=DEVICE)
+black_box = BattleAMPBlackBox(device="cpu")
+# black_box = ToxiPepBlackBox(device=DEVICE)
 # black_box = HydrophobicityBlackBox(device=DEVICE)
 
 observer = CSVObserver(black_box.maximize)
@@ -111,32 +112,23 @@ optimizer = LocalEnumerationBayesianOptimizer(
     turbo_decrease_step = 1,
 )
 
+# proteins = {
+#     "hydrodamin-2": ("RMARNLVRYVQGLKKKKVI", 5),
+#     "mammuthusin-3": ("KTLKIIRLLF", 5),
+#     "jurand-7": ("KKYWLIRKWIRLWFLT", 5),
+#     "jurand-2": ("KFRNRHRWKFKLIFRN", 5),
+#     "jurand-4": ("KYCRRFRWLTFRWL", 5),
+#     "middle-1": ("FLYKWWIRIGRLKL", 5),
+# }
+
 proteins = {
-    "hydrodamin-2": ("RMARNLVRYVQGLKKKKVI", 5),
-    "mammuthusin-3": ("KTLKIIRLLF", 5),
-    "jurand-7": ("KKYWLIRKWIRLWFLT", 5),
-    "jurand-2": ("KFRNRHRWKFKLIFRN", 5),
-    "jurand-4": ("KYCRRFRWLTFRWL", 5),
     "middle-1": ("FLYKWWIRIGRLKL", 5),
+    "jurand-4": ("KYCRRFRWLTFRWL", 5),
+    "jurand-2": ("KFRNRHRWKFKLIFRN", 5),
+    "jurand-7": ("KKYWLIRKWIRLWFLT", 5),
+    "mammuthusin-3": ("KTLKIIRLLF", 5),
+    "hydrodamin-2": ("RMARNLVRYVQGLKKKKVI", 5),
 }
-
-# proteins = {
-#     "middle-1": ("FLYKWWIRIGRLKL", 5),
-#     "jurand-4": ("KYCRRFRWLTFRWL", 5),
-#     "jurand-2": ("KFRNRHRWKFKLIFRN", 5),
-#     "jurand-7": ("KKYWLIRKWIRLWFLT", 5),
-#     "mammuthusin-3": ("KTLKIIRLLF", 5),
-#     "hydrodamin-2": ("RMARNLVRYVQGLKKKKVI", 5),
-# }
-
-# proteins = {
-#     "jurand-7": ("KKYWLIRKWIRLWFLT", 5),
-#     "jurand-2": ("KFRNRHRWKFKLIFRN", 5),
-#     "jurand-4": ("KYCRRFRWLTFRWL", 5),
-#     "mammuthusin-3": ("KTLKIIRLLF", 5),
-#     "middle-1": ("FLYKWWIRIGRLKL", 5),
-#     "hydrodamin-2": ("RMARNLVRYVQGLKKKKVI", 5),
-# }
 
 for name, (sequence, num) in proteins.items():
     for i in range(num):

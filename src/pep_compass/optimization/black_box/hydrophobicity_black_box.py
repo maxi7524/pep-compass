@@ -16,9 +16,6 @@ class HydrophobicityBlackBox(AbstractBlackBox):
         evaluation_budget: int = float("inf"),
         force_isolation: bool = False,
         scale: str = "eisenberg",
-        device: str = "cpu",
-        jacobian_eps: float = 1e-3,
-        field_eps: float = 1e-3,
     ):
         super().__init__(
             batch_size=batch_size,
@@ -32,16 +29,6 @@ class HydrophobicityBlackBox(AbstractBlackBox):
         
         # Create scoring function - higher hydrophobicity is better for optimization
         self.peptide_scorer = lambda x: self.hydrophobicity_predictor.predict(x).flatten()
-
-        # Initialize encoder_decoder for optimization compatibility
-        self.encoder_decoder = HydrAMPEncoderDecoder(
-            device=device,
-            default_condition=torch.tensor([1, 1], device=device),
-            temp=1,
-            jacobian_mode="approx",
-            jacobian_eps=jacobian_eps,
-            field_eps=field_eps,
-        )
         
         self.cache = []
         self.maximize = True  # Higher hydrophobicity is better

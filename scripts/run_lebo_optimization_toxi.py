@@ -16,7 +16,7 @@ from pep_compass.optimization.black_box.hydrophobicity_black_box import Hydropho
 from pep_compass.optimization.black_box.toxipep_black_box import ToxiPepBlackBox
 from pep_compass.optimization.lebo.local_enumeration_bayesian_optimizer import LocalEnumerationBayesianOptimizer
 
-DEVICE = "cuda:1"
+DEVICE = "cuda:0"
 OUTPUT_PATH = "./results/lebo"
 EVALUATION_BUDGET = 1400
 
@@ -108,13 +108,22 @@ optimizer = LocalEnumerationBayesianOptimizer(
     turbo_decrease_step = 1,
 )
 
+# proteins = {
+#     "middle-1": ("FLYKWWIRIGRLKL", 5),
+#     "jurand-4": ("KYCRRFRWLTFRWL", 5),
+#     "jurand-2": ("KFRNRHRWKFKLIFRN", 5),
+#     "jurand-7": ("KKYWLIRKWIRLWFLT", 5),
+#     "mammuthusin-3": ("KTLKIIRLLF", 5),
+#     "hydrodamin-2": ("RMARNLVRYVQGLKKKKVI", 5),
+# }
+
 proteins = {
-    "middle-1": ("FLYKWWIRIGRLKL", 5),
-    "jurand-4": ("KYCRRFRWLTFRWL", 5),
-    "jurand-2": ("KFRNRHRWKFKLIFRN", 5),
-    "jurand-7": ("KKYWLIRKWIRLWFLT", 5),
-    "mammuthusin-3": ("KTLKIIRLLF", 5),
-    "hydrodamin-2": ("RMARNLVRYVQGLKKKKVI", 5),
+    "hydrodamin-2": ("RMARNLVRYVQGLKKKKVI", 0),
+    "mammuthusin-3": ("KTLKIIRLLF", 0),
+    "jurand-7": ("KKYWLIRKWIRLWFLT", 0),
+    "jurand-2": ("KFRNRHRWKFKLIFRN", 1),
+    "jurand-4": ("KYCRRFRWLTFRWL", 0),
+    "middle-1": ("FLYKWWIRIGRLKL", 0),
 }
 
 for name, (sequence, num) in proteins.items():

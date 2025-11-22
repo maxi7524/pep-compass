@@ -36,7 +36,7 @@ logging.basicConfig(
 
 # black_box = BattleAMPBlackBox(device=DEVICE)
 # black_box = ToxiPepBlackBox(device=DEVICE)
-black_box = HydrophobicityBlackBox(device=DEVICE)
+black_box = HydrophobicityBlackBox()
 
 observer = CSVObserver(black_box.maximize)
 black_box.set_observer(observer)
@@ -107,7 +107,7 @@ optimizer = LocalEnumerationBayesianOptimizer(
 )
 
 proteins = {
-    "middle-1": ("FLYKWWIRIGRLKL", 0),
+    "middle-1": ("FLYKWWIRIGRLKL", 5),
     "jurand-4": ("KYCRRFRWLTFRWL", 5),
     "jurand-2": ("KFRNRHRWKFKLIFRN", 5),
     "jurand-7": ("KKYWLIRKWIRLWFLT", 5),
