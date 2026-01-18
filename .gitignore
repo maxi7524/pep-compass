@@ -225,6 +225,8 @@ results/
 *.fasta
 
 # Model
+src/pep_compass/models/apex/APEX_pathogen_models/
+src/pep_compass/models/apex/Full_APEX_pathogen_models/
 *.pickle
 *.out
 *.sample
