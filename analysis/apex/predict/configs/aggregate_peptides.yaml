@@ -1,0 +1,9 @@
+input_file: results/data/peptides.csv
+output_path: results/data/apex/peptides_apex.csv
+sequence_column: sequence
+csv_separator: ","
+use_tqdm: true
+apex_predictor_kwargs:
+  path: all
+  device: cuda
+  batch_size: 1000

@@ -14,9 +14,6 @@ dependencies = [
     "PyYAML>=6.0",
 ]
 
-[project.scripts]
-aggregate-pep-data = "aggregate_pep_data.aggregate_pep_data:main"
-
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["aggregate_pep_data*"]
