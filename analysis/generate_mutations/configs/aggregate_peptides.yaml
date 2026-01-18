@@ -1,0 +1,8 @@
+input_file: results/data/peptides.csv
+output_path: results/data/mutants/peptides_mutants.csv
+csv_separator: ","
+seq_col: sequence
+direction_threshold: 0.0001
+token_threshold: 0.05
+jacobian_mode: approx
+jacobian_eps: 0.05
