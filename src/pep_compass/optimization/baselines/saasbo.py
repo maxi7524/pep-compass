@@ -3,12 +3,11 @@ import torch
 from botorch import fit_fully_bayesian_model_nuts
 from botorch.acquisition.logei import qLogExpectedImprovement
 from botorch.models.fully_bayesian import SaasFullyBayesianSingleTaskGP
-from botorch.models.transforms import Standardize
 from botorch.optim import optimize_acqf
+from poli_baselines.core.abstract_solver import AbstractBlackBox
 
 from pep_compass.optimization.optimizer import AbstractOptimizer
 from pep_compass.utils.utils import set_seed
-
 
 class SaasboOptimizer(AbstractOptimizer):
     """
@@ -22,13 +21,13 @@ class SaasboOptimizer(AbstractOptimizer):
     
     def __init__(
         self,
-        black_box,
-        device,
-        batch_size=10,
-        warmup_steps=128,
-        num_samples=64,
-        thinning=16,
-        dim=64,
+        black_box: AbstractBlackBox,
+        device: torch.device,
+        batch_size: int = 10,
+        warmup_steps: int = 128,
+        num_samples: int = 64,
+        thinning: int = 16,
+        dim: int = 64,
     ):
         super().__init__(black_box)
         
@@ -46,7 +45,7 @@ class SaasboOptimizer(AbstractOptimizer):
     def optimize(
         self, 
         evaluation_budget: int, 
-        starting_point, 
+        starting_point: str, 
         rng_seed: int | None = None,
     ):
         """
