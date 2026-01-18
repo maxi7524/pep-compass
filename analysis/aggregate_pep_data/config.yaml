@@ -1,0 +1,99 @@
+output_path: results/data/peptides.csv
+source_col: source_file
+keep_columns:
+  - sequence
+  - within_dataset_id
+  - source_file
+  - dataset
+seq_col: sequence
+min_length: null
+max_length: 25
+deduplicate: true
+dedup_on:
+  - sequence
+merge_separator: ";"
+inputs:
+  - path: data/ampsphere/AMP.tsv
+    sep: "\t"
+    rename_map:
+      sequence: sequence
+      accession: within_dataset_id
+    fixed_columns:
+      dataset: ampsphere_amp
+  - path: data/hydramp/dbaasp/csv/dbaasp_clean.csv
+    sep: ","
+    rename_map:
+      sequence: sequence
+      id: within_dataset_id
+    fixed_columns:
+      dataset: hydramp_dbaasp_clean
+  - path: data/hydramp/dbaasp/csv/high_ecoli_activity.csv
+    sep: ","
+    rename_map:
+      sequence: sequence
+      id: within_dataset_id
+    fixed_columns:
+      dataset: hydramp_dbaasp_high_ecoli_activity
+  - path: data/hydramp/dbaasp/csv/high_saureus_activity.csv
+    sep: ","
+    rename_map:
+      sequence: sequence
+      id: within_dataset_id
+    fixed_columns:
+      dataset: hydramp_dbaasp_high_saureus_activity
+  - path: data/hydramp/dbaasp/csv/low_ecoli_activity.csv
+    sep: ","
+    rename_map:
+      sequence: sequence
+      id: within_dataset_id
+    fixed_columns:
+      dataset: hydramp_dbaasp_low_ecoli_activity
+  - path: data/hydramp/dbaasp/csv/low_saureus_activity.csv
+    sep: ","
+    rename_map:
+      sequence: sequence
+      id: within_dataset_id
+    fixed_columns:
+      dataset: hydramp_dbaasp_low_saureus_activity
+  - path: data/hydramp/mic_data.csv
+    sep: ","
+    rename_map:
+      sequence: sequence
+      "Unnamed: 0": within_dataset_id
+    fixed_columns:
+      dataset: hydramp_mic_data
+  - path: data/hydramp/Uniprot_0_25_train.csv
+    sep: ","
+    rename_map:
+      Sequence: sequence
+      Name: within_dataset_id
+    fixed_columns:
+      dataset: hydramp_uniprot_0_25_train
+  - path: data/hydramp/Uniprot_0_25_test.csv
+    sep: ","
+    rename_map:
+      Sequence: sequence
+      Name: within_dataset_id
+    fixed_columns:
+      dataset: hydramp_uniprot_0_25_test
+  - path: data/hydramp/Uniprot_0_25_val.csv
+    sep: ","
+    rename_map:
+      Sequence: sequence
+      Name: within_dataset_id
+    fixed_columns:
+      dataset: hydramp_uniprot_0_25_val
+  - path: data/hydramp/veltri_negative.csv
+    sep: ","
+    rename_map:
+      Sequence: sequence
+      Name: within_dataset_id
+    fixed_columns:
+      dataset: hydramp_veltri_negative
+  - path: data/hydramp/veltri_positive.csv
+    sep: ","
+    rename_map:
+      Sequence: sequence
+      Name: within_dataset_id
+    fixed_columns:
+      dataset: hydramp_veltri_positive

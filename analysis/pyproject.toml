@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "analysis"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "pandas>=2.2.2",
+    "pydantic>=2",
+    "PyYAML>=6.0",
+]
+
+[project.scripts]
+aggregate-pep-data = "aggregate_pep_data.aggregate_pep_data:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["aggregate_pep_data*"]

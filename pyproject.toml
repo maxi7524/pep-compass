@@ -10,7 +10,7 @@ authors = [
   { name = "Jurand Prądzyński", email = "j.pradzynski@student.uw.edu.pl" }
 ]
 readme = "README.md"
-requires-python = ">=3.11, <4"
+requires-python = ">=3.12, <4"
 
 dependencies = [
     "numpy~=1.26.4",
