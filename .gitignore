@@ -228,3 +228,5 @@ results/
 *.pickle
 *.out
 *.sample
+
+.env
