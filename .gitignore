@@ -216,3 +216,15 @@ __marimo__/
 .streamlit/secrets.toml
 
 results/
+
+# Data
+*.zip
+*.csv
+*.tsv
+*.xlsx
+*.fasta
+
+# Model
+*.pickle
+*.out
+*.sample
