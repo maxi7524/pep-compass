@@ -1,0 +1,9 @@
+input_file: results/data/mutants/peptides_mutants.csv
+output_path: results/data/apex/peptides_mutants_apex.csv
+sequence_column: mutant
+csv_separator: ","
+use_tqdm: true
+apex_predictor_kwargs:
+  path: all
+  device: cuda
+  batch_size: 10000

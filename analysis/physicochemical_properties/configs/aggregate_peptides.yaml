@@ -1,0 +1,7 @@
+input_file: results/data/peptides.csv
+output_path: results/data/physicochemical/peptides_physicochemical.csv
+sequence_column: sequence
+csv_separator: ","
+use_tqdm: true
+ph: 7.0
+hydrophobicity_scale: Aboderin
