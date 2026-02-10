@@ -231,4 +231,8 @@ src/pep_compass/models/apex/Full_APEX_pathogen_models/
 *.out
 *.sample
 
+# Environment variables
 .env
+
+# Development directory
+dev/

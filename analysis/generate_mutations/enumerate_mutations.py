@@ -9,9 +9,7 @@ import yaml
 from pydantic import BaseModel, Field
 from tqdm import tqdm
 from loguru import logger
-from pep_compass.local_enumeration.mutation.mutation_enumerator import (
-    MutationEnumerationInTangentSpace,
-)
+from pep_compass.local_enumeration.mutation.utils import get_mutations_from_s_u_standard
 from pep_compass.models.encoder_decoder.hydramp_encoder_decoder import (
     HydrAMPEncoderDecoder,
 )
@@ -50,19 +48,36 @@ def get_mutants_from_single_position_mutations(
             yield pos, seq[:pos] + alphabet[mut] + seq[pos + 1 :]
 
 
-def process_peptide_mutations(
+def process_peptide_mutations_standard(
     seq: str,
     hydramp: HydrAMPEncoderDecoder,
-    mutang: MutationEnumerationInTangentSpace,
+    *,
+    max_len: int = 25,
+    alphabet: list[str] = list(" ACDEFGHIKLMNPQRSTVWY"),
+    direction_significance_threshold: float,
+    min_number_of_directions: int = 5,
+    token_threshold: float,
 ) -> list[tuple[int, str]]:
     """Process a single peptide to generate mutations."""
     z = hydramp.encode_peptides([seq])
     jac = hydramp.decoder_jacobian(z)
     U, S, _ = torch.linalg.svd(jac, full_matrices=False)
-    mutations = mutang.get_mutations_from_s_u(
-        S[0].detach().cpu().numpy(), U[0].detach().cpu().numpy()
+    mutations = get_mutations_from_s_u_standard(
+        s=S[0].detach().cpu().numpy(),
+        u=U[0].detach().cpu().numpy(),
+        max_len=max_len,
+        alphabet_size=len(alphabet),
+        direction_significance_threshold=direction_significance_threshold,
+        min_number_of_directions=min_number_of_directions,
+        token_threshold=token_threshold,
     )
-    return list(get_mutants_from_single_position_mutations(seq, mutations))
+    return list(
+        get_mutants_from_single_position_mutations(
+            seq,
+            mutations,
+            alphabet=alphabet,
+        )
+    )
 
 
 def get_mutants_from_single_position_mutations_from_df(
@@ -73,14 +88,15 @@ def get_mutants_from_single_position_mutations_from_df(
     token_threshold: float,
 ) -> pd.DataFrame:
     """Generate mutants from single-position mutations for all sequences in a DataFrame."""
-    mutang = MutationEnumerationInTangentSpace(
-        direction_significance_threshold=direction_significance_threshold,
-        token_threshold=token_threshold,
-    )
     new_rows = []
     for row in tqdm(df.itertuples(), total=len(df), desc="Processing peptides"):
         seq = getattr(row, seq_col)
-        mutants = process_peptide_mutations(seq, hydramp, mutang)
+        mutants = process_peptide_mutations_standard(
+            seq,
+            hydramp,
+            direction_significance_threshold=direction_significance_threshold,
+            token_threshold=token_threshold,
+        )
         for pos, mutant in mutants:
             new_row = [
                 mutant,
