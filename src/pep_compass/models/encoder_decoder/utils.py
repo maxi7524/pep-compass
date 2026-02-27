@@ -1,12 +1,12 @@
 import torch
 from einops import rearrange
-from typing import Callable, Optional
+from typing import Callable, Optional, Literal
 
 
 def decoder_jacobian(
     decoder_forward: Callable[torch.Tensor, torch.Tensor],
     x: torch.Tensor,
-    jacobian_fn_mode: str,
+    jacobian_fn_mode: Literal["strict", "approx"],
     jacobian_fn_kwargs: Optional[dict[str, any]] = None,
 ) -> torch.Tensor:
     r"""input shape: (batch_dim, latent_dim), output shape: (batch_dim, ambient_dim, latent_dim)"""
