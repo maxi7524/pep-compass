@@ -2,7 +2,7 @@ from __future__ import annotations
 
 # New potential class: ProjectedDirectionPairwiseSimilarityPotential
 import math
-from typing import Callable
+from typing import Callable, NamedTuple
 
 
 """Mutation potential functions and scored mutant composition."""
@@ -12,7 +12,6 @@ import itertools
 from abc import ABC, abstractmethod
 
 import numpy as np
-import pandas as pd
 import torch
 
 from pep_compass.models.encoder_decoder.hydramp_encoder_decoder import (
@@ -25,6 +24,11 @@ from pep_compass.local_enumeration.sampling.sorbes import SubRiemannianTangentSp
 
 DEFAULT_ALPHABET = list(" ACDEFGHIKLMNPQRSTVWY")
 DEFAULT_MAX_LEN = 25
+
+
+class MutantDistribution(NamedTuple):
+    sequences: list[str]
+    log_potentials: np.ndarray  # 1-D float64, sorted descending
 
 
 class MutationPotential(ABC):
@@ -221,7 +225,7 @@ def compose_mutant_distribution(
     max_len: int = DEFAULT_MAX_LEN,
     include_parent_residue: bool = True,
     top_k: int | None = None,
-) -> pd.DataFrame:
+) -> MutantDistribution:
     """Build a scored table of mutants from the cartesian product of per-position candidates.
 
     Scoring is vectorized with numpy; sequences are only materialized for the
@@ -239,8 +243,8 @@ def compose_mutant_distribution(
             Uses ``argpartition`` for O(N) selection instead of full sort.
 
     Returns:
-        DataFrame with columns ``sequence`` and ``log_potential``, sorted by
-        ``log_potential`` descending.
+        ``MutantDistribution(sequences, log_potentials)`` sorted by
+        ``log_potentials`` descending.
     """
     alphabet = alphabet or DEFAULT_ALPHABET
     padded = parent_peptide.ljust(max_len)
@@ -279,11 +283,9 @@ def compose_mutant_distribution(
         if top_k is not None:
             sorted_idxs = sorted_idxs[:top_k]
 
-        return pd.DataFrame(
-            {
-                "sequence": [sequences[i] for i in sorted_idxs],
-                "log_potential": [scores[i] for i in sorted_idxs],
-            }
+        return MutantDistribution(
+            sequences=[sequences[i] for i in sorted_idxs],
+            log_potentials=np.array([scores[i] for i in sorted_idxs], dtype=np.float64),
         )
 
     else:
@@ -315,9 +317,7 @@ def compose_mutant_distribution(
             selected,
         )
 
-        return pd.DataFrame(
-            {
-                "sequence": sequences,
-                "log_potential": flat_pots[selected],
-            }
+        return MutantDistribution(
+            sequences=sequences,
+            log_potentials=flat_pots[selected],
         )
