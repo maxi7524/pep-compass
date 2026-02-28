@@ -44,7 +44,7 @@ class APEXBlackBox(AbstractBlackBox):
         
         self.peptide_scorer = lambda x: mic_aggregate_func(np.log2(mic_bacteria_func(self.apex_predictor.predict(x))))
 
-        self.cache = []
+        self.maximize = False
 
     def get_black_box_info(self) -> BlackBoxInformation:
         return BlackBoxInformation(
@@ -61,15 +61,9 @@ class APEXBlackBox(AbstractBlackBox):
 
     def _black_box(self, x: np.ndarray, context: dict = None) -> np.ndarray:
         sequences = ["".join(seq) for seq in x]
-        predictions = -self.peptide_scorer(sequences)
-
-        for i, seq in enumerate(sequences):
-            self.cache.append((seq, predictions[i].item()))
+        predictions = self.peptide_scorer(sequences)
 
         return predictions.reshape(-1, 1)
-    
-    def clear_cache(self):
-        self.cache = []
 
 class HydrAMPAPEXBlackBox(AbstractBlackBox):
     def __init__(
