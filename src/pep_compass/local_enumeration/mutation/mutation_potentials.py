@@ -223,7 +223,7 @@ def compose_mutant_distribution(
     potential: MutationPotential,
     alphabet: list[str] | None = None,
     max_len: int = DEFAULT_MAX_LEN,
-    include_parent_residue: bool = True,
+    include_parent_residue: bool = False,
     top_k: int | None = None,
 ) -> MutantDistribution:
     """Build a scored table of mutants from the cartesian product of per-position candidates.

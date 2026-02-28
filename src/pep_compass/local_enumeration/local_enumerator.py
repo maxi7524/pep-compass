@@ -440,7 +440,7 @@ class PotentialFilteredMutationLocalEnumerator(LocalEnumerator):
             potential=self.potential,
             alphabet=self.alphabet,
             max_len=self.max_len,
-            include_parent_residue=True,
+            include_parent_residue=False,
         )
 
         kept_idx = self._top_p_filter(

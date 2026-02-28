@@ -145,7 +145,10 @@ class LocalEnumerationBayesianOptimizer(AbstractOptimizer):
             logger.info(f"Number of test peptides: {len(test_peptides)}")
 
             if len(test_peptides) == 0:
-                raise ValueError("No test peptides left to evaluate.")
+                logger.warning("No test peptides left after turbo filter — returning current best.")
+                del gp, mll, logEI
+                torch.cuda.empty_cache()
+                return self.the_best_peptide
 
         with self.timer("extract test features"):
             test_peptides_features = self._extract_features(test_peptides)
@@ -311,6 +314,10 @@ class LocalEnumerationBayesianOptimizer(AbstractOptimizer):
         np.random.shuffle(initial_peptides)
         initial_peptides = initial_peptides[: self.initial_peptides_number]
 
+        if not initial_peptides:
+            logger.warning("No peptides available for initialization — BKTree is empty.")
+            return
+
         initial_scores = self.scorer(initial_peptides)
         self.black_box_calls += len(initial_peptides)
 
@@ -375,6 +382,10 @@ class LocalEnumerationBayesianOptimizer(AbstractOptimizer):
                 self.not_scored_peptides_set.update(peptides_to_add)
                 
                 logger.info(f"Added {len(self.not_scored_peptides_set) - len_before} new peptides to not scored peptides.")
+
+            if len(self.not_scored_peptides_set) == 0:
+                logger.warning("No unscored peptides available — local enumeration found no new candidates. Stopping optimization early.")
+                break
             
             current_center_peptide = self._bayesian_optimization(evaluation_budget)
 
