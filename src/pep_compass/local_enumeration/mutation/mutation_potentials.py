@@ -115,9 +115,18 @@ class ProjectedDirectionPairwiseSimilarityPotential(MutationPotential):
         self.alphabet = alphabet or DEFAULT_ALPHABET
 
         # T(x) = log((1+x)/2)
-        self.similarity_transform = similarity_transform or (
-            lambda x: torch.log(0.99 * (1.0 + x) / 2.0 + 1e-12)
-        )
+        # When cos(v_i, v_j) = -1 (anti-aligned), this gives -inf
+        # which correctly represents that such combinations should be avoided
+        def default_similarity_transform(x):
+            arg = 0.99 * (1.0 + x) / 2.0
+            result = torch.where(
+                arg > 0,
+                torch.log(arg),
+                torch.tensor(float("-inf"), dtype=x.dtype, device=x.device),
+            )
+            return result
+
+        self.similarity_transform = similarity_transform or default_similarity_transform
 
     @torch.no_grad()
     def compute(
@@ -128,6 +137,10 @@ class ProjectedDirectionPairwiseSimilarityPotential(MutationPotential):
 
         positions = sorted(mutations.keys())
         n_pos = len(positions)
+
+        # Get parent amino acid indices for identity detection
+        padded = parent_peptide.ljust(DEFAULT_MAX_LEN)
+        parent_aa_indices = [self.alphabet.index(padded[pos]) for pos in positions]
 
         # Ambient space: (max_len, alphabet_size) flattened
         max_len = DEFAULT_MAX_LEN
@@ -170,29 +183,127 @@ class ProjectedDirectionPairwiseSimilarityPotential(MutationPotential):
         for combo_indices in itertools.product(
             *[range(len(mutations[p])) for p in positions]
         ):
-            # wybrane wektory: (n_pos, dim)
-            selected = torch.stack(
-                [vectors_per_position[i][combo_indices[i]] for i in range(n_pos)]
-            )
-
-            # macierz cosinusów
-            cos_matrix = selected @ selected.T  # (n_pos, n_pos)
-
-            # tylko i<j
-            i_idx, j_idx = torch.triu_indices(n_pos, n_pos, offset=1)
-            pairwise_cos = cos_matrix[i_idx, j_idx]
-
-            # transformacja
-            energy = self.similarity_transform(pairwise_cos).sum().item()
-
             # tuple aa_idx (nie indeks lokalny!)
             aa_choice = tuple(
                 mutations[positions[i]][combo_indices[i]] for i in range(n_pos)
             )
 
+            # ---- Identify non-identity positions (actual mutations) ----
+            mutated_positions_mask = [
+                aa_choice[i] != parent_aa_indices[i] for i in range(n_pos)
+            ]
+            mutated_indices = [i for i in range(n_pos) if mutated_positions_mask[i]]
+
+            # Exclude parent peptide (all identities)
+            if len(mutated_indices) == 0:
+                continue
+
+            # If only 1 mutation, no pairwise similarity to compute
+            if len(mutated_indices) == 1:
+                result[aa_choice] = 0.0
+                continue
+
+            # Select only vectors for mutated positions
+            selected = torch.stack(
+                [vectors_per_position[i][combo_indices[i]] for i in mutated_indices]
+            )
+
+            # macierz cosinusów
+            cos_matrix = selected @ selected.T  # (n_mutated, n_mutated)
+
+            # tylko i<j
+            n_mutated = len(mutated_indices)
+            i_idx, j_idx = torch.triu_indices(n_mutated, n_mutated, offset=1)
+            pairwise_cos = cos_matrix[i_idx, j_idx]
+
+            # transformacja
+            energy = self.similarity_transform(pairwise_cos).sum().item()
+
             result[aa_choice] = energy
 
         return result
+
+    def compute_with_identities(
+        self,
+        parent_peptide: str,
+        mutations: dict[int, list[int]],
+    ) -> dict[tuple[int, ...], float]:
+        """
+        Compute potentials with identity (parent amino acid) included as an option.
+
+        This method automatically adds the parent amino acid at each position as a
+        candidate, allowing the cartesian product to include combinations where some
+        positions remain unchanged (identity).
+
+        The parent peptide (all identities) is automatically excluded from results.
+
+        Args:
+            parent_peptide: The parent peptide sequence.
+            mutations: Mapping from position index to candidate amino acid indices
+                (without parent amino acids).
+
+        Returns:
+            dict[tuple[int, ...], float]: Potentials for all combinations except
+            the parent peptide.
+        """
+        # Add parent amino acid as identity option for each position
+        padded = parent_peptide.ljust(DEFAULT_MAX_LEN)
+        mutations_with_identity = {}
+        for pos, aa_indices in mutations.items():
+            parent_aa_idx = self.alphabet.index(padded[pos])
+            combined = set(aa_indices)
+            combined.add(parent_aa_idx)
+            mutations_with_identity[pos] = sorted(combined)
+
+        # Compute potentials (parent is automatically excluded)
+        return self.compute(parent_peptide, mutations_with_identity)
+
+    def return_list_abovethreshold(
+        self,
+        parent_peptide: str,
+        potentials: dict[tuple[int, ...], float],
+        mutations: dict[int, list[int]],
+        threshold: float = -0.5,
+    ) -> tuple[list[str], list[float]]:
+        """
+        Return sequences and potentials above a threshold.
+
+        Args:
+            parent_peptide: The parent peptide sequence.
+            potentials: Dict mapping amino acid tuples to potential values
+                (from compute or compute_with_identities).
+            mutations: Mapping from position index to candidate amino acid indices
+                (needed to map tuples back to sequences).
+            threshold: Minimum potential value (default: -0.5).
+
+        Returns:
+            Tuple of (sequences, potentials) where sequences are full peptide strings
+            and potentials are their corresponding values, filtered by threshold.
+        """
+        padded = parent_peptide.ljust(DEFAULT_MAX_LEN)
+        positions = sorted(mutations.keys())
+
+        sequences = []
+        potential_values = []
+
+        for aa_tuple, score in potentials.items():
+            if score >= threshold:
+                # Build full sequence from aa_tuple
+                seq_arr = list(padded)
+                for i, pos in enumerate(positions):
+                    aa_idx = aa_tuple[i]
+                    seq_arr[pos] = self.alphabet[aa_idx]
+                seq = "".join(seq_arr[: len(parent_peptide)])
+
+                sequences.append(seq)
+                potential_values.append(score)
+
+        # Sort by potential value descending
+        sorted_indices = np.argsort(potential_values)[::-1]
+        sequences = [sequences[i] for i in sorted_indices]
+        potential_values = [potential_values[i] for i in sorted_indices]
+
+        return sequences, potential_values
 
 
 def _build_sequences(
