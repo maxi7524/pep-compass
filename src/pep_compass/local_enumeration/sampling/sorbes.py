@@ -1,8 +1,22 @@
 import numpy as np
 import torch
-from scipy.optimize import root_scalar
 
+# from scipy.optimize import root_scalar
 from pep_compass.models.encoder_decoder.encoder_decoder import EncoderDecoder
+
+
+def _bisection_root_find(func, a, b, tol=1e-6, max_iter=100):
+    """Simple bisection method to find root of func in [a, b]."""
+    for _ in range(max_iter):
+        c = (a + b) / 2.0
+        fc = func(c)
+        if abs(fc) < tol or abs(b - a) < tol:
+            return c
+        if func(a) * fc < 0:
+            b = c
+        else:
+            a = c
+    return (a + b) / 2.0
 
 
 class SubRiemannianTangentSpace:
@@ -28,7 +42,7 @@ class SubRiemannianTangentSpace:
         normal = torch.tensor(normal_np, device=self.device).to(torch.float32)
         norm = torch.sum(normal**2) ** 0.5
         result = normal / norm
-        
+
         return result
 
     def sample_horizontal_direction(self):
@@ -235,8 +249,8 @@ class SecondOrderRiemannianBrownianEfficientSampling:
         # If default already below bound, return it
         if root_func(default_sqrt_t) <= 0.0:
             return default_sqrt_t
-
-        adjusted_sqrt_t = root_scalar(root_func, bracket=(0.0, default_sqrt_t))
+        # adjusted_sqrt_t = root_scalar(root_func, bracket=(0.0, default_sqrt_t))
+        adjusted_sqrt_t = _bisection_root_find(root_func, 0.0, default_sqrt_t)
 
         return adjusted_sqrt_t
 
