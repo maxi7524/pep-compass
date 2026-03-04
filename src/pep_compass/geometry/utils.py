@@ -161,6 +161,13 @@ def integrate_geodesic_rk4(x0, v0, Gamma_fn, t1=1.0, n_steps=32):
     return x, v
 
 
+def riemannian_distance(x, y, Gamma_fn, metric_fn):
+    v = log_map_shooting(x, y, Gamma_fn)
+    g = metric_fn(x)  # (B, Z, Z)
+    dist2 = einsum(v, g, v, "b i, b i j, b j -> b")
+    return torch.sqrt(dist2)
+
+
 # ============================================================================
 #    Exponential and log maps
 # ============================================================================

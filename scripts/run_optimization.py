@@ -20,10 +20,10 @@ black_box.set_observer(observer)
 optimizer = SaasboOptimizer(
     black_box=black_box,
     device=DEVICE,
-    batch_size = 10,
-    warmup_steps = 256,
-    num_samples = 128,
-    thinning = 16,
+    batch_size=10,
+    warmup_steps=256,
+    num_samples=128,
+    thinning=16,
 )
 
 proteins = {
@@ -40,8 +40,13 @@ for i in range(10):
         rng_seed = int(time.time())  # Create a unique rng_seed for each iteration
         observer.initialize_observer(
             black_box.get_black_box_info(),
-            {"experiment_id": f"{sequence}_{datetime.now().strftime('%Y%m%d_%H%M%S')}", "experiment_path": "./results"},
+            {
+                "experiment_id": f"{sequence}_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
+                "experiment_path": "./results",
+            },
             rng_seed,
             encoder_decoder=black_box.encoder_decoder,
         )
-        optimizer.optimize(evaluation_budget=1400, starting_point=sequence, rng_seed=rng_seed)
+        optimizer.optimize(
+            evaluation_budget=1400, starting_point=sequence, rng_seed=rng_seed
+        )
