@@ -41,11 +41,17 @@ class EncoderDecoder(ABC):
 
     def decoder_jacobian(self, x: torch.Tensor) -> torch.Tensor:
         r"""input shape: (batch_dim, latent_dim), output shape: (batch_dim, ambient_dim, latent_dim)"""
-        assert x.ndim == 2, ValueError(f"x should be 2D, got {x.ndim}D instead.")
+        onedim = x.ndim == 1
+        if onedim:
+            x = x.unsqueeze(0)
+        # assert x.ndim == 2, ValueError(f"x should be 2D, got {x.ndim}D instead.")
         if self.jacobian_mode == "strict":
-            return decoder_jacobian_strict(self.decoder_forward, x)
+            jac =  decoder_jacobian_strict(self.decoder_forward, x)
         elif self.jacobian_mode == "approx":
-            return decoder_jacobian_approx(self.decoder_forward, x, self.jacobian_eps)
+            jac = decoder_jacobian_approx(self.decoder_forward, x, self.jacobian_eps)
+        if onedim:
+            jac = jac.squeeze(0)
+        return jac
 
     def field_derivative(self, latent_point, direction, eps=0.1, ambient_point=None):
         if ambient_point is None:
