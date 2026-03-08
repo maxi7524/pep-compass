@@ -136,8 +136,51 @@ def load_td3_results(results_dir: str) -> list[dict]:
     return runs
 
 
-def load_all_results(results_dir: str) -> tuple[list[dict], list[dict]]:
-    """Load both DQN and TD3 results.
+def load_a2c_results(results_dir: str) -> list[dict]:
+    """Load A2C results (files with a2c_ in filename or model_type == 'A2C' in JSON)."""
+    pattern = os.path.join(results_dir, "*_results.json")
+    files = sorted(glob.glob(pattern))
+    runs: list[dict] = []
+    
+    for fpath in files:
+        basename = os.path.basename(fpath)
+        # Check if it's a benchmark seed
+        is_benchmark = any(
+            n in basename
+            for n in ["middle-1", "jurand-2", "jurand-4", "jurand-7",
+                      "mammuthusin-3", "hydrodamin-2"]
+        )
+        if not is_benchmark:
+            continue
+        
+        with open(fpath, encoding="utf-8") as fh:
+            data = json.load(fh)
+        
+        # Check if it's an A2C run (either by filename prefix or model_type field)
+        is_a2c = "a2c_" in basename or data.get("model_type") == "A2C"
+        if not is_a2c:
+            continue
+        
+        data = _normalize_run(data, fpath)
+        data["algorithm"] = "A2C"
+        runs.append(data)
+
+    # sort by SEED_ORDER
+    def sort_key(r):
+        seed = _get_seed_name_from_run(r)
+        if seed:
+            try:
+                return SEED_ORDER.index(seed)
+            except ValueError:
+                pass
+        return 99
+
+    runs.sort(key=sort_key)
+    return runs
+
+
+def load_all_results(results_dir: str) -> tuple[list[dict], list[dict], list[dict]]:
+    """Load DQN, TD3, and A2C results.
     
     Returns
     -------
@@ -145,6 +188,8 @@ def load_all_results(results_dir: str) -> tuple[list[dict], list[dict]]:
         DQN benchmark runs.
     td3_runs : list[dict]
         TD3 benchmark runs (may be empty if not yet run).
+    a2c_runs : list[dict]
+        A2C benchmark runs (may be empty if not yet run).
     """
     try:
         dqn_runs = load_results(results_dir)
@@ -152,14 +197,15 @@ def load_all_results(results_dir: str) -> tuple[list[dict], list[dict]]:
         dqn_runs = []
     
     td3_runs = load_td3_results(results_dir)
+    a2c_runs = load_a2c_results(results_dir)
     
-    if not dqn_runs and not td3_runs:
+    if not dqn_runs and not td3_runs and not a2c_runs:
         raise FileNotFoundError(
             f"No benchmark result JSON files found in {results_dir!r}. "
             "Run the optimiser first."
         )
     
-    return dqn_runs, td3_runs
+    return dqn_runs, td3_runs, a2c_runs
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -818,6 +864,139 @@ def page_dqn_vs_td3_comparison(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Page 12 — DQN vs A2C Comparison
+# ─────────────────────────────────────────────────────────────────────────────
+
+def page_dqn_vs_a2c_comparison(
+    pdf: PdfPages, dqn_runs: list[dict], a2c_runs: list[dict]
+) -> None:
+    """Generate a comparison page showing DQN vs A2C best scores per seed."""
+    fig = _new_page(pdf, "DQN vs A2C Comparison — Best log₂MIC per Seed")
+    
+    # Build comparison data aligned by seed
+    dqn_by_seed: dict[str, dict] = {}
+    for r in dqn_runs:
+        seed = _get_seed_name_from_run(r)
+        if seed and seed not in dqn_by_seed:
+            dqn_by_seed[seed] = r
+    
+    a2c_by_seed: dict[str, dict] = {}
+    for r in a2c_runs:
+        seed = _get_seed_name_from_run(r)
+        if seed and seed not in a2c_by_seed:
+            a2c_by_seed[seed] = r
+    
+    # Get list of seeds that have at least one result
+    all_seeds = [s for s in SEED_ORDER if s in dqn_by_seed or s in a2c_by_seed]
+    
+    if not all_seeds:
+        # No data to compare
+        ax = fig.add_axes([0.1, 0.3, 0.8, 0.4])
+        ax.set_axis_off()
+        ax.text(0.5, 0.5, "No A2C results available yet.\n\n"
+                "Run A2C optimization first with:\n"
+                "  python scripts/rl_actor_critic_optimizer.py run_a2c_all_peptides",
+                ha="center", va="center", fontsize=12,
+                transform=ax.transAxes)
+        _footer(fig)
+        _save(pdf, fig)
+        return
+    
+    # Create bar chart
+    ax = fig.add_axes([0.12, 0.20, 0.83, 0.65])
+    
+    x = np.arange(len(all_seeds))
+    w = 0.35
+    
+    # Get scores (use start score if algorithm wasn't run for that seed)
+    dqn_scores = []
+    a2c_scores = []
+    start_scores = []
+    
+    for seed in all_seeds:
+        if seed in dqn_by_seed:
+            dqn_scores.append(dqn_by_seed[seed]["best_log2mic"])
+            start_scores.append(dqn_by_seed[seed]["start_log2mic"])
+        elif seed in a2c_by_seed:
+            # DQN not run, use start score
+            dqn_scores.append(a2c_by_seed[seed]["start_log2mic"])
+            start_scores.append(a2c_by_seed[seed]["start_log2mic"])
+        else:
+            dqn_scores.append(np.nan)
+            start_scores.append(np.nan)
+        
+        if seed in a2c_by_seed:
+            a2c_scores.append(a2c_by_seed[seed]["best_log2mic"])
+        elif seed in dqn_by_seed:
+            # A2C not run, use start score
+            a2c_scores.append(dqn_by_seed[seed]["start_log2mic"])
+        else:
+            a2c_scores.append(np.nan)
+    
+    # Plot bars
+    dqn_bars = ax.bar(x - w/2, dqn_scores, w, label="DQN Best", 
+                      color="#2274A5", edgecolor="grey", linewidth=0.6)
+    a2c_bars = ax.bar(x + w/2, a2c_scores, w, label="A2C Best",
+                      color="#2DC653", edgecolor="grey", linewidth=0.6)
+    
+    # Plot start score reference line for each seed
+    for i, (seed, start) in enumerate(zip(all_seeds, start_scores)):
+        ax.hlines(start, i - 0.45, i + 0.45, colors="grey", 
+                  linestyles="--", linewidth=1, alpha=0.7)
+    
+    # Annotate bars with µM values
+    for bar, score in zip(dqn_bars, dqn_scores):
+        if not np.isnan(score):
+            mic = 2 ** score
+            ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.05,
+                    f"{mic:.1f}µM", ha="center", va="bottom", fontsize=6.5,
+                    color="#1a4a6b")
+    for bar, score in zip(a2c_bars, a2c_scores):
+        if not np.isnan(score):
+            mic = 2 ** score
+            ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.05,
+                    f"{mic:.1f}µM", ha="center", va="bottom", fontsize=6.5,
+                    color="#1a6b2f")
+    
+    ax.set_xticks(x)
+    ax.set_xticklabels(all_seeds, rotation=18, ha="right", fontsize=10)
+    ax.set_ylabel("Best log₂(MIC) achieved", fontsize=11)
+    ax.set_title("Lower = more potent.  Dashed lines = start scores.  "
+                 "Numbers above bars show MIC in µM.", fontsize=9, style="italic")
+    ax.legend(fontsize=10, loc="upper right")
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    ax.grid(axis="y", linestyle="--", alpha=0.4)
+    
+    # Add summary table below
+    ax_tbl = fig.add_axes([0.05, 0.02, 0.90, 0.12])
+    ax_tbl.set_axis_off()
+    
+    # Compute summary stats
+    dqn_wins = sum(1 for i, s in enumerate(all_seeds) 
+                   if s in dqn_by_seed and s in a2c_by_seed
+                   and dqn_by_seed[s]["best_log2mic"] < a2c_by_seed[s]["best_log2mic"])
+    a2c_wins = sum(1 for i, s in enumerate(all_seeds)
+                   if s in dqn_by_seed and s in a2c_by_seed
+                   and a2c_by_seed[s]["best_log2mic"] < dqn_by_seed[s]["best_log2mic"])
+    ties = sum(1 for s in all_seeds 
+               if s in dqn_by_seed and s in a2c_by_seed
+               and abs(dqn_by_seed[s]["best_log2mic"] - a2c_by_seed[s]["best_log2mic"]) < 0.01)
+    
+    summary_text = (
+        f"Head-to-head comparison (seeds with both algorithms run):  "
+        f"DQN wins: {dqn_wins}  |  A2C wins: {a2c_wins}  |  Ties: {ties}\n"
+        f"DQN: Q-value scoring of MUTANG++ candidates  |  "
+        f"A2C: Continuous actor direction guides MUTANG++ selection"
+    )
+    ax_tbl.text(0.5, 0.5, summary_text, ha="center", va="center", fontsize=9,
+                transform=ax_tbl.transAxes)
+    
+    _footer(fig)
+    _save(pdf, fig)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Main
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -834,12 +1013,13 @@ def main() -> None:
     os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
 
     print(f"Loading results from: {results_dir!r}")
-    dqn_runs, td3_runs = load_all_results(results_dir)
+    dqn_runs, td3_runs, a2c_runs = load_all_results(results_dir)
     print(f"Found {len(dqn_runs)} DQN run(s): {[r.get('run_name') for r in dqn_runs]}")
     print(f"Found {len(td3_runs)} TD3 run(s): {[r.get('run_name') for r in td3_runs]}")
+    print(f"Found {len(a2c_runs)} A2C run(s): {[r.get('run_name') for r in a2c_runs]}")
     
     # For backward compatibility, use DQN runs as the primary runs
-    runs = dqn_runs if dqn_runs else td3_runs
+    runs = dqn_runs if dqn_runs else (a2c_runs if a2c_runs else td3_runs)
 
     print(f"Writing PDF → {output_path!r}")
     with PdfPages(output_path) as pdf:
@@ -847,7 +1027,7 @@ def main() -> None:
         d = pdf.infodict()
         d["Title"]   = "RL Peptide Optimizer — Results Report"
         d["Author"]  = "pep-compass / generate_rl_report.py"
-        d["Subject"] = "DQN and TD3 AMP optimisation in HydrAMP latent space"
+        d["Subject"] = "DQN, TD3, and A2C AMP optimisation in HydrAMP latent space"
         d["CreationDate"] = datetime.now()
 
         page_cover(pdf)
@@ -864,6 +1044,8 @@ def main() -> None:
         page_how_to_run(pdf)
         # DQN vs TD3 comparison page (always added, shows message if no TD3 data)
         page_dqn_vs_td3_comparison(pdf, dqn_runs, td3_runs)
+        # DQN vs A2C comparison page (always added, shows message if no A2C data)
+        page_dqn_vs_a2c_comparison(pdf, dqn_runs, a2c_runs)
 
     print(f"\nDone!  {output_path}  ({os.path.getsize(output_path) // 1024} KB)")
 

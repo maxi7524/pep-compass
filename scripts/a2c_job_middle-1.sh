@@ -1,13 +1,13 @@
 #!/bin/bash
-#SBATCH --job-name=td3_middle-1
+#SBATCH --job-name=a2c_middle-1
 #SBATCH --partition=common
 #SBATCH --qos=kjurasz
 #SBATCH --gres=gpu:rtx5000:1
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=16G
 #SBATCH --time=08:00:00
-#SBATCH --output=logs/td3_middle-1_%j.out
-#SBATCH --error=logs/td3_middle-1_%j.err
+#SBATCH --output=logs/a2c_middle-1_%j.out
+#SBATCH --error=logs/a2c_middle-1_%j.err
 
 set -e
 
@@ -16,13 +16,13 @@ mkdir -p logs
 PYTHON=~/pep-compass/.venv/bin/python
 
 echo "=========================================="
-echo "TD3 Continuous Optimizer: middle-1"
+echo "A2C Actor-Critic Optimizer: middle-1"
 echo "Host: $(hostname)"
 echo "GPU:  $(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null || echo 'N/A')"
 echo "Started: $(date)"
 echo "=========================================="
 
-$PYTHON scripts/rl_continuous_optimizer.py run_td3_all_peptides \
+$PYTHON scripts/rl_actor_critic_optimizer.py run_a2c_all_peptides \
     --peptide_name="middle-1" \
     --n_episodes=100 \
     --max_steps=20 \
