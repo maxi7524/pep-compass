@@ -697,9 +697,13 @@ def run_rl_optimization(
     csv_file = open(csv_path, "w", newline="")
     csv_writer = csv.writer(csv_file)
     csv_writer.writerow([
-        "episode", "start_peptide", "ep_start_peptide", "ep_start_score",
-        "ep_best_peptide", "ep_best_score", "ep_reward",
-        "global_best_peptide", "global_best_score", "epsilon",
+        "episode",
+        "run_start_peptide", "run_start_log2mic",
+        "ep_start_peptide", "ep_start_log2mic",
+        "ep_best_peptide", "ep_best_log2mic",
+        "ep_reward_log2mic",
+        "global_best_peptide", "global_best_log2mic",
+        "epsilon",
     ])
     csv_file.flush()
 
@@ -817,9 +821,12 @@ def run_rl_optimization(
 
         # write CSV row
         csv_writer.writerow([
-            ep + 1, start_peptide, ep_start_peptide,
-            f"{ep_start_score:.6f}", ep_best_peptide, f"{ep_best_score:.6f}",
-            f"{ep_improvement:.6f}", best_peptide, f"{best_score:.6f}",
+            ep + 1,
+            start_peptide, f"{start_score:.6f}",
+            ep_start_peptide, f"{ep_start_score:.6f}",
+            ep_best_peptide, f"{ep_best_score:.6f}",
+            f"{ep_improvement:.6f}",
+            best_peptide, f"{best_score:.6f}",
             f"{agent.epsilon:.4f}",
         ])
         csv_file.flush()
@@ -827,9 +834,9 @@ def run_rl_optimization(
         if verbose:
             print(
                 f"Ep {ep + 1:>3}/{n_episodes}  "
-                f"reward={ep_improvement:+.4f}  "
-                f"ep_best={ep_best_score:.4f} ({ep_best_peptide!r})  "
-                f"global_best={best_score:.4f}  "
+                f"reward={ep_improvement:+.4f} log2  "
+                f"ep_best={ep_best_score:.4f} log2 ({ep_best_peptide!r})  "
+                f"global_best={best_score:.4f} log2  "
                 f"ε={agent.epsilon:.3f}"
             )
 
@@ -837,22 +844,29 @@ def run_rl_optimization(
 
     if verbose:
         print(f"\nOptimisation complete.")
-        print(f"  Start : {start_peptide!r}  score={start_score:.4f}")
-        print(f"  Best  : {best_peptide!r}  score={best_score:.4f}")
-        print(f"  Improvement: {start_score - best_score:+.4f} log2-MIC units")
+        print(f"  Start : {start_peptide!r}  {start_score:.4f} log2 MIC  ({2**start_score:.1f} µM)")
+        print(f"  Best  : {best_peptide!r}  {best_score:.4f} log2 MIC  ({2**best_score:.1f} µM)")
+        print(f"  Improvement: {start_score - best_score:+.4f} log2 MIC  ({2**start_score / 2**best_score:.1f}x fold)")
         print(f"  Log saved  : {csv_path}")
 
     results = {
         "run_name": run_name or run_id,
         "best_peptide": best_peptide,
-        "best_score": best_score,
+        "best_log2mic": best_score,
+        "best_mic_uM": 2 ** best_score,
         "start_peptide": start_peptide,
-        "start_score": start_score,
-        "improvement": start_score - best_score,
+        "start_log2mic": start_score,
+        "start_mic_uM": 2 ** start_score,
+        "improvement_log2mic": start_score - best_score,
+        "fold_improvement": (2 ** start_score) / (2 ** best_score),
         "episode_rewards": episode_rewards,
         "all_best_scores": all_best_scores,
         "all_best_peptides": all_best_peptides,
         "trajectories": trajectories,
+        # legacy aliases kept for notebook compatibility
+        "best_score": best_score,
+        "start_score": start_score,
+        "improvement": start_score - best_score,
     }
 
     # ── persist results to JSON ───────────────────────────────────────────────
