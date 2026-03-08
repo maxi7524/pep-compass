@@ -215,7 +215,7 @@ def generate_candidates(
     #  Keep only mutations whose softmax probability exceeds the uniform baseline.
     #  This sharpens the action space to above-average candidates only.
     k = len(seqs)
-    keep = softmax_probs > (1.0 / k)
+    keep = softmax_probs > (1.0 / (1.2 * k))
     if keep.sum() == 0:
         keep[np.argmax(softmax_probs)] = True  # always keep the best one
     seqs = [s for s, m in zip(seqs, keep) if m]

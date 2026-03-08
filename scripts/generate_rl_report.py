@@ -43,15 +43,44 @@ SEED_ORDER = [
 # Data loading
 # ─────────────────────────────────────────────────────────────────────────────
 
+def _normalize_run(data: dict, fpath: str) -> dict:
+    """Normalize a single run's data, adding defaults and computed fields."""
+    data["_file"] = os.path.basename(fpath)
+    # normalise key names (support both old and new JSON schema)
+    data.setdefault("start_log2mic",       data.get("start_score", 0.0))
+    data.setdefault("best_log2mic",        data.get("best_score",  0.0))
+    data.setdefault("start_mic_uM",        2 ** data["start_log2mic"])
+    data.setdefault("best_mic_uM",         2 ** data["best_log2mic"])
+    data.setdefault("improvement_log2mic", data.get("improvement", 0.0))
+    data.setdefault("fold_improvement",
+                    data["start_mic_uM"] / max(data["best_mic_uM"], 1e-9))
+    data.setdefault("algorithm", "DQN")  # default for legacy files
+    return data
+
+
+def _get_seed_name_from_run(run: dict) -> str | None:
+    """Extract the seed peptide name from a run (stripping td3_ prefix if present)."""
+    name = run.get("run_name", run.get("_file", ""))
+    # Strip td3_ prefix for TD3 runs
+    if name.startswith("td3_"):
+        name = name[4:]
+    # Check if it matches a known seed
+    for seed in SEED_ORDER:
+        if seed in name:
+            return seed
+    return None
+
+
 def load_results(results_dir: str) -> list[dict]:
+    """Load DQN results (excluding TD3 runs) for backward compatibility."""
     pattern = os.path.join(results_dir, "*_results.json")
     files = sorted(glob.glob(pattern))
-    # keep only the 6 benchmark runs (exclude old unlabelled runs)
+    # keep only the 6 benchmark runs (exclude TD3 runs and old unlabelled runs)
     files = [f for f in files if any(
         n in os.path.basename(f)
         for n in ["middle-1", "jurand-2", "jurand-4", "jurand-7",
                   "mammuthusin-3", "hydrodamin-2"]
-    )]
+    ) and "td3_" not in os.path.basename(f)]
     if not files:
         raise FileNotFoundError(
             f"No benchmark result JSON files found in {results_dir!r}. "
@@ -61,16 +90,7 @@ def load_results(results_dir: str) -> list[dict]:
     for fpath in files:
         with open(fpath, encoding="utf-8") as fh:
             data = json.load(fh)
-        data["_file"] = os.path.basename(fpath)
-        # normalise key names (support both old and new JSON schema)
-        data.setdefault("start_log2mic",       data.get("start_score", 0.0))
-        data.setdefault("best_log2mic",        data.get("best_score",  0.0))
-        data.setdefault("start_mic_uM",        2 ** data["start_log2mic"])
-        data.setdefault("best_mic_uM",         2 ** data["best_log2mic"])
-        data.setdefault("improvement_log2mic", data.get("improvement", 0.0))
-        data.setdefault("fold_improvement",
-                        data["start_mic_uM"] / max(data["best_mic_uM"], 1e-9))
-        runs.append(data)
+        runs.append(_normalize_run(data, fpath))
 
     # sort by SEED_ORDER
     def sort_key(r):
@@ -82,6 +102,64 @@ def load_results(results_dir: str) -> list[dict]:
 
     runs.sort(key=sort_key)
     return runs
+
+
+def load_td3_results(results_dir: str) -> list[dict]:
+    """Load TD3 results (files with td3_ prefix in run_name or filename)."""
+    pattern = os.path.join(results_dir, "*_results.json")
+    files = sorted(glob.glob(pattern))
+    # keep only TD3 benchmark runs
+    files = [f for f in files if "td3_" in os.path.basename(f) and any(
+        n in os.path.basename(f)
+        for n in ["middle-1", "jurand-2", "jurand-4", "jurand-7",
+                  "mammuthusin-3", "hydrodamin-2"]
+    )]
+    runs: list[dict] = []
+    for fpath in files:
+        with open(fpath, encoding="utf-8") as fh:
+            data = json.load(fh)
+        data = _normalize_run(data, fpath)
+        data["algorithm"] = "TD3"
+        runs.append(data)
+
+    # sort by SEED_ORDER (stripping td3_ prefix for matching)
+    def sort_key(r):
+        seed = _get_seed_name_from_run(r)
+        if seed:
+            try:
+                return SEED_ORDER.index(seed)
+            except ValueError:
+                pass
+        return 99
+
+    runs.sort(key=sort_key)
+    return runs
+
+
+def load_all_results(results_dir: str) -> tuple[list[dict], list[dict]]:
+    """Load both DQN and TD3 results.
+    
+    Returns
+    -------
+    dqn_runs : list[dict]
+        DQN benchmark runs.
+    td3_runs : list[dict]
+        TD3 benchmark runs (may be empty if not yet run).
+    """
+    try:
+        dqn_runs = load_results(results_dir)
+    except FileNotFoundError:
+        dqn_runs = []
+    
+    td3_runs = load_td3_results(results_dir)
+    
+    if not dqn_runs and not td3_runs:
+        raise FileNotFoundError(
+            f"No benchmark result JSON files found in {results_dir!r}. "
+            "Run the optimiser first."
+        )
+    
+    return dqn_runs, td3_runs
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -607,6 +685,139 @@ def page_how_to_run(pdf: PdfPages) -> None:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Page 11 — DQN vs TD3 Comparison
+# ─────────────────────────────────────────────────────────────────────────────
+
+def page_dqn_vs_td3_comparison(
+    pdf: PdfPages, dqn_runs: list[dict], td3_runs: list[dict]
+) -> None:
+    """Generate a comparison page showing DQN vs TD3 best scores per seed."""
+    fig = _new_page(pdf, "DQN vs TD3 Comparison — Best log₂MIC per Seed")
+    
+    # Build comparison data aligned by seed
+    dqn_by_seed: dict[str, dict] = {}
+    for r in dqn_runs:
+        seed = _get_seed_name_from_run(r)
+        if seed and seed not in dqn_by_seed:
+            dqn_by_seed[seed] = r
+    
+    td3_by_seed: dict[str, dict] = {}
+    for r in td3_runs:
+        seed = _get_seed_name_from_run(r)
+        if seed and seed not in td3_by_seed:
+            td3_by_seed[seed] = r
+    
+    # Get list of seeds that have at least one result
+    all_seeds = [s for s in SEED_ORDER if s in dqn_by_seed or s in td3_by_seed]
+    
+    if not all_seeds:
+        # No data to compare
+        ax = fig.add_axes([0.1, 0.3, 0.8, 0.4])
+        ax.set_axis_off()
+        ax.text(0.5, 0.5, "No TD3 results available yet.\n\n"
+                "Run TD3 optimization first with:\n"
+                "  python scripts/rl_continuous_optimizer.py run_td3_all_peptides",
+                ha="center", va="center", fontsize=12,
+                transform=ax.transAxes)
+        _footer(fig)
+        _save(pdf, fig)
+        return
+    
+    # Create bar chart
+    ax = fig.add_axes([0.12, 0.20, 0.83, 0.65])
+    
+    x = np.arange(len(all_seeds))
+    w = 0.35
+    
+    # Get scores (use start score if algorithm wasn't run for that seed)
+    dqn_scores = []
+    td3_scores = []
+    start_scores = []
+    
+    for seed in all_seeds:
+        if seed in dqn_by_seed:
+            dqn_scores.append(dqn_by_seed[seed]["best_log2mic"])
+            start_scores.append(dqn_by_seed[seed]["start_log2mic"])
+        elif seed in td3_by_seed:
+            # DQN not run, use start score
+            dqn_scores.append(td3_by_seed[seed]["start_log2mic"])
+            start_scores.append(td3_by_seed[seed]["start_log2mic"])
+        else:
+            dqn_scores.append(np.nan)
+            start_scores.append(np.nan)
+        
+        if seed in td3_by_seed:
+            td3_scores.append(td3_by_seed[seed]["best_log2mic"])
+        elif seed in dqn_by_seed:
+            # TD3 not run, use start score
+            td3_scores.append(dqn_by_seed[seed]["start_log2mic"])
+        else:
+            td3_scores.append(np.nan)
+    
+    # Plot bars
+    dqn_bars = ax.bar(x - w/2, dqn_scores, w, label="DQN Best", 
+                      color="#2274A5", edgecolor="grey", linewidth=0.6)
+    td3_bars = ax.bar(x + w/2, td3_scores, w, label="TD3 Best",
+                      color="#E84855", edgecolor="grey", linewidth=0.6)
+    
+    # Plot start score reference line for each seed
+    for i, (seed, start) in enumerate(zip(all_seeds, start_scores)):
+        ax.hlines(start, i - 0.45, i + 0.45, colors="grey", 
+                  linestyles="--", linewidth=1, alpha=0.7)
+    
+    # Annotate bars with µM values
+    for bar, score in zip(dqn_bars, dqn_scores):
+        if not np.isnan(score):
+            mic = 2 ** score
+            ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.05,
+                    f"{mic:.1f}µM", ha="center", va="bottom", fontsize=6.5,
+                    color="#1a4a6b")
+    for bar, score in zip(td3_bars, td3_scores):
+        if not np.isnan(score):
+            mic = 2 ** score
+            ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.05,
+                    f"{mic:.1f}µM", ha="center", va="bottom", fontsize=6.5,
+                    color="#8b2233")
+    
+    ax.set_xticks(x)
+    ax.set_xticklabels(all_seeds, rotation=18, ha="right", fontsize=10)
+    ax.set_ylabel("Best log₂(MIC) achieved", fontsize=11)
+    ax.set_title("Lower = more potent.  Dashed lines = start scores.  "
+                 "Numbers above bars show MIC in µM.", fontsize=9, style="italic")
+    ax.legend(fontsize=10, loc="upper right")
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    ax.grid(axis="y", linestyle="--", alpha=0.4)
+    
+    # Add summary table below
+    ax_tbl = fig.add_axes([0.05, 0.02, 0.90, 0.12])
+    ax_tbl.set_axis_off()
+    
+    # Compute summary stats
+    dqn_wins = sum(1 for i, s in enumerate(all_seeds) 
+                   if s in dqn_by_seed and s in td3_by_seed
+                   and dqn_by_seed[s]["best_log2mic"] < td3_by_seed[s]["best_log2mic"])
+    td3_wins = sum(1 for i, s in enumerate(all_seeds)
+                   if s in dqn_by_seed and s in td3_by_seed
+                   and td3_by_seed[s]["best_log2mic"] < dqn_by_seed[s]["best_log2mic"])
+    ties = sum(1 for s in all_seeds 
+               if s in dqn_by_seed and s in td3_by_seed
+               and abs(dqn_by_seed[s]["best_log2mic"] - td3_by_seed[s]["best_log2mic"]) < 0.01)
+    
+    summary_text = (
+        f"Head-to-head comparison (seeds with both algorithms run):  "
+        f"DQN wins: {dqn_wins}  |  TD3 wins: {td3_wins}  |  Ties: {ties}\n"
+        f"DQN: Discrete actions via MUTANG++ mutation enumeration  |  "
+        f"TD3: Continuous actions directly in latent space"
+    )
+    ax_tbl.text(0.5, 0.5, summary_text, ha="center", va="center", fontsize=9,
+                transform=ax_tbl.transAxes)
+    
+    _footer(fig)
+    _save(pdf, fig)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Main
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -623,8 +834,12 @@ def main() -> None:
     os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
 
     print(f"Loading results from: {results_dir!r}")
-    runs = load_results(results_dir)
-    print(f"Found {len(runs)} benchmark run(s): {[r.get('run_name') for r in runs]}")
+    dqn_runs, td3_runs = load_all_results(results_dir)
+    print(f"Found {len(dqn_runs)} DQN run(s): {[r.get('run_name') for r in dqn_runs]}")
+    print(f"Found {len(td3_runs)} TD3 run(s): {[r.get('run_name') for r in td3_runs]}")
+    
+    # For backward compatibility, use DQN runs as the primary runs
+    runs = dqn_runs if dqn_runs else td3_runs
 
     print(f"Writing PDF → {output_path!r}")
     with PdfPages(output_path) as pdf:
@@ -632,19 +847,23 @@ def main() -> None:
         d = pdf.infodict()
         d["Title"]   = "RL Peptide Optimizer — Results Report"
         d["Author"]  = "pep-compass / generate_rl_report.py"
-        d["Subject"] = "DQN AMP optimisation in HydrAMP latent space"
+        d["Subject"] = "DQN and TD3 AMP optimisation in HydrAMP latent space"
         d["CreationDate"] = datetime.now()
 
         page_cover(pdf)
         page_methodology(pdf)
-        page_summary_table(pdf, runs)
-        page_mic_comparison(pdf, runs)
-        page_global_best_trajectories(pdf, runs)
-        page_reward_curves(pdf, runs)
+        if runs:
+            page_summary_table(pdf, runs)
+            page_mic_comparison(pdf, runs)
+            page_global_best_trajectories(pdf, runs)
+            page_reward_curves(pdf, runs)
         page_epsilon_schedule(pdf)
-        page_top_peptides(pdf, runs)
+        if runs:
+            page_top_peptides(pdf, runs)
         page_problems(pdf)
         page_how_to_run(pdf)
+        # DQN vs TD3 comparison page (always added, shows message if no TD3 data)
+        page_dqn_vs_td3_comparison(pdf, dqn_runs, td3_runs)
 
     print(f"\nDone!  {output_path}  ({os.path.getsize(output_path) // 1024} KB)")
 
