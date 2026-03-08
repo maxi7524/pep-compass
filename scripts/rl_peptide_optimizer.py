@@ -33,6 +33,16 @@ ALPHABET: list[str] = list(" ACDEFGHIKLMNPQRSTVWY")  # 21 tokens, index 0 = spac
 # APEX pathogen indices for the three E. coli strains used as the optimisation target
 ECOLI_INDICES: list[int] = [1, 2, 3]
 
+# The six benchmark seed peptides shared with the LEBO/LPBeBo optimization scripts
+SEED_PEPTIDES: dict[str, str] = {
+    "middle-1":      "FLYKWWIRIGRLKL",
+    "jurand-4":      "KYCRRFRWLTFRWL",
+    "jurand-2":      "KFRNRHRWKFKLIFRN",
+    "jurand-7":      "KKYWLIRKWIRLWFLT",
+    "mammuthusin-3": "KTLKIIRLLF",
+    "hydrodamin-2":  "RMARNLVRYVQGLKKKKVI",
+}
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Factory helpers
 # ──────────────────────────────────────────────────────────────────────────────
@@ -568,6 +578,7 @@ def run_rl_optimization(
     output_dir: str = "results",
     start_from_best: bool = False,
     per_episode_epsilon: bool = True,
+    run_name: str = "",
 ) -> None:
     """Run DQN-based peptide optimisation in the HydrAMP latent space.
 
@@ -575,6 +586,11 @@ def run_rl_optimization(
     *n_episodes* episodes of *max_steps* steps each, guided by APEX MIC
     predictions.  The objective is to minimise mean log2(MIC) over the three
     E. coli strains (APEX pathogen indices 1, 2, 3).
+
+    The episode reward equals the total improvement in the trajectory-best MIC
+    achieved during that episode:  reward = start_score − min(trajectory_scores).
+    Per-step rewards are non-zero only when the agent discovers a new
+    episode-best candidate, rewarding the *improvement beyond the running best*.
 
     Parameters
     ----------
@@ -592,7 +608,7 @@ def run_rl_optimization(
     batch_size        : Replay-buffer mini-batch size.
     buffer_capacity   : Maximum replay-buffer capacity.
     target_update_freq: Hard target-network update frequency (update steps).
-    output_dir        : Directory to save results JSON.
+    output_dir        : Directory to save results JSON and CSV.
     start_from_best   : If True, each episode starts from the best peptide found
                         so far instead of the fixed start_peptide. Encourages
                         continued frontier exploration.
@@ -600,6 +616,7 @@ def run_rl_optimization(
                         linearly decaying schedule (epsilon_start → epsilon_end
                         over n_episodes). Prevents premature convergence to the
                         first local optimum found.
+    run_name          : Optional tag prepended to the output file names.
     """
     from pep_compass.local_enumeration.mutation.mutation_enumerator import (
         MutationEnumerationInTangentSpace,
@@ -607,6 +624,11 @@ def run_rl_optimization(
     from pep_compass.local_enumeration.mutation.mutation_potentials import (
         DecoderLogProbPotential,
     )
+
+    import csv
+    import json
+    import os
+    import time
 
     # ── build models ──────────────────────────────────────────────────────────
     if verbose:
@@ -665,6 +687,22 @@ def run_rl_optimization(
             _score_cache[peptide] = float(score_peptides(apex, [peptide])[0])
         return _score_cache[peptide]
 
+    # ── output dir + run id ───────────────────────────────────────────────────
+    os.makedirs(output_dir, exist_ok=True)
+    prefix = f"{run_name}_" if run_name else ""
+    run_id = f"{prefix}rl_{int(time.time())}"
+
+    # ── CSV log (per-episode) ─────────────────────────────────────────────────
+    csv_path = os.path.join(output_dir, f"{run_id}_log.csv")
+    csv_file = open(csv_path, "w", newline="")
+    csv_writer = csv.writer(csv_file)
+    csv_writer.writerow([
+        "episode", "start_peptide", "ep_start_peptide", "ep_start_score",
+        "ep_best_peptide", "ep_best_score", "ep_reward",
+        "global_best_peptide", "global_best_score", "epsilon",
+    ])
+    csv_file.flush()
+
     # ── tracking containers ───────────────────────────────────────────────────
     best_peptide: str = start_peptide
     best_score: float = start_score
@@ -693,6 +731,8 @@ def run_rl_optimization(
             current_score = start_score
 
         ep_reward = 0.0
+        ep_start_score = current_score
+        ep_start_peptide = current_peptide
         ep_best_score = current_score
         ep_best_peptide = current_peptide
         trajectory: list[str] = [current_peptide]
@@ -708,7 +748,12 @@ def run_rl_optimization(
 
             # ── evaluate chosen candidate (cached) ────────────────────────────
             next_score: float = _get_score(chosen_seq)
-            reward: float = current_score - next_score  # positive = improved (lower MIC)
+
+            # Reward = improvement beyond the running episode-best score.
+            # Only positive when the agent finds a new trajectory minimum.
+            # The sum over an episode equals: ep_start_score − ep_best_score,
+            # i.e. the total MIC improvement achieved during the trajectory.
+            reward: float = max(0.0, ep_best_score - next_score)
             ep_reward += reward
             done: bool = step == max_steps - 1
 
@@ -764,51 +809,59 @@ def run_rl_optimization(
                     )
 
         # ── episode summary ───────────────────────────────────────────────────
+        ep_improvement = ep_start_score - ep_best_score  # = sum of step rewards
         episode_rewards.append(ep_reward)
         all_best_scores.append(ep_best_score)
         all_best_peptides.append(ep_best_peptide)
         trajectories.append(trajectory)
 
+        # write CSV row
+        csv_writer.writerow([
+            ep + 1, start_peptide, ep_start_peptide,
+            f"{ep_start_score:.6f}", ep_best_peptide, f"{ep_best_score:.6f}",
+            f"{ep_improvement:.6f}", best_peptide, f"{best_score:.6f}",
+            f"{agent.epsilon:.4f}",
+        ])
+        csv_file.flush()
+
         if verbose:
             print(
-                f"Episode {ep + 1:>3}/{n_episodes}  "
-                f"reward={ep_reward:+.3f}  "
-                f"ep_best_score={ep_best_score:.4f}  "
-                f"best_peptide={ep_best_peptide!r}  "
+                f"Ep {ep + 1:>3}/{n_episodes}  "
+                f"reward={ep_improvement:+.4f}  "
+                f"ep_best={ep_best_score:.4f} ({ep_best_peptide!r})  "
+                f"global_best={best_score:.4f}  "
                 f"ε={agent.epsilon:.3f}"
             )
+
+    csv_file.close()
 
     if verbose:
         print(f"\nOptimisation complete.")
         print(f"  Start : {start_peptide!r}  score={start_score:.4f}")
         print(f"  Best  : {best_peptide!r}  score={best_score:.4f}")
+        print(f"  Improvement: {start_score - best_score:+.4f} log2-MIC units")
+        print(f"  Log saved  : {csv_path}")
 
     results = {
+        "run_name": run_name or run_id,
         "best_peptide": best_peptide,
         "best_score": best_score,
         "start_peptide": start_peptide,
         "start_score": start_score,
+        "improvement": start_score - best_score,
         "episode_rewards": episode_rewards,
         "all_best_scores": all_best_scores,
         "all_best_peptides": all_best_peptides,
         "trajectories": trajectories,
-        "agent": agent,
     }
 
-    # ── persist results to disk ───────────────────────────────────────────────
-    import json
-    import os
-    import time
-
-    os.makedirs(output_dir, exist_ok=True)
-    run_id = f"rl_{int(time.time())}"
-    saveable = {k: v for k, v in results.items() if k != "agent"}
-    saveable["trajectories"] = [list(t) for t in saveable["trajectories"]]
+    # ── persist results to JSON ───────────────────────────────────────────────
+    results["trajectories"] = [list(t) for t in results["trajectories"]]
     out_path = os.path.join(output_dir, f"{run_id}_results.json")
     with open(out_path, "w") as fh:
-        json.dump(saveable, fh, indent=2)
+        json.dump(results, fh, indent=2)
     if verbose:
-        print(f"  Results saved → {out_path}")
+        print(f"  JSON saved : {out_path}")
 
 
 
@@ -947,6 +1000,79 @@ def test_components(peptide: str = "FLPKKVIPLL", device: str = "cpu") -> None:
 
 
 # ──────────────────────────────────────────────────────────────────────────────
+# Multi-peptide benchmark runner
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+def run_all_peptides(
+    n_episodes: int = 100,
+    max_steps: int = 20,
+    max_candidates: int = 40,
+    device: str = "cpu",
+    output_dir: str = "results",
+    lr: float = 1e-3,
+    gamma: float = 0.99,
+    epsilon_start: float = 1.0,
+    epsilon_end: float = 0.05,
+    epsilon_decay: float = 0.995,
+    batch_size: int = 32,
+    buffer_capacity: int = 10_000,
+    target_update_freq: int = 50,
+    start_from_best: bool = False,
+    peptide_name: str = "",
+) -> None:
+    """Run DQN optimisation for all six benchmark seed peptides.
+
+    Iterates over ``SEED_PEPTIDES``, calling :func:`run_rl_optimization` for each
+    one with a ``run_name`` equal to the peptide's key (e.g. "middle-1").
+    Results are saved as separate JSON + CSV files under *output_dir*, one pair
+    per seed peptide.
+
+    If *peptide_name* is provided (must be a key of ``SEED_PEPTIDES``), only that
+    single peptide is processed — convenient for SLURM array jobs.
+
+    Parameters
+    ----------
+    All parameters are forwarded verbatim to :func:`run_rl_optimization`.
+    peptide_name : Optional key into ``SEED_PEPTIDES``.  Empty string = run all.
+    """
+    import os
+
+    os.makedirs(output_dir, exist_ok=True)
+
+    targets = (
+        {peptide_name: SEED_PEPTIDES[peptide_name]}
+        if peptide_name
+        else SEED_PEPTIDES
+    )
+
+    for name, seq in targets.items():
+        print("\n" + "=" * 70)
+        print(f"  SEED: {name!r}  →  {seq!r}")
+        print("=" * 70)
+        run_rl_optimization(
+            start_peptide=seq,
+            n_episodes=n_episodes,
+            max_steps=max_steps,
+            max_candidates=max_candidates,
+            device=device,
+            output_dir=output_dir,
+            lr=lr,
+            gamma=gamma,
+            epsilon_start=epsilon_start,
+            epsilon_end=epsilon_end,
+            epsilon_decay=epsilon_decay,
+            batch_size=batch_size,
+            buffer_capacity=buffer_capacity,
+            target_update_freq=target_update_freq,
+            start_from_best=start_from_best,
+            run_name=name,
+            verbose=True,
+        )
+        print(f"  Done: {name!r}")
+
+
+# ──────────────────────────────────────────────────────────────────────────────
 # Entry point
 # ──────────────────────────────────────────────────────────────────────────────
 
@@ -956,6 +1082,7 @@ if __name__ == "__main__":
     fire.Fire(
         {
             "run_rl_optimization": run_rl_optimization,
+            "run_all_peptides": run_all_peptides,
             "test_components": test_components,
         }
     )
