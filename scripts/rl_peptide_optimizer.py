@@ -185,12 +185,34 @@ def generate_candidates(
     seqs: list[str] = mutant_dist.sequences
     log_pots: np.ndarray = mutant_dist.log_potentials  # sorted descending
 
-    # ── 4. Softmax over log-potentials for guided exploration ────────────────
+    # ── 4. Remove parent sequence — the decoder assigns it the highest
+    #       log-prob so it dominates the softmax unless explicitly excluded.
+    parent_stripped = peptide.strip()
+    mask_not_parent = np.array([s.strip() != parent_stripped for s in seqs])
+    if mask_not_parent.sum() == 0:
+        # All candidates decoded back to parent — return parent as fallback
+        candidate_zs = z_np[np.newaxis, :]
+        return [peptide], np.array([1.0]), candidate_zs
+    seqs = [s for s, m in zip(seqs, mask_not_parent) if m]
+    log_pots = log_pots[mask_not_parent]
+
+    # ── 5. Softmax over log-potentials ──────────────────────────────────────
     shifted = log_pots - log_pots.max()
     exp_pots = np.exp(shifted)
     softmax_probs: np.ndarray = exp_pots / exp_pots.sum()
 
-    # ── 5. Encode all candidates ─────────────────────────────────────────────
+    # ── 6. Filter to candidates above the uniform threshold 1/k ─────────────
+    #  Keep only mutations whose softmax probability exceeds the uniform baseline.
+    #  This sharpens the action space to above-average candidates only.
+    k = len(seqs)
+    keep = softmax_probs > (1.0 / k)
+    if keep.sum() == 0:
+        keep[np.argmax(softmax_probs)] = True  # always keep the best one
+    seqs = [s for s, m in zip(seqs, keep) if m]
+    softmax_probs = softmax_probs[keep]
+    softmax_probs = softmax_probs / softmax_probs.sum()  # renormalise
+
+    # ── 7. Encode surviving candidates ──────────────────────────────────────
     with torch.no_grad():
         z_tensor_batch: torch.Tensor = encoder_decoder.encode_peptides(seqs)
     candidate_zs: np.ndarray = z_tensor_batch.detach().cpu().numpy()  # (n, 64)
@@ -544,7 +566,9 @@ def run_rl_optimization(
     buffer_capacity: int = 10_000,
     target_update_freq: int = 50,
     output_dir: str = "results",
-) -> dict:
+    start_from_best: bool = False,
+    per_episode_epsilon: bool = True,
+) -> None:
     """Run DQN-based peptide optimisation in the HydrAMP latent space.
 
     Starting from *start_peptide*, the agent navigates the latent space for
@@ -568,19 +592,14 @@ def run_rl_optimization(
     batch_size        : Replay-buffer mini-batch size.
     buffer_capacity   : Maximum replay-buffer capacity.
     target_update_freq: Hard target-network update frequency (update steps).
-
-    Returns
-    -------
-    dict with keys:
-        best_peptide      : Best peptide string found across all episodes.
-        best_score        : Lowest mean log2(MIC) found.
-        start_peptide     : Input seed peptide.
-        start_score       : Seed peptide mean log2(MIC).
-        episode_rewards   : Total reward summed per episode.
-        all_best_scores   : Per-episode best mean log2(MIC).
-        all_best_peptides : Per-episode best peptide string.
-        trajectories      : Per-episode list of visited sequences.
-        agent             : The trained DQNAgent instance.
+    output_dir        : Directory to save results JSON.
+    start_from_best   : If True, each episode starts from the best peptide found
+                        so far instead of the fixed start_peptide. Encourages
+                        continued frontier exploration.
+    per_episode_epsilon: If True, reset ε at the start of every episode using a
+                        linearly decaying schedule (epsilon_start → epsilon_end
+                        over n_episodes). Prevents premature convergence to the
+                        first local optimum found.
     """
     from pep_compass.local_enumeration.mutation.mutation_enumerator import (
         MutationEnumerationInTangentSpace,
@@ -627,6 +646,25 @@ def run_rl_optimization(
     if verbose:
         print(f"Start score (mean log2 MIC over E.coli): {start_score:.4f}")
 
+    # ── candidate cache (keyed by peptide string) ────────────────────────────
+    _cand_cache: dict[str, tuple] = {}
+
+    def _get_candidates(peptide: str, z: np.ndarray) -> tuple:
+        if peptide not in _cand_cache:
+            _cand_cache[peptide] = generate_candidates(
+                peptide, z, encoder_decoder, mutation_enumerator,
+                log_prob_potential, max_candidates=max_candidates,
+            )
+        return _cand_cache[peptide]
+
+    # ── score cache (keyed by peptide string) ────────────────────────────────
+    _score_cache: dict[str, float] = {start_peptide: start_score}
+
+    def _get_score(peptide: str) -> float:
+        if peptide not in _score_cache:
+            _score_cache[peptide] = float(score_peptides(apex, [peptide])[0])
+        return _score_cache[peptide]
+
     # ── tracking containers ───────────────────────────────────────────────────
     best_peptide: str = start_peptide
     best_score: float = start_score
@@ -637,23 +675,30 @@ def run_rl_optimization(
 
     # ── episode loop ──────────────────────────────────────────────────────────
     for ep in range(n_episodes):
-        current_peptide = start_peptide
-        current_z = start_z.copy()
-        current_score = start_score
-        ep_reward = 0.0
-        ep_best_score = start_score
-        ep_best_peptide = start_peptide
-        trajectory: list[str] = [start_peptide]
+        # ── per-episode epsilon: linearly decay from epsilon_start → epsilon_end
+        if per_episode_epsilon:
+            frac = ep / max(n_episodes - 1, 1)
+            agent.epsilon = epsilon_start + frac * (epsilon_end - epsilon_start)
 
-        # Pre-generate candidates before the step loop so they can be reused
-        cand_seqs, cand_probs, cand_zs = generate_candidates(
-            current_peptide,
-            current_z,
-            encoder_decoder,
-            mutation_enumerator,
-            log_prob_potential,
-            max_candidates=max_candidates,
-        )
+        # ── episode starting point ────────────────────────────────────────────
+        if start_from_best and ep > 0:
+            current_peptide = best_peptide
+            with torch.no_grad():
+                _zt = encoder_decoder.encode_peptides([current_peptide])
+            current_z = _zt.detach().cpu().numpy()[0]
+            current_score = best_score
+        else:
+            current_peptide = start_peptide
+            current_z = start_z.copy()
+            current_score = start_score
+
+        ep_reward = 0.0
+        ep_best_score = current_score
+        ep_best_peptide = current_peptide
+        trajectory: list[str] = [current_peptide]
+
+        # Pre-generate candidates (cached)
+        cand_seqs, cand_probs, cand_zs = _get_candidates(current_peptide, current_z)
 
         for step in range(max_steps):
             # ── select action ─────────────────────────────────────────────────
@@ -661,21 +706,16 @@ def run_rl_optimization(
             chosen_seq: str = cand_seqs[action_idx]
             chosen_z: np.ndarray = cand_zs[action_idx].copy()  # (64,)
 
-            # ── evaluate chosen candidate ─────────────────────────────────────
-            next_score: float = float(score_peptides(apex, [chosen_seq])[0])
+            # ── evaluate chosen candidate (cached) ────────────────────────────
+            next_score: float = _get_score(chosen_seq)
             reward: float = current_score - next_score  # positive = improved (lower MIC)
             ep_reward += reward
             done: bool = step == max_steps - 1
 
-            # ── generate next-step candidates (needed for the TD target) ──────
+            # ── generate next-step candidates (cached) ────────────────────────
             if not done:
-                next_cand_seqs, next_cand_probs, next_cand_zs = generate_candidates(
-                    chosen_seq,
-                    chosen_z,
-                    encoder_decoder,
-                    mutation_enumerator,
-                    log_prob_potential,
-                    max_candidates=max_candidates,
+                next_cand_seqs, next_cand_probs, next_cand_zs = _get_candidates(
+                    chosen_seq, chosen_z
                 )
             else:
                 next_cand_seqs = []
@@ -718,15 +758,9 @@ def run_rl_optimization(
                 cand_probs = next_cand_probs
                 cand_zs = next_cand_zs
 
-                # Safety: regenerate if somehow empty
                 if len(cand_seqs) == 0:
-                    cand_seqs, cand_probs, cand_zs = generate_candidates(
-                        current_peptide,
-                        current_z,
-                        encoder_decoder,
-                        mutation_enumerator,
-                        log_prob_potential,
-                        max_candidates=max_candidates,
+                    cand_seqs, cand_probs, cand_zs = _get_candidates(
+                        current_peptide, current_z
                     )
 
         # ── episode summary ───────────────────────────────────────────────────
@@ -776,7 +810,6 @@ def run_rl_optimization(
     if verbose:
         print(f"  Results saved → {out_path}")
 
-    return results
 
 
 # ──────────────────────────────────────────────────────────────────────────────
