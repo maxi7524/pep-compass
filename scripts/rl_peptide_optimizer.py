@@ -1,0 +1,907 @@
+"""
+RL Peptide Optimizer using DQN in the HydrAMP latent space.
+
+Optimizes antimicrobial peptides by navigating the HydrAMP latent space
+using a Deep Q-Network. Candidates are generated via tangent-space mutation
+enumeration (MUTANG++) and scored by the APEX MIC predictor.
+
+Usage:
+    python rl_peptide_optimizer.py --start_peptide FLPKKVIPLL --n_episodes 50
+    python rl_peptide_optimizer.py test_components --peptide FLPKKVIPLL
+"""
+
+from __future__ import annotations
+
+import random
+from collections import deque
+from dataclasses import dataclass, field
+
+import numpy as np
+import torch
+import torch.nn as nn
+import torch.optim as optim
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Global constants
+# ──────────────────────────────────────────────────────────────────────────────
+
+LATENT_DIM: int = 64
+AMBIENT_DIM: int = 525  # 25 positions × 21 tokens (flattened)
+MAX_PEPTIDE_LEN: int = 25
+ALPHABET: list[str] = list(" ACDEFGHIKLMNPQRSTVWY")  # 21 tokens, index 0 = space
+
+# APEX pathogen indices for the three E. coli strains used as the optimisation target
+ECOLI_INDICES: list[int] = [1, 2, 3]
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Factory helpers
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+def build_encoder_decoder(device: str = "cpu"):
+    """Instantiate and return a HydrAMPEncoderDecoder."""
+    from pep_compass.models.encoder_decoder.hydramp_encoder_decoder import (
+        HydrAMPEncoderDecoder,
+    )
+
+    return HydrAMPEncoderDecoder(
+        jacobian_mode="approx",
+        device=device,
+        default_condition=torch.tensor([1.0, 1.0]),
+        temp=1.0,
+        jacobian_eps=0.05,
+        field_eps=0.05,
+    )
+
+
+def build_apex_predictor(device: str = "cpu"):
+    """Instantiate and return a PredictorAPEX."""
+    from pep_compass.models.apex.APEX_predictor import PredictorAPEX
+
+    return PredictorAPEX(device=device)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Jacobian / SVD utilities
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+def compute_jacobian_svd(
+    encoder_decoder,
+    z_tensor: torch.Tensor,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Compute the SVD of the decoder Jacobian at latent vector *z_tensor*.
+
+    Parameters
+    ----------
+    encoder_decoder:
+        A HydrAMPEncoderDecoder instance.
+    z_tensor:
+        1-D tensor of shape ``(LATENT_DIM,)`` representing the current point
+        in latent space.
+
+    Returns
+    -------
+    S_np : np.ndarray
+        Singular values, shape ``(LATENT_DIM,)`` == ``(64,)``.
+    U_np : np.ndarray
+        Left singular vectors (ambient tangent directions), shape
+        ``(AMBIENT_DIM, LATENT_DIM)`` == ``(525, 64)``.
+    """
+    J: torch.Tensor = encoder_decoder.decoder_jacobian(z_tensor)  # (525, 64)
+    # torch.linalg.svd with full_matrices=False gives:
+    #   U  : (525, 64)  – left singular vectors (ambient space)
+    #   S  : (64,)      – singular values
+    #   Vh : (64, 64)   – right singular vectors (latent space, transposed)
+    U, S, _Vh = torch.linalg.svd(J, full_matrices=False)
+    return S.cpu().numpy(), U.cpu().numpy()
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Candidate generation
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+def generate_candidates(
+    peptide: str,
+    z_np: np.ndarray,
+    encoder_decoder,
+    mutation_enumerator,
+    log_prob_potential,
+    max_candidates: int = 40,
+) -> tuple[list[str], np.ndarray, np.ndarray]:
+    """Generate candidate mutant peptides in the local tangent space.
+
+    Steps:
+    1. Compute the decoder Jacobian and its SVD at the current latent point.
+    2. Enumerate per-position amino-acid substitutions via
+       MutationEnumerationInTangentSpace.
+    3. Rank candidates with DecoderLogProbPotential via
+       compose_mutant_distribution.
+    4. Encode the top-k candidates with the encoder to obtain latent vectors.
+
+    Parameters
+    ----------
+    peptide:
+        Current amino-acid sequence (the "parent" peptide).
+    z_np:
+        Current latent vector as a numpy array of shape ``(LATENT_DIM,)``.
+    encoder_decoder:
+        HydrAMPEncoderDecoder instance.
+    mutation_enumerator:
+        MutationEnumerationInTangentSpace instance.
+    log_prob_potential:
+        DecoderLogProbPotential instance.
+    max_candidates:
+        Maximum number of candidate sequences to return.
+
+    Returns
+    -------
+    seqs : list[str]
+        Candidate peptide sequences (length ≤ max_candidates).
+    softmax_probs : np.ndarray
+        Normalised probabilities derived from log-potentials, shape ``(n,)``.
+    candidate_zs : np.ndarray
+        Encoded latent vectors for each candidate, shape ``(n, LATENT_DIM)``.
+    """
+    from pep_compass.local_enumeration.mutation.mutation_potentials import (
+        compose_mutant_distribution,
+    )
+
+    z_tensor = torch.tensor(z_np, dtype=torch.float32, device=encoder_decoder.device)
+
+    # ── 1. Jacobian SVD ──────────────────────────────────────────────────────
+    S_np, U_np = compute_jacobian_svd(encoder_decoder, z_tensor)
+
+    # ── 2. Enumerate mutations in tangent space ──────────────────────────────
+    mutations: dict[int, list[int]] = mutation_enumerator.get_mutations_from_s_u(
+        S_np, U_np
+    )
+
+    # Edge case: no mutations discovered → fall back to current peptide only
+    if not mutations:
+        candidate_zs = z_np[np.newaxis, :]  # (1, 64)
+        return [peptide], np.array([1.0]), candidate_zs
+
+    # ── 3. Rank with log-prob potential ─────────────────────────────────────
+    mutant_dist = compose_mutant_distribution(
+        parent_peptide=peptide,
+        mutations=mutations,
+        potential=log_prob_potential,
+        alphabet=ALPHABET,
+        max_len=MAX_PEPTIDE_LEN,
+        include_parent_residue=False,
+        top_k=max_candidates,
+    )
+
+    # Edge case: compose_mutant_distribution returned empty distribution
+    if not mutant_dist.sequences:
+        candidate_zs = z_np[np.newaxis, :]
+        return [peptide], np.array([1.0]), candidate_zs
+
+    seqs: list[str] = mutant_dist.sequences
+    log_pots: np.ndarray = mutant_dist.log_potentials  # sorted descending
+
+    # ── 4. Softmax over log-potentials for guided exploration ────────────────
+    shifted = log_pots - log_pots.max()
+    exp_pots = np.exp(shifted)
+    softmax_probs: np.ndarray = exp_pots / exp_pots.sum()
+
+    # ── 5. Encode all candidates ─────────────────────────────────────────────
+    with torch.no_grad():
+        z_tensor_batch: torch.Tensor = encoder_decoder.encode_peptides(seqs)
+    candidate_zs: np.ndarray = z_tensor_batch.cpu().numpy()  # (n, 64)
+
+    return seqs, softmax_probs, candidate_zs
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Scoring
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+def score_peptides(
+    apex_predictor,
+    peptides: list[str],
+    ecoli_indices: list[int] = ECOLI_INDICES,
+) -> np.ndarray:
+    """Score a list of peptides as mean log2(MIC) over selected E. coli strains.
+
+    Lower score = more potent (lower MIC).
+
+    Parameters
+    ----------
+    apex_predictor:
+        PredictorAPEX instance.
+    peptides:
+        List of amino-acid sequences.
+    ecoli_indices:
+        Column indices in APEX output corresponding to E. coli strains.
+
+    Returns
+    -------
+    scores : np.ndarray
+        Shape ``(n,)``. Mean log2(MIC) over the selected pathogens.
+    """
+    mic: np.ndarray = apex_predictor.predict(peptides)  # (n, n_pathogens), μM
+    mic_ecoli = mic[:, ecoli_indices]  # (n, len(ecoli_indices))
+    # Guard against non-positive MIC values before log2
+    mic_ecoli = np.clip(mic_ecoli, a_min=1e-6, a_max=None)
+    log2_mic = np.log2(mic_ecoli)  # (n, len(ecoli_indices))
+    return log2_mic.mean(axis=1)  # (n,)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Q-Network
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+class QNetwork(nn.Module):
+    """Deep Q-Network that estimates Q(state, action) for peptide optimisation.
+
+    Input  : concatenation of state latent vector and action latent vector
+             → 128-dimensional vector.
+    Output : scalar Q-value estimate.
+
+    Architecture: 128 → 256 → 128 → 64 → 1
+    Each hidden layer uses LayerNorm followed by ReLU activation.
+    """
+
+    def __init__(
+        self,
+        latent_dim: int = LATENT_DIM,
+    ) -> None:
+        super().__init__()
+        input_dim = latent_dim * 2  # state ∥ action
+        self.net = nn.Sequential(
+            nn.Linear(input_dim, 256),
+            nn.LayerNorm(256),
+            nn.ReLU(),
+            nn.Linear(256, 128),
+            nn.LayerNorm(128),
+            nn.ReLU(),
+            nn.Linear(128, 64),
+            nn.LayerNorm(64),
+            nn.ReLU(),
+            nn.Linear(64, 1),
+        )
+
+    def forward(self, state: torch.Tensor, action: torch.Tensor) -> torch.Tensor:
+        """Return Q-value(s) for (state, action) pair(s).
+
+        Parameters
+        ----------
+        state  : ``(..., LATENT_DIM)``
+        action : ``(..., LATENT_DIM)``
+
+        Returns
+        -------
+        q : ``(..., 1)`` or ``(...,)`` scalar Q-values.
+        """
+        x = torch.cat([state, action], dim=-1)
+        return self.net(x).squeeze(-1)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Replay buffer
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+@dataclass
+class Transition:
+    """Single experience tuple stored in the replay buffer.
+
+    Attributes
+    ----------
+    state : np.ndarray
+        Latent vector before the transition, shape ``(LATENT_DIM,)``.
+    action : np.ndarray
+        Latent vector of the chosen candidate (the "action"), shape
+        ``(LATENT_DIM,)``.
+    reward : float
+        Reward received for the transition.
+    next_state : np.ndarray
+        Latent vector after the transition (same as *action*), shape
+        ``(LATENT_DIM,)``.
+    done : bool
+        Whether this transition ends the episode.
+    next_candidates : np.ndarray
+        Encoded latent vectors of all candidates available at *next_state*,
+        shape ``(n_candidates, LATENT_DIM)``.  Empty array when ``done=True``.
+    """
+
+    state: np.ndarray
+    action: np.ndarray
+    reward: float
+    next_state: np.ndarray
+    done: bool
+    next_candidates: np.ndarray = field(default_factory=lambda: np.empty((0, LATENT_DIM)))
+
+
+class ReplayBuffer:
+    """Fixed-capacity circular replay buffer for DQN training."""
+
+    def __init__(self, capacity: int = 10_000) -> None:
+        self._buffer: deque[Transition] = deque(maxlen=capacity)
+
+    def push(self, transition: Transition) -> None:
+        """Add a single transition to the buffer."""
+        self._buffer.append(transition)
+
+    def sample(self, batch_size: int) -> list[Transition]:
+        """Sample *batch_size* transitions uniformly at random."""
+        return random.sample(self._buffer, batch_size)
+
+    def __len__(self) -> int:
+        return len(self._buffer)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# DQN Agent
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+class DQNAgent:
+    """Double-network DQN agent for peptide optimisation in latent space.
+
+    Uses epsilon-greedy exploration where the random fallback samples from the
+    softmax distribution over log-potentials (guided exploration) rather than
+    pure uniform random.
+
+    Parameters
+    ----------
+    latent_dim      : Dimensionality of the latent space (default 64).
+    lr              : Learning rate for the Adam optimiser.
+    gamma           : Discount factor γ.
+    epsilon_start   : Initial exploration rate.
+    epsilon_end     : Minimum exploration rate.
+    epsilon_decay   : Multiplicative decay applied per update step.
+    batch_size      : Mini-batch size for TD updates.
+    buffer_capacity : Maximum replay buffer size.
+    target_update_freq : Number of update steps between hard target-network syncs.
+    device          : PyTorch device string.
+    """
+
+    def __init__(
+        self,
+        latent_dim: int = LATENT_DIM,
+        lr: float = 1e-3,
+        gamma: float = 0.99,
+        epsilon_start: float = 1.0,
+        epsilon_end: float = 0.05,
+        epsilon_decay: float = 0.995,
+        batch_size: int = 32,
+        buffer_capacity: int = 10_000,
+        target_update_freq: int = 50,
+        device: str = "cpu",
+    ) -> None:
+        self.latent_dim = latent_dim
+        self.gamma = gamma
+        self.epsilon = epsilon_start
+        self.epsilon_end = epsilon_end
+        self.epsilon_decay = epsilon_decay
+        self.batch_size = batch_size
+        self.target_update_freq = target_update_freq
+        self.device = device
+
+        self.q_net = QNetwork(latent_dim).to(device)
+        self.target_net = QNetwork(latent_dim).to(device)
+        self.target_net.load_state_dict(self.q_net.state_dict())
+        self.target_net.eval()
+
+        self.optimizer = optim.Adam(self.q_net.parameters(), lr=lr)
+        self.replay_buffer = ReplayBuffer(buffer_capacity)
+
+        self._update_steps: int = 0
+
+    # ── action selection ──────────────────────────────────────────────────────
+
+    def select_action(
+        self,
+        current_z: np.ndarray,
+        candidate_zs: np.ndarray,
+        softmax_probs: np.ndarray,
+    ) -> int:
+        """Select an action (candidate index) via epsilon-greedy policy.
+
+        * With probability ε  → guided exploration: sample an index
+          proportional to *softmax_probs*.
+        * With probability 1-ε → exploitation: choose the candidate with the
+          highest Q-value under the online network.
+
+        Parameters
+        ----------
+        current_z     : Current latent state, shape ``(LATENT_DIM,)``.
+        candidate_zs  : Encoded candidates, shape ``(n, LATENT_DIM)``.
+        softmax_probs : Normalised softmax of log-potentials, shape ``(n,)``.
+
+        Returns
+        -------
+        int
+            Index of the chosen candidate.
+        """
+        n = len(candidate_zs)
+        if n == 0:
+            return 0
+
+        if random.random() < self.epsilon:
+            # Guided random: sample from mutant distribution probabilities
+            probs = softmax_probs if len(softmax_probs) == n else np.ones(n) / n
+            return int(np.random.choice(n, p=probs))
+
+        # Exploitation: argmax Q(s, a) over all candidates
+        self.q_net.eval()
+        with torch.no_grad():
+            state_t = torch.tensor(
+                np.tile(current_z, (n, 1)), dtype=torch.float32, device=self.device
+            )  # (n, 64)
+            actions_t = torch.tensor(
+                candidate_zs, dtype=torch.float32, device=self.device
+            )  # (n, 64)
+            q_values = self.q_net(state_t, actions_t)  # (n,)
+        return int(q_values.argmax().item())
+
+    # ── buffer interaction ────────────────────────────────────────────────────
+
+    def push(self, transition: Transition) -> None:
+        """Add a transition to the replay buffer."""
+        self.replay_buffer.push(transition)
+
+    # ── learning update ───────────────────────────────────────────────────────
+
+    def update(self) -> float | None:
+        """Perform one TD-learning update step.
+
+        Returns
+        -------
+        float or None
+            The training loss, or ``None`` if the buffer has too few samples.
+        """
+        if len(self.replay_buffer) < self.batch_size:
+            return None
+
+        self.q_net.train()
+        batch: list[Transition] = self.replay_buffer.sample(self.batch_size)
+
+        # ── assemble tensors ─────────────────────────────────────────────────
+        states = torch.tensor(
+            np.stack([t.state for t in batch]), dtype=torch.float32, device=self.device
+        )  # (B, 64)
+        actions = torch.tensor(
+            np.stack([t.action for t in batch]), dtype=torch.float32, device=self.device
+        )  # (B, 64)
+        rewards = torch.tensor(
+            [t.reward for t in batch], dtype=torch.float32, device=self.device
+        )  # (B,)
+        dones = torch.tensor(
+            [t.done for t in batch], dtype=torch.float32, device=self.device
+        )  # (B,)
+
+        # ── current Q-values ─────────────────────────────────────────────────
+        q_values = self.q_net(states, actions)  # (B,)
+
+        # ── target Q-values: r + γ * max_a' Q_target(s', a') ────────────────
+        with torch.no_grad():
+            next_q_max = torch.zeros(len(batch), device=self.device)
+            for i, transition in enumerate(batch):
+                if transition.done or len(transition.next_candidates) == 0:
+                    next_q_max[i] = 0.0
+                    continue
+                ns_np = transition.next_candidates  # (k, 64)
+                k = len(ns_np)
+                next_state_t = torch.tensor(
+                    np.tile(transition.next_state, (k, 1)),
+                    dtype=torch.float32,
+                    device=self.device,
+                )
+                next_actions_t = torch.tensor(
+                    ns_np, dtype=torch.float32, device=self.device
+                )
+                q_next = self.target_net(next_state_t, next_actions_t)  # (k,)
+                next_q_max[i] = q_next.max()
+
+        targets = rewards + self.gamma * next_q_max * (1.0 - dones)  # (B,)
+
+        # ── TD loss with gradient clipping ───────────────────────────────────
+        loss = nn.functional.mse_loss(q_values, targets)
+        self.optimizer.zero_grad()
+        loss.backward()
+        nn.utils.clip_grad_norm_(self.q_net.parameters(), max_norm=1.0)
+        self.optimizer.step()
+
+        # ── hard target-network sync ─────────────────────────────────────────
+        self._update_steps += 1
+        if self._update_steps % self.target_update_freq == 0:
+            self.target_net.load_state_dict(self.q_net.state_dict())
+
+        # ── epsilon decay ────────────────────────────────────────────────────
+        self.epsilon = max(self.epsilon_end, self.epsilon * self.epsilon_decay)
+
+        return loss.item()
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Main optimisation loop
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+def run_rl_optimization(
+    start_peptide: str = "FLPKKVIPLL",
+    n_episodes: int = 50,
+    max_steps: int = 20,
+    max_candidates: int = 40,
+    device: str = "cpu",
+    verbose: bool = True,
+    lr: float = 1e-3,
+    gamma: float = 0.99,
+    epsilon_start: float = 1.0,
+    epsilon_end: float = 0.05,
+    epsilon_decay: float = 0.995,
+    batch_size: int = 32,
+    buffer_capacity: int = 10_000,
+    target_update_freq: int = 50,
+) -> dict:
+    """Run DQN-based peptide optimisation in the HydrAMP latent space.
+
+    Starting from *start_peptide*, the agent navigates the latent space for
+    *n_episodes* episodes of *max_steps* steps each, guided by APEX MIC
+    predictions.  The objective is to minimise mean log2(MIC) over the three
+    E. coli strains (APEX pathogen indices 1, 2, 3).
+
+    Parameters
+    ----------
+    start_peptide     : Amino-acid sequence of the seed peptide.
+    n_episodes        : Number of training episodes.
+    max_steps         : Maximum transitions per episode.
+    max_candidates    : Maximum number of mutant candidates per step.
+    device            : PyTorch device ("cpu" or "cuda").
+    verbose           : Print per-episode summaries when True.
+    lr                : Learning rate.
+    gamma             : Discount factor.
+    epsilon_start     : Initial ε for ε-greedy exploration.
+    epsilon_end       : Minimum ε.
+    epsilon_decay     : Per-update multiplicative ε decay factor.
+    batch_size        : Replay-buffer mini-batch size.
+    buffer_capacity   : Maximum replay-buffer capacity.
+    target_update_freq: Hard target-network update frequency (update steps).
+
+    Returns
+    -------
+    dict with keys:
+        best_peptide      : Best peptide string found across all episodes.
+        best_score        : Lowest mean log2(MIC) found.
+        start_peptide     : Input seed peptide.
+        start_score       : Seed peptide mean log2(MIC).
+        episode_rewards   : Total reward summed per episode.
+        all_best_scores   : Per-episode best mean log2(MIC).
+        all_best_peptides : Per-episode best peptide string.
+        trajectories      : Per-episode list of visited sequences.
+        agent             : The trained DQNAgent instance.
+    """
+    from pep_compass.local_enumeration.mutation.mutation_enumerator import (
+        MutationEnumerationInTangentSpace,
+    )
+    from pep_compass.local_enumeration.mutation.mutation_potentials import (
+        DecoderLogProbPotential,
+    )
+
+    # ── build models ──────────────────────────────────────────────────────────
+    if verbose:
+        print("Loading models …")
+    encoder_decoder = build_encoder_decoder(device)
+    apex = build_apex_predictor(device)
+
+    mutation_enumerator = MutationEnumerationInTangentSpace(
+        max_len=MAX_PEPTIDE_LEN,
+        direction_significance_threshold=1e-3,
+        min_number_of_directions=5,
+        token_threshold=0.1,
+    )
+    log_prob_potential = DecoderLogProbPotential(encoder_decoder=encoder_decoder)
+
+    agent = DQNAgent(
+        latent_dim=LATENT_DIM,
+        lr=lr,
+        gamma=gamma,
+        epsilon_start=epsilon_start,
+        epsilon_end=epsilon_end,
+        epsilon_decay=epsilon_decay,
+        batch_size=batch_size,
+        buffer_capacity=buffer_capacity,
+        target_update_freq=target_update_freq,
+        device=device,
+    )
+
+    # ── encode start peptide and compute baseline score ───────────────────────
+    if verbose:
+        print(f"Encoding start peptide: {start_peptide!r}")
+    with torch.no_grad():
+        start_z_tensor: torch.Tensor = encoder_decoder.encode_peptides([start_peptide])
+    start_z: np.ndarray = start_z_tensor.cpu().numpy()[0]  # (64,)
+    start_score: float = float(score_peptides(apex, [start_peptide])[0])
+
+    if verbose:
+        print(f"Start score (mean log2 MIC over E.coli): {start_score:.4f}")
+
+    # ── tracking containers ───────────────────────────────────────────────────
+    best_peptide: str = start_peptide
+    best_score: float = start_score
+    episode_rewards: list[float] = []
+    all_best_scores: list[float] = []
+    all_best_peptides: list[str] = []
+    trajectories: list[list[str]] = []
+
+    # ── episode loop ──────────────────────────────────────────────────────────
+    for ep in range(n_episodes):
+        current_peptide = start_peptide
+        current_z = start_z.copy()
+        current_score = start_score
+        ep_reward = 0.0
+        ep_best_score = start_score
+        ep_best_peptide = start_peptide
+        trajectory: list[str] = [start_peptide]
+
+        # Pre-generate candidates before the step loop so they can be reused
+        cand_seqs, cand_probs, cand_zs = generate_candidates(
+            current_peptide,
+            current_z,
+            encoder_decoder,
+            mutation_enumerator,
+            log_prob_potential,
+            max_candidates=max_candidates,
+        )
+
+        for step in range(max_steps):
+            # ── select action ─────────────────────────────────────────────────
+            action_idx: int = agent.select_action(current_z, cand_zs, cand_probs)
+            chosen_seq: str = cand_seqs[action_idx]
+            chosen_z: np.ndarray = cand_zs[action_idx].copy()  # (64,)
+
+            # ── evaluate chosen candidate ─────────────────────────────────────
+            next_score: float = float(score_peptides(apex, [chosen_seq])[0])
+            reward: float = current_score - next_score  # positive = improved (lower MIC)
+            ep_reward += reward
+            done: bool = step == max_steps - 1
+
+            # ── generate next-step candidates (needed for the TD target) ──────
+            if not done:
+                next_cand_seqs, next_cand_probs, next_cand_zs = generate_candidates(
+                    chosen_seq,
+                    chosen_z,
+                    encoder_decoder,
+                    mutation_enumerator,
+                    log_prob_potential,
+                    max_candidates=max_candidates,
+                )
+            else:
+                next_cand_seqs = []
+                next_cand_probs = np.empty(0)
+                next_cand_zs = np.empty((0, LATENT_DIM))
+
+            # ── store transition ──────────────────────────────────────────────
+            agent.push(
+                Transition(
+                    state=current_z,
+                    action=chosen_z,
+                    reward=reward,
+                    next_state=chosen_z,
+                    done=done,
+                    next_candidates=next_cand_zs,
+                )
+            )
+
+            # ── learn ─────────────────────────────────────────────────────────
+            agent.update()
+
+            # ── bookkeeping ───────────────────────────────────────────────────
+            if next_score < ep_best_score:
+                ep_best_score = next_score
+                ep_best_peptide = chosen_seq
+            if next_score < best_score:
+                best_score = next_score
+                best_peptide = chosen_seq
+
+            trajectory.append(chosen_seq)
+
+            # ── advance state ─────────────────────────────────────────────────
+            current_z = chosen_z
+            current_score = next_score
+            current_peptide = chosen_seq
+
+            # Reuse next candidates as current candidates for the next step
+            if not done:
+                cand_seqs = next_cand_seqs
+                cand_probs = next_cand_probs
+                cand_zs = next_cand_zs
+
+                # Safety: regenerate if somehow empty
+                if len(cand_seqs) == 0:
+                    cand_seqs, cand_probs, cand_zs = generate_candidates(
+                        current_peptide,
+                        current_z,
+                        encoder_decoder,
+                        mutation_enumerator,
+                        log_prob_potential,
+                        max_candidates=max_candidates,
+                    )
+
+        # ── episode summary ───────────────────────────────────────────────────
+        episode_rewards.append(ep_reward)
+        all_best_scores.append(ep_best_score)
+        all_best_peptides.append(ep_best_peptide)
+        trajectories.append(trajectory)
+
+        if verbose:
+            print(
+                f"Episode {ep + 1:>3}/{n_episodes}  "
+                f"reward={ep_reward:+.3f}  "
+                f"ep_best_score={ep_best_score:.4f}  "
+                f"best_peptide={ep_best_peptide!r}  "
+                f"ε={agent.epsilon:.3f}"
+            )
+
+    if verbose:
+        print(f"\nOptimisation complete.")
+        print(f"  Start : {start_peptide!r}  score={start_score:.4f}")
+        print(f"  Best  : {best_peptide!r}  score={best_score:.4f}")
+
+    return {
+        "best_peptide": best_peptide,
+        "best_score": best_score,
+        "start_peptide": start_peptide,
+        "start_score": start_score,
+        "episode_rewards": episode_rewards,
+        "all_best_scores": all_best_scores,
+        "all_best_peptides": all_best_peptides,
+        "trajectories": trajectories,
+        "agent": agent,
+    }
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Smoke test
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+def test_components(peptide: str = "FLPKKVIPLL", device: str = "cpu") -> None:
+    """Smoke-test all pipeline components end-to-end.
+
+    Verifies that all API calls succeed and return the expected shapes /
+    types.  Intended to be called before a full training run.
+
+    Parameters
+    ----------
+    peptide : Amino-acid sequence used as the test input.
+    device  : PyTorch device string.
+    """
+    from pep_compass.local_enumeration.mutation.mutation_enumerator import (
+        MutationEnumerationInTangentSpace,
+    )
+    from pep_compass.local_enumeration.mutation.mutation_potentials import (
+        DecoderLogProbPotential,
+        compose_mutant_distribution,
+    )
+
+    print("=" * 60)
+    print("Smoke-testing RL peptide optimiser components")
+    print(f"  Peptide : {peptide!r}")
+    print(f"  Device  : {device}")
+    print("=" * 60)
+
+    # ── 1. Encoder / Decoder ──────────────────────────────────────────────────
+    print("\n[1] HydrAMPEncoderDecoder …")
+    enc_dec = build_encoder_decoder(device)
+    assert enc_dec.latent_dim == LATENT_DIM, "latent_dim mismatch"
+    assert enc_dec.ambient_dim == AMBIENT_DIM, "ambient_dim mismatch"
+
+    z_tensor = enc_dec.encode_peptides([peptide])  # (1, 64)
+    assert z_tensor.shape == (1, LATENT_DIM), f"Expected (1,64), got {z_tensor.shape}"
+
+    decoded = enc_dec.decode_peptides(z_tensor)
+    assert len(decoded) == 1, "decode_peptides should return list of length 1"
+    print(f"    encode → {z_tensor.shape}  decode → {decoded!r}  ✓")
+
+    # ── 2. Jacobian + SVD ────────────────────────────────────────────────────
+    print("\n[2] decoder_jacobian + SVD …")
+    z_1d = z_tensor[0]  # (64,)
+    S_np, U_np = compute_jacobian_svd(enc_dec, z_1d)
+    assert S_np.shape == (LATENT_DIM,), f"S shape expected ({LATENT_DIM},), got {S_np.shape}"
+    assert U_np.shape == (AMBIENT_DIM, LATENT_DIM), (
+        f"U shape expected ({AMBIENT_DIM},{LATENT_DIM}), got {U_np.shape}"
+    )
+    print(f"    S: {S_np.shape}  U: {U_np.shape}  ✓")
+
+    # ── 3. Mutation enumerator ────────────────────────────────────────────────
+    print("\n[3] MutationEnumerationInTangentSpace …")
+    mut_enum = MutationEnumerationInTangentSpace(
+        max_len=MAX_PEPTIDE_LEN,
+        direction_significance_threshold=1e-3,
+        min_number_of_directions=5,
+        token_threshold=0.1,
+    )
+    mutations = mut_enum.get_mutations_from_s_u(S_np, U_np)
+    print(f"    mutations dict: {len(mutations)} positions  ✓")
+
+    # ── 4. DecoderLogProbPotential ────────────────────────────────────────────
+    print("\n[4] DecoderLogProbPotential …")
+    pot = DecoderLogProbPotential(encoder_decoder=enc_dec)
+    if mutations:
+        potentials = pot.compute(peptide, mutations)
+        assert isinstance(potentials, dict), "potential.compute should return dict"
+        print(f"    potentials: {len(potentials)} positions  ✓")
+    else:
+        print("    (no mutations – skipping potential.compute)  ✓")
+
+    # ── 5. compose_mutant_distribution ───────────────────────────────────────
+    print("\n[5] compose_mutant_distribution …")
+    if mutations:
+        mutant_dist = compose_mutant_distribution(
+            parent_peptide=peptide,
+            mutations=mutations,
+            potential=pot,
+            alphabet=ALPHABET,
+            max_len=MAX_PEPTIDE_LEN,
+            include_parent_residue=False,
+            top_k=10,
+        )
+        print(
+            f"    sequences: {len(mutant_dist.sequences)}  "
+            f"log_potentials shape: {mutant_dist.log_potentials.shape}  ✓"
+        )
+    else:
+        print("    (no mutations – skipping)  ✓")
+
+    # ── 6. generate_candidates ────────────────────────────────────────────────
+    print("\n[6] generate_candidates …")
+    z_np = z_1d.cpu().numpy()
+    seqs, probs, cand_zs = generate_candidates(
+        peptide, z_np, enc_dec, mut_enum, pot, max_candidates=10
+    )
+    assert cand_zs.ndim == 2 and cand_zs.shape[1] == LATENT_DIM, (
+        f"candidate_zs shape error: {cand_zs.shape}"
+    )
+    assert len(seqs) == len(probs) == len(cand_zs), "Mismatched candidate lengths"
+    assert abs(probs.sum() - 1.0) < 1e-5, "Probabilities must sum to 1"
+    print(f"    {len(seqs)} candidates, zs: {cand_zs.shape}  ✓")
+
+    # ── 7. APEX predictor ─────────────────────────────────────────────────────
+    print("\n[7] PredictorAPEX …")
+    apex = build_apex_predictor(device)
+    scores = score_peptides(apex, [peptide])
+    assert scores.shape == (1,), f"Expected (1,), got {scores.shape}"
+    print(f"    score for {peptide!r}: {scores[0]:.4f} (mean log2 MIC over E.coli)  ✓")
+
+    # ── 8. QNetwork ───────────────────────────────────────────────────────────
+    print("\n[8] QNetwork …")
+    qnet = QNetwork(LATENT_DIM)
+    dummy_s = torch.zeros(1, LATENT_DIM)
+    dummy_a = torch.zeros(1, LATENT_DIM)
+    q_out = qnet(dummy_s, dummy_a)
+    assert q_out.shape == (1,), f"Expected (1,), got {q_out.shape}"
+    print(f"    Q-value shape: {q_out.shape}  ✓")
+
+    # ── 9. DQNAgent (select_action) ───────────────────────────────────────────
+    print("\n[9] DQNAgent.select_action …")
+    agent = DQNAgent(device=device)
+    idx = agent.select_action(z_np, cand_zs, probs)
+    assert 0 <= idx < len(seqs), f"action index {idx} out of range [0, {len(seqs)})"
+    print(f"    selected action idx: {idx}  ✓")
+
+    print("\n" + "=" * 60)
+    print("All component tests passed ✓")
+    print("=" * 60)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Entry point
+# ──────────────────────────────────────────────────────────────────────────────
+
+if __name__ == "__main__":
+    import fire
+
+    fire.Fire(
+        {
+            "run_rl_optimization": run_rl_optimization,
+            "test_components": test_components,
+        }
+    )
