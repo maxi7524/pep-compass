@@ -80,7 +80,8 @@ def load_results(results_dir: str) -> list[dict]:
         n in os.path.basename(f)
         for n in ["middle-1", "jurand-2", "jurand-4", "jurand-7",
                   "mammuthusin-3", "hydrodamin-2"]
-    ) and "td3_" not in os.path.basename(f)]
+    ) and "td3_" not in os.path.basename(f)
+        and "_a2c_" not in os.path.basename(f)]
     if not files:
         raise FileNotFoundError(
             f"No benchmark result JSON files found in {results_dir!r}. "
@@ -463,11 +464,15 @@ def page_global_best_trajectories(pdf: PdfPages, runs: list[dict]) -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 
 def page_reward_curves(pdf: PdfPages, runs: list[dict]) -> None:
+    n = min(len(runs), 6)  # cap at 6 subplots per page
+    runs = runs[:n]
+    ncols = 3
+    nrows = math.ceil(n / ncols)
     fig = _new_page(pdf, "Per-Episode Reward (= episode log₂MIC improvement)")
-    gs = gridspec.GridSpec(2, 3, figure=fig, hspace=0.55, wspace=0.40,
+    gs = gridspec.GridSpec(nrows, ncols, figure=fig, hspace=0.55, wspace=0.40,
                            left=0.08, right=0.97, top=0.88, bottom=0.08)
     for idx, r in enumerate(runs):
-        row, col = divmod(idx, 3)
+        row, col = divmod(idx, ncols)
         ax = fig.add_subplot(gs[row, col])
         name = r.get("run_name", r["_file"])
         ep_rewards  = r["episode_rewards"]
@@ -491,8 +496,8 @@ def page_reward_curves(pdf: PdfPages, runs: list[dict]) -> None:
         ax2.tick_params(axis="y", labelcolor="#E84855")
 
     # hide unused subplots
-    for idx in range(len(runs), 6):
-        row, col = divmod(idx, 3)
+    for idx in range(n, nrows * ncols):
+        row, col = divmod(idx, ncols)
         fig.add_subplot(gs[row, col]).set_visible(False)
 
     _footer(fig)
