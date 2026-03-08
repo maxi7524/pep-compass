@@ -88,13 +88,16 @@ def compute_jacobian_svd(
         Left singular vectors (ambient tangent directions), shape
         ``(AMBIENT_DIM, LATENT_DIM)`` == ``(525, 64)``.
     """
-    J: torch.Tensor = encoder_decoder.decoder_jacobian(z_tensor)  # (525, 64)
+    z_2d = z_tensor.unsqueeze(0) if z_tensor.ndim == 1 else z_tensor  # ensure (1, 64)
+    J: torch.Tensor = encoder_decoder.decoder_jacobian(z_2d)  # (1, 525, 64) or (525, 64)
+    if J.ndim == 3:
+        J = J.squeeze(0)  # → (525, 64)
     # torch.linalg.svd with full_matrices=False gives:
     #   U  : (525, 64)  – left singular vectors (ambient space)
     #   S  : (64,)      – singular values
     #   Vh : (64, 64)   – right singular vectors (latent space, transposed)
     U, S, _Vh = torch.linalg.svd(J, full_matrices=False)
-    return S.cpu().numpy(), U.cpu().numpy()
+    return S.detach().cpu().numpy(), U.detach().cpu().numpy()
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -190,7 +193,7 @@ def generate_candidates(
     # ── 5. Encode all candidates ─────────────────────────────────────────────
     with torch.no_grad():
         z_tensor_batch: torch.Tensor = encoder_decoder.encode_peptides(seqs)
-    candidate_zs: np.ndarray = z_tensor_batch.cpu().numpy()  # (n, 64)
+    candidate_zs: np.ndarray = z_tensor_batch.detach().cpu().numpy()  # (n, 64)
 
     return seqs, softmax_probs, candidate_zs
 
@@ -540,6 +543,7 @@ def run_rl_optimization(
     batch_size: int = 32,
     buffer_capacity: int = 10_000,
     target_update_freq: int = 50,
+    output_dir: str = "results",
 ) -> dict:
     """Run DQN-based peptide optimisation in the HydrAMP latent space.
 
@@ -617,7 +621,7 @@ def run_rl_optimization(
         print(f"Encoding start peptide: {start_peptide!r}")
     with torch.no_grad():
         start_z_tensor: torch.Tensor = encoder_decoder.encode_peptides([start_peptide])
-    start_z: np.ndarray = start_z_tensor.cpu().numpy()[0]  # (64,)
+    start_z: np.ndarray = start_z_tensor.detach().cpu().numpy()[0]  # (64,)
     start_score: float = float(score_peptides(apex, [start_peptide])[0])
 
     if verbose:
@@ -745,7 +749,7 @@ def run_rl_optimization(
         print(f"  Start : {start_peptide!r}  score={start_score:.4f}")
         print(f"  Best  : {best_peptide!r}  score={best_score:.4f}")
 
-    return {
+    results = {
         "best_peptide": best_peptide,
         "best_score": best_score,
         "start_peptide": start_peptide,
@@ -756,6 +760,23 @@ def run_rl_optimization(
         "trajectories": trajectories,
         "agent": agent,
     }
+
+    # ── persist results to disk ───────────────────────────────────────────────
+    import json
+    import os
+    import time
+
+    os.makedirs(output_dir, exist_ok=True)
+    run_id = f"rl_{int(time.time())}"
+    saveable = {k: v for k, v in results.items() if k != "agent"}
+    saveable["trajectories"] = [list(t) for t in saveable["trajectories"]]
+    out_path = os.path.join(output_dir, f"{run_id}_results.json")
+    with open(out_path, "w") as fh:
+        json.dump(saveable, fh, indent=2)
+    if verbose:
+        print(f"  Results saved → {out_path}")
+
+    return results
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -853,7 +874,7 @@ def test_components(peptide: str = "FLPKKVIPLL", device: str = "cpu") -> None:
 
     # ── 6. generate_candidates ────────────────────────────────────────────────
     print("\n[6] generate_candidates …")
-    z_np = z_1d.cpu().numpy()
+    z_np = z_1d.detach().cpu().numpy()
     seqs, probs, cand_zs = generate_candidates(
         peptide, z_np, enc_dec, mut_enum, pot, max_candidates=10
     )
