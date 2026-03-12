@@ -17,7 +17,7 @@ latent space $\mathbb{R}^{64}$.  Once a mutation is selected, the system must
 *travel* in latent space from the parent encoding $z_{\text{parent}}$ to a
 point whose decoded peptide matches the intended mutant.
 
-Two design questions arise:
+Three design questions arise:
 
 1. **Direction:** Should the latent displacement be computed via a
    pseudoinverse projection of the one-hot ambient mutation vector
@@ -512,12 +512,154 @@ $z_{\text{mutant}}$.  Therefore:
 ## Appendix: Reproduction
 
 ```bash
-# Run the experiment (CPU, ~10-15 min)
+# Baseline 4-config experiment (CPU, ~10-15 min)
 python scripts/geodesic_mutation_check.py --device cpu
 
-# Results are saved to:
-#   results/geodesic_mutation_check_results.json
+# Multi-step re-projection experiment
+python scripts/geodesic_mutation_check.py --multistep --euler-steps 20 --major-steps 5
+
+# Gradient ascent experiment
+python scripts/geodesic_mutation_check.py --gradient --grad-lr 0.01 --grad-steps 150 --grad-alpha 0.1
+
+# Results saved to results/geodesic_*.json
 ```
 
 The script requires a trained HydrAMP encoder-decoder checkpoint accessible
 via `build_encoder_decoder()` from `scripts/rl_peptide_optimizer.py`.
+
+
+---
+
+## 7. Phase 2: Why the Projected Direction Fails & Multi-Step Remedies
+
+### 7.1 Root Cause Analysis
+
+We investigated **why** $v_{\text{proj}} = J_H^+ e_{\text{mut}}$ has near-zero
+cosine similarity with $v_{\text{enc}} = z_{\text{mutant}} - z_{\text{parent}}$.
+
+**Diagnostic 1 — Direction evolution along the encoding path.**
+Interpolating $z(\alpha) = z_{\text{parent}} + \alpha \, v_{\text{enc}}$ and
+re-computing $v_{\text{proj}}(\alpha) = J_H^+(z(\alpha))\, e_{\text{mut}}$
+reveals:
+
+| $\alpha$ | $\lVert v_{\text{proj}}\rVert$ | $\cos(v_{\text{proj}}, v_{\text{enc}})$ | decoded AA at mut pos |
+|----------|-----------------------|-----------------------------------------|-----------------------|
+| 0.0      | 321.9                 | −0.15                                   | K (parent)            |
+| 0.1      | 11.9                  | −0.04                                   | K                     |
+| 0.2      | 2.7                   | +0.08                                   | K                     |
+| 0.3      | 1.6                   | −0.13                                   | **W (mutant)**        |
+| ≥ 0.5    | 0.0                   | 0.00                                    | W                     |
+
+Key observations:
+- The pseudoinverse **amplifies massively** at $z_{\text{parent}}$ ($\lVert v_{\text{proj}}\rVert = 322$) because the decoder is barely sensitive to the mutation direction there.
+- The mutation "happens" at $\alpha \approx 0.3$ (only 30% of the way to $z_{\text{mutant}}$), after which $\lVert v_{\text{proj}}\rVert \to 0$.
+- The cosine **never exceeds 0.1** — the projected direction is always nearly orthogonal to the encoder direction.
+
+**Diagnostic 2 — Ambient vector choice doesn't matter.**
+We tested three ambient vectors:
+- $e_{\text{onehot}}$: one-hot at the mutant amino acid
+- $e_{\text{diff}} = e_{\text{mut}} - e_{\text{parent}}$: signed one-hot
+- $\Delta p = \text{decoder}(z_{\text{mut}}) - \text{decoder}(z_{\text{parent}})$: actual decoder difference
+
+All three produce **identical** projected directions (same cosine −0.15), confirming the issue is in $J_H^+$, not in the ambient vector.
+
+### 7.2 Multi-Step Methods (Euler Re-projection)
+
+We implemented three multi-step approaches:
+
+1. **Euler re-projection** (`euler_reproj`): $z_{t+1} = z_t + h \cdot \frac{J_H^+(z_t) e_{\text{mut}}}{\lVert J_H^+(z_t) e_{\text{mut}}\rVert}$
+2. **Geodesic with live $\Gamma$** (`geo_live`): Recompute Christoffel symbols at each segment
+3. **Geodesic with re-projection** (`geo_reproj`): Recompute both $\Gamma$ and $v_{\text{proj}}$
+
+**Results on middle-1 (5 mutations):**
+- `euler_reproj(N=10–100)`: Consistently reaches **h=1** but never h=0. The flow gets close but follows a different path than the encoder.
+- `geo_live(5)` and `geo_reproj(5)`: Sometimes match `euler_reproj`, sometimes **diverge** (h=23, $d \to \infty$) for certain mutations.
+- $d(z_{\text{endpoint}}, z_{\text{mutant}})$ remains $\approx 0.88$ (unchanged from initial distance), confirming the flow does not approach the encoder's target.
+- Increasing to N=100 steps does **not** improve results — the field $J_H^+(z) \, e_{\text{mut}}$ does not converge toward $z_{\text{mutant}}$.
+
+**Conclusion on projected direction:** The vector field $v(z) = J_H^+(z) \, e_{\text{mut}}$ does not have a fixed point at $z_{\text{mutant}}$. The Jacobian pseudoinverse captures local decoder sensitivity but not the global encoder mapping. No amount of multi-stepping, curvature correction, or re-projection can bridge this fundamental gap.
+
+---
+
+## 8. Phase 3: Decoder Gradient Ascent — A Successful Alternative
+
+### 8.1 The Gradient Direction
+
+Instead of projecting an ambient vector through $J_H^+$, we compute the **decoder gradient** directly:
+
+$$\nabla_z \log p(\text{aa}_{\text{mut}} \mid z, \text{pos})$$
+
+This is the direction in latent space that maximally increases the probability of the desired amino acid at the mutation position, as computed by the decoder's softmax output.
+
+**Key comparison at $z_{\text{parent}}$ (K→W, pos=12, middle-1):**
+
+| Direction | $\cos(\cdot, v_{\text{enc}})$ | Description |
+|-----------|-------------------------------|-------------|
+| $J_H^+ e_{\text{mut}}$ (projected) | −0.15 | Nearly orthogonal |
+| $\nabla_z \log p$ (gradient) | **+0.42** | Substantially aligned |
+
+The gradient has **much better alignment** with the true encoder direction. However, a single step in the gradient direction (scaled to $\lVert v_{\text{enc}}\rVert$) gives h=3 — not enough on its own.
+
+### 8.2 Multi-Objective Gradient Ascent
+
+Pure gradient ascent on $\log p(\text{aa}_{\text{mut}})$ maximises the mutation but destroys the rest of the peptide (the decoder collapses to all-W or all-R sequences). We add a **preservation term**:
+
+$$\mathcal{L}(z) = \log p(\text{aa}_{\text{mut}} \mid z, \text{pos}) + \alpha \sum_{p \neq \text{pos}} \log p(\text{parent}_{p} \mid z, p)$$
+
+Then iterate: $z_{t+1} = z_t + \eta \, \nabla_z \mathcal{L}(z_t)$
+
+With $\eta = 0.01$, $\alpha = 0.1$, $N = 100{-}200$ steps:
+
+### 8.3 Results on middle-1 (5 mutations)
+
+| Mutation | $h$ (gradient ascent) | pos match | $d(z_{\text{end}}, z_{\text{mutant}})$ | decoded |
+|----------|----------------------|-----------|----------------------------------------|---------|
+| K→W pos=12 | **0** | ✓ | 1.030 | FLYKWWIRIGRLWL |
+| I→F pos=6  | **0** | ✓ | 0.796 | FLYKWWFRIGRLKL |
+| I→P pos=6  | **0** | ✓ | 0.820 | FLYKWWPRIGRLKL |
+| F→Y pos=0  | **0** | ✓ | 0.634 | YLYKWWIRIGRLKL |
+| K→W pos=3  | **0** | ✓ | 0.701 | FLYWWWIRIGRLKL |
+
+**100% full-sequence match (h=0) across all 5 mutations.**
+
+### 8.4 Hyperparameter Sensitivity
+
+| lr | $\alpha$ | h | $d(z, z_{\text{parent}})$ |
+|----|---|---|---------------------------|
+| 0.005 | 0.05–0.5 | **0** | 0.42–0.44 |
+| 0.01 | 0.05–0.2 | **0** | 0.78–0.92 |
+| 0.01 | 0.5 | **0** | 2.75 |
+| 0.02 | 0.05 | **0** | 1.83 |
+| 0.02 | 0.1 | 1 | 2.08 |
+| 0.05 | 0.1 | 10 | 9.11 |
+
+The method is **robust** for $\eta \leq 0.01$ and $\alpha \in [0.05, 0.5]$. Too-large learning rates cause the latent point to leave the decoder's well-behaved region.
+
+### 8.5 Important Caveat
+
+The gradient endpoint $z_{\text{grad}}$ is **not** the encoder's $z_{\text{mutant}}$ — the distance $d(z_{\text{grad}}, z_{\text{mutant}}) \approx 0.6{-}1.0$ remains substantial. The decoder is many-to-one: many latent points decode to the same peptide. The gradient finds a *different* pre-image of the mutant peptide.
+
+---
+
+## 9. Summary of All Methods
+
+| Method | Match Rate | Key Property |
+|--------|-----------|--------------|
+| Euclidean, encoded direction | 90.9% | Uses encoder (oracle) |
+| Geodesic, encoded direction | 90.9% | Curvature ≈ no effect |
+| Euclidean, projected direction ($J_H^+ e$) | 4.5% | Wrong direction |
+| Geodesic, projected direction | 9.1% | Still wrong direction |
+| Euler re-projection (multi-step $J_H^+$) | 0% (h≈1 typical) | Closer but never exact |
+| **Gradient ascent (multi-obj)** | **100%** (middle-1) | Best non-oracle method |
+
+### Key Insights
+
+1. **Direction matters far more than path geometry.** Euclidean vs geodesic changes match rate by <5 pp; projected vs encoded direction changes it by 86 pp.
+
+2. **The Jacobian pseudoinverse $J_H^+$ is orthogonal to the encoder direction** ($\cos \approx 0$). This is a fundamental property: the decoder's local linearisation doesn't predict the encoder's global mapping.
+
+3. **Multi-step re-projection cannot fix $J_H^+$.** The vector field $J_H^+(z) e_{\text{mut}}$ doesn't converge to $z_{\text{mutant}}$, regardless of step count (tested up to N=100).
+
+4. **The decoder gradient $\nabla_z \log p(\text{aa}_{\text{mut}})$ aligns with the encoder direction** ($\cos \approx +0.42$), and multi-objective gradient ascent achieves perfect reconstruction.
+
+5. **The decoder is many-to-one.** Gradient ascent finds a different latent point ($d \approx 0.7{-}1.0$ from encoder target) that still decodes correctly. This means the "correct" latent direction for a mutation is not unique.

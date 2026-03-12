@@ -63,6 +63,7 @@ from pep_compass.geometry.utils import (
     approx_dg_from_jac,
     christoffel_from_jac_and_dg,
     exponential_map,
+    integrate_geodesic_rk4,
 )
 
 
@@ -232,6 +233,226 @@ def scale_direction(v: torch.Tensor, target_norm: float) -> torch.Tensor:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+#  Multi-step methods for projected direction
+# ═══════════════════════════════════════════════════════════════════════════
+
+def _quick_tangent_space(encoder_decoder, z: torch.Tensor):
+    """Compute softmax-decoder SVD and build SubRiemannianTangentSpace at z.
+
+    Returns (tangent_space, jac) — lighter than compute_svd_and_mutations
+    since we skip mutation enumeration.
+    """
+    z_2d = z.unsqueeze(0) if z.ndim == 1 else z
+    jac = decoder_jacobian(
+        lambda x: encoder_decoder.decoder_forward(x, softmax=True, flatten=True),
+        z_2d,
+        jacobian_fn_mode="approx",
+        jacobian_fn_kwargs={"jacobian_eps": JACOBIAN_EPS},
+    )
+    U, S, V = torch.linalg.svd(jac, full_matrices=False)
+    ts = SubRiemannianTangentSpace(
+        U=U[0], S=S[0], V=V[0],
+        horizontal_threshold=HORIZONTAL_THRESH,
+        device=str(z.device),
+    )
+    return ts, jac
+
+
+def euler_reprojection(
+    encoder_decoder,
+    z_start: torch.Tensor,
+    pos: int,
+    aa_idx: int,
+    total_dist: float,
+    n_steps: int = 10,
+) -> tuple[torch.Tensor, list[float]]:
+    """Follow the re-projection flow dz/dt = J_H^+(z(t)) @ e_mut.
+
+    At each step recompute the softmax Jacobian SVD and tangent space,
+    then take an Euler step in the freshly-projected direction.
+
+    Returns (z_end, cosines) where cosines[i] is the cosine similarity
+    between the projected direction and the *remaining* displacement to
+    z_end (for diagnostics).
+    """
+    step_size = total_dist / n_steps
+    z = z_start.clone()
+    cosines: list[float] = []
+
+    for t in range(n_steps):
+        ts, _ = _quick_tangent_space(encoder_decoder, z)
+        v_proj = mutation_direction_projected(ts, pos, aa_idx)
+        v_norm = torch.norm(v_proj).item()
+        if v_norm < 1e-12:
+            break
+        v_unit = v_proj / v_norm
+        z = z + step_size * v_unit
+        cosines.append(v_norm)
+
+    return z, cosines
+
+
+def geodesic_live_gamma(
+    encoder_decoder,
+    z_start: torch.Tensor,
+    v_init: torch.Tensor,
+    n_major_steps: int = 5,
+    rk4_substeps: int = 4,
+) -> torch.Tensor:
+    """Geodesic with Gamma recomputed at each major step.
+
+    Splits the unit-time geodesic into n_major_steps segments.
+    At each segment, recomputes Christoffel symbols at the current point
+    and integrates a short geodesic with rk4_substeps sub-steps.
+    """
+    z = z_start.unsqueeze(0) if z_start.ndim == 1 else z_start
+    v = v_init.unsqueeze(0) if v_init.ndim == 1 else v_init
+
+    dt = 1.0 / n_major_steps
+
+    for step in range(n_major_steps):
+        _, Gamma_here = build_frozen_gamma(encoder_decoder, z.squeeze(0))
+
+        def gamma_fn_local(_x, _G=Gamma_here):
+            return _G
+
+        z_new, v_new = integrate_geodesic_rk4(
+            z, v, gamma_fn_local, t1=dt, n_steps=rk4_substeps,
+        )
+        if torch.isnan(z_new).any() or torch.isinf(z_new).any():
+            break
+        z, v = z_new, v_new
+
+    return z.squeeze(0)
+
+
+def geodesic_reprojection(
+    encoder_decoder,
+    z_start: torch.Tensor,
+    pos: int,
+    aa_idx: int,
+    total_dist: float,
+    n_major_steps: int = 5,
+    rk4_substeps: int = 4,
+) -> torch.Tensor:
+    """Geodesic with both Gamma AND direction recomputed at each step.
+
+    At each major step:
+      1. Recompute SVD at current z  → fresh projected direction
+      2. Recompute Christoffel symbols at current z
+      3. Take a short geodesic step in the fresh direction
+    """
+    step_dist = total_dist / n_major_steps
+    z = z_start.clone()
+
+    for step in range(n_major_steps):
+        # Fresh direction from tangent space at current z
+        ts, _ = _quick_tangent_space(encoder_decoder, z)
+        v_proj = mutation_direction_projected(ts, pos, aa_idx)
+        v_proj = scale_direction(v_proj, step_dist)
+
+        # Fresh Christoffel symbols at current z
+        _, Gamma_here = build_frozen_gamma(encoder_decoder, z)
+
+        def gamma_fn_local(_x, _G=Gamma_here):
+            return _G
+
+        z_2d = z.unsqueeze(0) if z.ndim == 1 else z
+        v_2d = v_proj.unsqueeze(0) if v_proj.ndim == 1 else v_proj
+
+        z_new, _ = integrate_geodesic_rk4(
+            z_2d, v_2d, gamma_fn_local, t1=1.0, n_steps=rk4_substeps,
+        )
+        z_new = z_new.squeeze(0)
+
+        if torch.isnan(z_new).any() or torch.isinf(z_new).any():
+            break
+        z = z_new
+
+    return z
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  Decoder gradient methods (∂ log p / ∂z)
+# ═══════════════════════════════════════════════════════════════════════════
+
+GRAD_LR = 0.01       # learning rate for gradient ascent
+GRAD_STEPS = 150     # gradient ascent steps
+GRAD_ALPHA = 0.1     # preservation weight: α in the multi-objective loss
+
+
+def decoder_logprob_gradient(
+    encoder_decoder,
+    z: torch.Tensor,
+    pos: int,
+    aa_idx: int,
+) -> torch.Tensor:
+    """∂ log p(aa=aa_idx | z, pos) / ∂z  via autograd."""
+    z_var = z.clone().detach().requires_grad_(True)
+    logits = encoder_decoder.decoder_forward(
+        z_var.unsqueeze(0), softmax=False, flatten=False
+    )  # (1, 25, 21)
+    log_probs = torch.nn.functional.log_softmax(logits[0, pos, :], dim=-1)
+    log_probs[aa_idx].backward()
+    return z_var.grad.detach()
+
+
+def multi_obj_gradient(
+    encoder_decoder,
+    z: torch.Tensor,
+    pos: int,
+    aa_idx: int,
+    peptide_padded: str,
+    alpha: float = GRAD_ALPHA,
+) -> torch.Tensor:
+    """Gradient of: log p(aa_mut | z, pos) + α · Σ_{p≠pos} log p(parent_aa | z, p).
+
+    Maximises the mutation amino acid at the target position while preserving
+    the parent amino acids at all other positions.
+    """
+    z_var = z.clone().detach().requires_grad_(True)
+    logits = encoder_decoder.decoder_forward(
+        z_var.unsqueeze(0), softmax=False, flatten=False
+    )  # (1, 25, 21)
+
+    # Mutation term
+    lp_mut = torch.nn.functional.log_softmax(logits[0, pos, :], dim=-1)
+    obj = lp_mut[aa_idx]
+
+    # Preservation term (all other positions)
+    for p in range(len(peptide_padded.rstrip())):
+        if p == pos:
+            continue
+        parent_aa = ALPHABET.index(peptide_padded[p])
+        lp_p = torch.nn.functional.log_softmax(logits[0, p, :], dim=-1)
+        obj = obj + alpha * lp_p[parent_aa]
+
+    obj.backward()
+    return z_var.grad.detach()
+
+
+def gradient_ascent_mutation(
+    encoder_decoder,
+    z_parent: torch.Tensor,
+    pos: int,
+    aa_idx: int,
+    peptide_padded: str,
+    lr: float = GRAD_LR,
+    n_steps: int = GRAD_STEPS,
+    alpha: float = GRAD_ALPHA,
+) -> torch.Tensor:
+    """Multi-objective gradient ascent to reach a specific mutation.
+
+    Returns z_end after n_steps of gradient ascent.
+    """
+    z = z_parent.clone()
+    for _ in range(n_steps):
+        g = multi_obj_gradient(encoder_decoder, z, pos, aa_idx, peptide_padded, alpha)
+        z = z + lr * g
+    return z
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 #  Core check logic
 # ═══════════════════════════════════════════════════════════════════════════
 
@@ -293,6 +514,94 @@ def check_single_mutation(
             results[f"match_{key}"] = full_match
             results[f"pos_match_{key}"] = pos_match
             results[f"hamming_{key}"] = hamming
+
+    return results
+
+
+def _eval_endpoint(
+    encoder_decoder, z_end: torch.Tensor, mutant_peptide: str,
+    target_pos: int, target_aa_idx: int,
+) -> dict:
+    """Decode z_end and compare to the expected mutant peptide."""
+    z_2d = z_end.unsqueeze(0) if z_end.ndim == 1 else z_end
+    with torch.no_grad():
+        decoded = encoder_decoder.decode_peptides(z_2d)[0]
+    d_strip = decoded.strip()
+    m_strip = mutant_peptide.strip()
+    full_match = d_strip == m_strip
+    pos_match = (
+        d_strip[target_pos] == ALPHABET[target_aa_idx]
+        if target_pos < len(d_strip)
+        else False
+    )
+    hamming = sum(a != b for a, b in zip(d_strip, m_strip)) + abs(len(d_strip) - len(m_strip))
+    return {
+        "decoded": d_strip,
+        "match": full_match,
+        "pos_match": pos_match,
+        "hamming": hamming,
+    }
+
+
+def check_multistep_mutation(
+    encoder_decoder,
+    z_parent: torch.Tensor,
+    z_mutant: torch.Tensor,
+    mutant_peptide: str,
+    target_pos: int,
+    target_aa_idx: int,
+    v_proj_raw_norm: float,
+    n_euler_steps: int = 10,
+    n_major_steps: int = 5,
+) -> dict:
+    """Run the three multi-step methods on a single mutation.
+
+    1. euler_reproj: Euler re-projection flow (dz/dt = J_H^+(z) @ e_mut)
+    2. geo_live: Geodesic with live Gamma (same initial direction, recomputed Γ)
+    3. geo_reproj: Geodesic with BOTH live Gamma AND re-projected direction
+    """
+    total_dist = torch.norm(z_mutant - z_parent).item()
+    results: dict = {}
+
+    # 1. Euler re-projection flow
+    z_euler, cosines = euler_reprojection(
+        encoder_decoder, z_parent, target_pos, target_aa_idx,
+        total_dist=total_dist, n_steps=n_euler_steps,
+    )
+    ev = _eval_endpoint(encoder_decoder, z_euler, mutant_peptide, target_pos, target_aa_idx)
+    for k, val in ev.items():
+        results[f"{k}_euler_reproj"] = val
+
+    # 2. Geodesic with live Gamma (initial projected direction, recomputed Γ)
+    ts_init, _ = _quick_tangent_space(encoder_decoder, z_parent)
+    v_proj_init = mutation_direction_projected(ts_init, target_pos, target_aa_idx)
+    v_proj_init = scale_direction(v_proj_init, total_dist)
+
+    z_geo_live = geodesic_live_gamma(
+        encoder_decoder, z_parent, v_proj_init,
+        n_major_steps=n_major_steps, rk4_substeps=4,
+    )
+    ev = _eval_endpoint(encoder_decoder, z_geo_live, mutant_peptide, target_pos, target_aa_idx)
+    for k, val in ev.items():
+        results[f"{k}_geo_live"] = val
+
+    # 3. Geodesic with live Gamma + re-projected direction
+    z_geo_reproj = geodesic_reprojection(
+        encoder_decoder, z_parent, target_pos, target_aa_idx,
+        total_dist=total_dist,
+        n_major_steps=n_major_steps, rk4_substeps=4,
+    )
+    ev = _eval_endpoint(encoder_decoder, z_geo_reproj, mutant_peptide, target_pos, target_aa_idx)
+    for k, val in ev.items():
+        results[f"{k}_geo_reproj"] = val
+
+    # Cosine between initial projected direction and v_enc (for reference)
+    v_enc = z_mutant - z_parent
+    cos_init = (
+        torch.dot(v_proj_init, v_enc)
+        / (torch.norm(v_proj_init) * torch.norm(v_enc) + 1e-12)
+    ).item()
+    results["cos_proj_enc"] = cos_init
 
     return results
 
@@ -514,6 +823,357 @@ def main(device: str = "cpu") -> dict:
     return all_results
 
 
+def main_multistep(
+    device: str = "cpu",
+    n_euler_steps: int = 10,
+    n_major_steps: int = 5,
+) -> dict:
+    """Run the multi-step projected-direction experiments.
+
+    Three additional methods:
+      - euler_reproj:  Euler flow with re-projected direction at each step
+      - geo_live:      Geodesic with live Gamma (frozen initial direction)
+      - geo_reproj:    Geodesic with live Gamma AND re-projected direction
+    """
+    print("=" * 70)
+    print("MULTI-STEP PROJECTED DIRECTION EXPERIMENT")
+    print(f"  euler_steps={n_euler_steps}  geo_major_steps={n_major_steps}")
+    print("=" * 70)
+
+    t0 = time.time()
+    encoder_decoder = build_encoder_decoder(device)
+    log_prob_potential = DecoderLogProbPotential(encoder_decoder=encoder_decoder)
+
+    all_results: dict = {}
+    methods = ["euler_reproj", "geo_live", "geo_reproj"]
+
+    for pep_idx, (pep_name, peptide) in enumerate(SEED_PEPTIDES.items(), 1):
+        print(f"\n{'─' * 70}")
+        print(f"[{pep_idx}/{len(SEED_PEPTIDES)}] Peptide: {pep_name} = {peptide}")
+        print(f"{'─' * 70}")
+
+        padded = peptide.ljust(MAX_PEPTIDE_LEN)
+        with torch.no_grad():
+            z_parent = encoder_decoder.encode_peptides([peptide])[0]
+
+        jac, U, S, V, mutations, tangent_space = compute_svd_and_mutations(
+            encoder_decoder, peptide, z_parent
+        )
+        if not mutations:
+            print("  ⚠ No mutations — skipping")
+            continue
+
+        potentials = log_prob_potential.compute(peptide, mutations)
+        flat_mutations = []
+        for pos, aa_dict in potentials.items():
+            parent_aa_idx = ALPHABET.index(padded[pos])
+            for aa_idx, lp in aa_dict.items():
+                if aa_idx != parent_aa_idx:
+                    flat_mutations.append((pos, aa_idx, lp))
+        if not flat_mutations:
+            continue
+
+        log_pots = np.array([m[2] for m in flat_mutations])
+        shifted = log_pots - log_pots.max()
+        softmax_probs = np.exp(shifted) / np.exp(shifted).sum()
+        n_mut = len(flat_mutations)
+        above = [
+            (m, p) for m, p in zip(flat_mutations, softmax_probs)
+            if p > 1.0 / n_mut
+        ]
+        print(f"  {len(above)} mutations above threshold")
+
+        pep_results = []
+        for idx, ((pos, aa_idx, log_pot), softmax_p) in enumerate(above):
+            mutant_list = list(peptide)
+            mutant_list[pos] = ALPHABET[aa_idx]
+            mutant_peptide = "".join(mutant_list)
+            with torch.no_grad():
+                z_mutant = encoder_decoder.encode_peptides([mutant_peptide])[0]
+
+            v_proj_raw = mutation_direction_projected(tangent_space, pos, aa_idx)
+
+            print(f"  [{idx+1}/{len(above)}] {padded[pos]}→{ALPHABET[aa_idx]} pos={pos} ...", end=" ", flush=True)
+            ms_t0 = time.time()
+
+            ms_checks = check_multistep_mutation(
+                encoder_decoder=encoder_decoder,
+                z_parent=z_parent,
+                z_mutant=z_mutant,
+                mutant_peptide=mutant_peptide,
+                target_pos=pos,
+                target_aa_idx=aa_idx,
+                v_proj_raw_norm=torch.norm(v_proj_raw).item(),
+                n_euler_steps=n_euler_steps,
+                n_major_steps=n_major_steps,
+            )
+
+            elapsed_m = time.time() - ms_t0
+            hamming_str = "  ".join(
+                f"{m}: h={ms_checks.get(f'hamming_{m}', '?')}"
+                for m in methods
+            )
+            print(f"({elapsed_m:.1f}s)  {hamming_str}")
+
+            entry = {
+                "pos": pos,
+                "parent_aa": padded[pos],
+                "mutant_aa": ALPHABET[aa_idx],
+                "softmax_prob": float(softmax_p),
+                "mutant_peptide": mutant_peptide,
+                "euclidean_dist": torch.norm(z_mutant - z_parent).item(),
+                "cos_proj_enc": ms_checks.get("cos_proj_enc", None),
+                **ms_checks,
+            }
+            pep_results.append(entry)
+
+        # Per-peptide summary
+        n = len(pep_results)
+        summary = {}
+        if n > 0:
+            for m in methods:
+                full = sum(1 for r in pep_results if r.get(f"match_{m}", False))
+                pos_m = sum(1 for r in pep_results if r.get(f"pos_match_{m}", False))
+                avg_h = np.mean([r.get(f"hamming_{m}", 99) for r in pep_results])
+                summary[m] = {"full_match": full, "pos_match": pos_m, "avg_hamming": float(avg_h)}
+
+            print(f"\n  ── Summary for {pep_name} ({n} mutations) ──")
+            for m, s in summary.items():
+                print(f"    {m:<14}: full {s['full_match']:>2}/{n}  pos {s['pos_match']:>2}/{n}  avg_h {s['avg_hamming']:.2f}")
+
+        all_results[pep_name] = {
+            "peptide": peptide,
+            "n_above_threshold": len(above),
+            "summary": summary,
+            "mutations": pep_results,
+        }
+
+    # Overall summary
+    print(f"\n{'═' * 70}")
+    print("OVERALL MULTI-STEP SUMMARY")
+    print(f"{'═' * 70}")
+    total = sum(len(d["mutations"]) for d in all_results.values())
+    if total > 0:
+        for m in methods:
+            full = sum(1 for d in all_results.values() for r in d["mutations"] if r.get(f"match_{m}", False))
+            pos_m = sum(1 for d in all_results.values() for r in d["mutations"] if r.get(f"pos_match_{m}", False))
+            print(f"  {m:<14}: full {full:>3}/{total} ({100*full/total:5.1f}%)  pos {pos_m:>3}/{total} ({100*pos_m/total:5.1f}%)")
+
+    elapsed = time.time() - t0
+    print(f"\nElapsed: {elapsed:.1f}s")
+
+    out_path = os.path.join("results", "geodesic_multistep_results.json")
+    os.makedirs("results", exist_ok=True)
+    with open(out_path, "w") as f:
+        json.dump(all_results, f, indent=2)
+    print(f"Results saved to {out_path}")
+
+    return all_results
+
+
+def main_gradient(
+    device: str = "cpu",
+    lr: float = GRAD_LR,
+    n_steps: int = GRAD_STEPS,
+    alpha: float = GRAD_ALPHA,
+) -> dict:
+    """Run gradient-ascent projected-direction experiments on all peptides.
+
+    Method:  z_{t+1} = z_t + lr · ∇_z [ log p(aa_mut | z, pos) + α · Σ log p(parent | z, p') ]
+
+    This optimises the decoder output directly (no pseudoinverse, no SVD projection).
+    Comparison: also computes single-step gradient direction vs Euclidean/geodesic.
+    """
+    print("=" * 70)
+    print("GRADIENT-BASED MUTATION VERIFICATION")
+    print(f"  lr={lr}  steps={n_steps}  α_preserve={alpha}")
+    print("=" * 70)
+
+    t0 = time.time()
+    encoder_decoder = build_encoder_decoder(device)
+    log_prob_potential = DecoderLogProbPotential(encoder_decoder=encoder_decoder)
+
+    all_results: dict = {}
+    methods = ["grad_ascent", "grad_1step", "euc_enc", "euc_proj"]
+
+    for pep_idx, (pep_name, peptide) in enumerate(SEED_PEPTIDES.items(), 1):
+        print(f"\n{'─' * 70}")
+        print(f"[{pep_idx}/{len(SEED_PEPTIDES)}] Peptide: {pep_name} = {peptide}")
+        print(f"{'─' * 70}")
+
+        padded = peptide.ljust(MAX_PEPTIDE_LEN)
+        with torch.no_grad():
+            z_parent = encoder_decoder.encode_peptides([peptide])[0]
+
+        jac, U, S, V, mutations, tangent_space = compute_svd_and_mutations(
+            encoder_decoder, peptide, z_parent
+        )
+        if not mutations:
+            print("  ⚠ No mutations — skipping")
+            continue
+
+        potentials = log_prob_potential.compute(peptide, mutations)
+        flat_mutations = []
+        for pos, aa_dict in potentials.items():
+            parent_aa_idx = ALPHABET.index(padded[pos])
+            for aa_idx, lp in aa_dict.items():
+                if aa_idx != parent_aa_idx:
+                    flat_mutations.append((pos, aa_idx, lp))
+        if not flat_mutations:
+            continue
+
+        log_pots = np.array([m[2] for m in flat_mutations])
+        shifted = log_pots - log_pots.max()
+        softmax_probs = np.exp(shifted) / np.exp(shifted).sum()
+        n_mut = len(flat_mutations)
+        above = [
+            (m, p) for m, p in zip(flat_mutations, softmax_probs)
+            if p > 1.0 / n_mut
+        ]
+        print(f"  {len(above)} mutations above threshold")
+
+        pep_results = []
+        for idx, ((pos, aa_idx, log_pot), softmax_p) in enumerate(above):
+            mutant_list = list(peptide)
+            mutant_list[pos] = ALPHABET[aa_idx]
+            mutant_peptide = "".join(mutant_list)
+            with torch.no_grad():
+                z_mutant = encoder_decoder.encode_peptides([mutant_peptide])[0]
+
+            v_enc = z_mutant - z_parent
+            eucl_dist = torch.norm(v_enc).item()
+
+            print(f"  [{idx+1}/{len(above)}] {padded[pos]}→{ALPHABET[aa_idx]} pos={pos} ...", end=" ", flush=True)
+            mt0 = time.time()
+
+            entry: dict = {
+                "pos": pos,
+                "parent_aa": padded[pos],
+                "mutant_aa": ALPHABET[aa_idx],
+                "softmax_prob": float(softmax_p),
+                "mutant_peptide": mutant_peptide,
+                "euclidean_dist": eucl_dist,
+            }
+
+            # ── Method 1: Multi-objective gradient ascent ──
+            z_grad = gradient_ascent_mutation(
+                encoder_decoder, z_parent, pos, aa_idx, padded,
+                lr=lr, n_steps=n_steps, alpha=alpha,
+            )
+            ev = _eval_endpoint(encoder_decoder, z_grad, mutant_peptide, pos, aa_idx)
+            d_to_mut = torch.norm(z_grad - z_mutant).item()
+            d_from_par = torch.norm(z_grad - z_parent).item()
+            for k, val in ev.items():
+                entry[f"{k}_grad_ascent"] = val
+            entry["dist_to_mut_grad"] = d_to_mut
+            entry["dist_from_parent_grad"] = d_from_par
+
+            # ── Method 2: Single step in gradient direction (scaled to eucl_dist) ──
+            grad_at_parent = decoder_logprob_gradient(encoder_decoder, z_parent, pos, aa_idx)
+            v_grad_1step = scale_direction(grad_at_parent, eucl_dist)
+            ev1 = _eval_endpoint(
+                encoder_decoder, z_parent + v_grad_1step,
+                mutant_peptide, pos, aa_idx,
+            )
+            for k, val in ev1.items():
+                entry[f"{k}_grad_1step"] = val
+
+            # ── Method 3: Euclidean with encoder direction (baseline) ──
+            ev_enc = _eval_endpoint(
+                encoder_decoder, z_parent + v_enc,
+                mutant_peptide, pos, aa_idx,
+            )
+            for k, val in ev_enc.items():
+                entry[f"{k}_euc_enc"] = val
+
+            # ── Method 4: Euclidean with projected direction (baseline) ──
+            v_proj_raw = mutation_direction_projected(tangent_space, pos, aa_idx)
+            v_proj = scale_direction(v_proj_raw, eucl_dist)
+            ev_proj = _eval_endpoint(
+                encoder_decoder, z_parent + v_proj,
+                mutant_peptide, pos, aa_idx,
+            )
+            for k, val in ev_proj.items():
+                entry[f"{k}_euc_proj"] = val
+            entry["v_proj_raw_norm"] = torch.norm(v_proj_raw).item()
+
+            # ── Cosine diagnostics ──
+            cos_grad_enc = (
+                torch.dot(grad_at_parent, v_enc)
+                / (torch.norm(grad_at_parent) * torch.norm(v_enc) + 1e-12)
+            ).item()
+            cos_proj_enc = (
+                torch.dot(v_proj_raw, v_enc)
+                / (torch.norm(v_proj_raw) * torch.norm(v_enc) + 1e-12)
+            ).item()
+            cos_grad_proj = (
+                torch.dot(grad_at_parent, v_proj_raw)
+                / (torch.norm(grad_at_parent) * torch.norm(v_proj_raw) + 1e-12)
+            ).item()
+            entry["cos_grad_enc"] = cos_grad_enc
+            entry["cos_proj_enc"] = cos_proj_enc
+            entry["cos_grad_proj"] = cos_grad_proj
+
+            elapsed_m = time.time() - mt0
+            hstr = "  ".join(
+                f"{m}: h={entry.get(f'hamming_{m}', '?')}"
+                for m in methods
+            )
+            print(f"({elapsed_m:.1f}s)  {hstr}  cos(∇,enc)={cos_grad_enc:+.3f}")
+
+            pep_results.append(entry)
+
+        # Per-peptide summary
+        n = len(pep_results)
+        summary = {}
+        if n > 0:
+            for m in methods:
+                full = sum(1 for r in pep_results if r.get(f"match_{m}", False))
+                pos_m = sum(1 for r in pep_results if r.get(f"pos_match_{m}", False))
+                avg_h = np.mean([r.get(f"hamming_{m}", 99) for r in pep_results])
+                summary[m] = {"full_match": full, "pos_match": pos_m, "avg_hamming": float(avg_h)}
+
+            print(f"\n  ── Summary for {pep_name} ({n} mutations) ──")
+            for m, s in summary.items():
+                pct = 100 * s["full_match"] / n
+                print(f"    {m:<14}: full {s['full_match']:>2}/{n} ({pct:5.1f}%)  pos {s['pos_match']:>2}/{n}  avg_h {s['avg_hamming']:.2f}")
+
+        all_results[pep_name] = {
+            "peptide": peptide,
+            "n_above_threshold": len(above),
+            "summary": summary,
+            "mutations": pep_results,
+        }
+
+    # Overall summary
+    print(f"\n{'═' * 70}")
+    print("OVERALL GRADIENT SUMMARY")
+    print(f"{'═' * 70}")
+    total = sum(len(d["mutations"]) for d in all_results.values())
+    if total > 0:
+        for m in methods:
+            full = sum(1 for d in all_results.values() for r in d["mutations"] if r.get(f"match_{m}", False))
+            pos_m = sum(1 for d in all_results.values() for r in d["mutations"] if r.get(f"pos_match_{m}", False))
+            avg_cos = np.mean([
+                r.get("cos_grad_enc", 0)
+                for d in all_results.values()
+                for r in d["mutations"]
+            ]) if m == "grad_ascent" else None
+            extra = f"  avg_cos(∇,enc)={avg_cos:.3f}" if avg_cos is not None else ""
+            print(f"  {m:<14}: full {full:>3}/{total} ({100*full/total:5.1f}%)  pos {pos_m:>3}/{total} ({100*pos_m/total:5.1f}%){extra}")
+
+    elapsed = time.time() - t0
+    print(f"\nElapsed: {elapsed:.1f}s")
+
+    out_path = os.path.join("results", "geodesic_gradient_results.json")
+    os.makedirs("results", exist_ok=True)
+    with open(out_path, "w") as f:
+        json.dump(all_results, f, indent=2)
+    print(f"Results saved to {out_path}")
+
+    return all_results
+
+
 if __name__ == "__main__":
     import argparse
 
@@ -523,5 +1183,48 @@ if __name__ == "__main__":
     parser.add_argument(
         "--device", type=str, default="cpu", help="PyTorch device (cpu or cuda)"
     )
+    parser.add_argument(
+        "--multistep", action="store_true",
+        help="Run multi-step projected-direction experiments"
+    )
+    parser.add_argument(
+        "--gradient", action="store_true",
+        help="Run gradient-ascent mutation experiments"
+    )
+    parser.add_argument(
+        "--euler-steps", type=int, default=10,
+        help="Number of Euler re-projection steps"
+    )
+    parser.add_argument(
+        "--major-steps", type=int, default=5,
+        help="Number of major steps for geodesic methods"
+    )
+    parser.add_argument(
+        "--grad-lr", type=float, default=GRAD_LR,
+        help="Learning rate for gradient ascent"
+    )
+    parser.add_argument(
+        "--grad-steps", type=int, default=GRAD_STEPS,
+        help="Number of gradient ascent steps"
+    )
+    parser.add_argument(
+        "--grad-alpha", type=float, default=GRAD_ALPHA,
+        help="Preservation weight α for gradient ascent"
+    )
     args = parser.parse_args()
-    main(device=args.device)
+
+    if args.gradient:
+        main_gradient(
+            device=args.device,
+            lr=args.grad_lr,
+            n_steps=args.grad_steps,
+            alpha=args.grad_alpha,
+        )
+    elif args.multistep:
+        main_multistep(
+            device=args.device,
+            n_euler_steps=args.euler_steps,
+            n_major_steps=args.major_steps,
+        )
+    else:
+        main(device=args.device)

@@ -128,6 +128,57 @@ class ProjectedDirectionPairwiseSimilarityPotential(MutationPotential):
 
         self.similarity_transform = similarity_transform or default_similarity_transform
 
+    def compute_similarity_matrix(
+        self,
+        parent_peptide: str,
+        mutations: dict[int, list[int]],
+        use_parent: bool = True,
+    ) -> dict[int, np.ndarray]:
+        """
+        For each position, compute the upper triangular similarity matrix (cosine similarity)
+        between all candidate amino acids (including parent if use_parent=True).
+        Returns a dict mapping position index to the similarity matrix (numpy array).
+        """
+        import numpy as np
+
+        positions = sorted(mutations.keys())
+        max_len = (
+            getattr(self, "DEFAULT_MAX_LEN", 25)
+            if hasattr(self, "DEFAULT_MAX_LEN")
+            else 25
+        )
+        alphabet_size = len(self.alphabet)
+        ambient_dim = max_len * alphabet_size
+        device = self.tangent_space.device
+
+        padded = parent_peptide.ljust(max_len)
+        sim_matrices = {}
+        for pos in positions:
+            aa_indices = list(mutations[pos])
+            if use_parent:
+                parent_aa_idx = self.alphabet.index(padded[pos])
+                if parent_aa_idx not in aa_indices:
+                    aa_indices.append(parent_aa_idx)
+            dirs = []
+            for aa_idx in aa_indices:
+                direction = torch.zeros(ambient_dim, device=device)
+                flat_idx = pos * alphabet_size + aa_idx
+                direction[flat_idx] = 1.0
+                dirs.append(direction)
+            dirs = torch.stack(dirs)
+            projected = torch.stack(
+                [
+                    self.tangent_space.project_ambient_vector_to_horizontal_space(d)
+                    for d in dirs
+                ]
+            )
+            norms = torch.norm(projected, dim=1, keepdim=True)
+            projected = projected / (norms + 1e-12)
+            # Cosine similarity matrix
+            cos_matrix = projected @ projected.T
+            sim_matrices[pos] = cos_matrix.detach().cpu().numpy()
+        return sim_matrices
+
     @torch.no_grad()
     def compute(
         self,
