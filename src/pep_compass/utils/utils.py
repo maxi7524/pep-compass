@@ -14,7 +14,7 @@ def set_seed(seed: int):
 
 class Timer:
     def __init__(self):
-        self.times = {}   # each Timer instance has its own dict
+        self.times = {}
         self._name = None
         self._start = None
 
@@ -35,6 +35,6 @@ class Timer:
         return "{\n\t" + "\n\t".join(f"{name}: {elapsed:.4f}s" for name, elapsed in self.times.items()) + "\n}"
 
     def reset(self):
-        self.times = {}   # each Timer instance has its own dict
+        self.times = {}
         self._name = None
         self._start = None
