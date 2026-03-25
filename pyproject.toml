@@ -10,43 +10,95 @@ authors = [
   { name = "Jurand Prądzyński", email = "j.pradzynski@student.uw.edu.pl" }
 ]
 readme = "README.md"
-requires-python = ">=3.11, <4"
+requires-python = ">=3.11,<4"
 
 dependencies = [
-    "numpy~=1.26.4",
-    "torch~=2.7.0",
-    "setuptools~=69.5.1",
-    "fire~=0.6.0",
-    "scipy~=1.14.0",
-    "pandas~=2.2.2",
-    "rapidfuzz~=3.10.0",
-    "matplotlib~=3.9.2",
-    "levenshtein~=0.26.0",
-    "peptides~=0.3.4",
-    "Bio~=1.7.1",
-    "einops~=0.8.0",
-    "blosum~=2.0.3",
-    "logomaker~=0.8.2",
-    "umap-learn~=0.5.7",
-    "wandb",
-    "pyarrow",
-    "seaborn~=0.13.2",
-    "sqlalchemy~=2.0.20",
-    "botorch",
-    "streamlit",
-    "poli-core",
-    "poli-baselines @ git+https://github.com/MachineLearningLifeScience/poli-baselines.git@main",
-    "PyGSP~=0.5.1",
-    "line_profiler",
-    "mapchiral",
-    "mhfp",
-    "pytest",
-    "cachetools~=6.1.0",
-    "pybktree~=1.1",
-    "scikit_posthocs~=0.11.4",
-    "scikit-learn>=1.7",
-    "loguru>=0.7.3",
+  "numpy~=1.26.4",
+  "setuptools~=69.5.1",
+  "fire~=0.6.0",
+  "scipy~=1.14.0",
+  "pandas~=2.2.2",
+  "rapidfuzz~=3.10.0",
+  "matplotlib~=3.9.2",
+  "levenshtein~=0.26.0",
+  "peptides~=0.3.4",
+  "Bio~=1.7.1",
+  "einops~=0.8.0",
+  "blosum~=2.0.3",
+  "logomaker~=0.8.2",
+  "umap-learn~=0.5.7",
+  "wandb",
+  "pyarrow",
+  "seaborn~=0.13.2",
+  "sqlalchemy~=2.0.20",
+  "botorch",
+  "streamlit",
+  "poli-core",
+  "poli-baselines @ git+https://github.com/MachineLearningLifeScience/poli-baselines.git@main",
+  "PyGSP~=0.5.1",
+  "line_profiler",
+  "mapchiral",
+  "mhfp",
+  "cachetools~=6.1.0",
+  "pybktree~=1.1",
+  "scikit_posthocs~=0.11.4",
+  "scikit-learn>=1.7",
+  "loguru>=0.7.3",
 ]
+
+[project.optional-dependencies]
+cpu = [
+  "torch==2.10.0",
+]
+cu126 = [
+  "torch==2.10.0",
+]
+cu128 = [
+  "torch==2.10.0",
+]
+
+[dependency-groups]
+dev = [
+  "pytest",
+]
+
+[tool.uv]
+conflicts = [
+  [
+    { extra = "cpu" },
+    { extra = "cu126" },
+  ],
+  [
+    { extra = "cpu" },
+    { extra = "cu128" },
+  ],
+  [
+    { extra = "cu126" },
+    { extra = "cu128" },
+  ],
+]
+
+[tool.uv.sources]
+torch = [
+  { index = "pytorch-cpu", extra = "cpu" },
+  { index = "pytorch-cu126", extra = "cu126" },
+  { index = "pytorch-cu128", extra = "cu128" },
+]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cu126"
+url = "https://download.pytorch.org/whl/cu126"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
 
 [workspace]
 members = ["analysis"]

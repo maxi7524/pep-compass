@@ -1,12 +1,15 @@
+import glob
+import math
 import os
 import pickle
+from pathlib import Path
+
 import numpy as np
 import torch
-import glob
+from tqdm import tqdm
+
 from pep_compass.models.apex.APEX_models import AMP_model
 from pep_compass.models.apex.utils import make_vocab, onehot_encoding
-import math
-from tqdm import tqdm
 
 
 class APEXUnpickler(pickle.Unpickler):
@@ -100,6 +103,12 @@ class PredictorAPEX:
         self.file_dir = os.path.dirname(os.path.abspath(__file__))
         self.APEX_models = []
         if path == "default":
+            if not Path(f"{self.file_dir}/APEX_pathogen_models").exists():
+                raise FileNotFoundError(
+                    f"Directory {self.file_dir}/APEX_pathogen_models with APEX pathogen models not found. "
+                   "Please copy the folder from https://github.com/Yimeng-Zeng/APEXGo/tree/main/optimization/apex_oracle/APEX_pathogen_models"
+                )
+            
             for a_model in glob.glob(f"{self.file_dir}/APEX_pathogen_models/APEX_*"):
                 model = torch.load(
                     a_model,

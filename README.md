@@ -9,9 +9,27 @@ Install uv
 curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
+Create environment
+
 ```bash
+# CPU only enironment
 uv sync
 ```
+
+or
+
+```bash
+# CUDA 12.6
+uv sync --extra cu126
+```
+
+or
+
+```bash
+# CUDA 12.8
+uv sync --extra cu128
+```
+
 
 ### Getting APEX model weights
 APEX weights are required for APEX-based evaluation/optimization.
