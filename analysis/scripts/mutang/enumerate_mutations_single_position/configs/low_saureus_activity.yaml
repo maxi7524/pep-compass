@@ -1,0 +1,28 @@
+# Example configuration for mutation enumeration
+
+dataset_path: data/hydramp/dbaasp/csv/low_saureus_activity.csv
+output_dir: results/mutants/data/hydramp/dbaasp/low_saureus_activity
+
+# Column containing peptide sequences
+seq_col: sequence
+
+# Mutation enumeration parameters
+# Can be single values or lists for parameter sweeps
+# If using lists, both must have the same length (paired by index)
+direction_threshold: [0.000001]  # or single value: 0.0001
+token_threshold: [0.1]           # or single value: 0.05
+jacobian_mode: approx  # Options: strict, approx
+jacobian_eps: 0.05 # Epsilon value for jacobian computation
+
+# Post-processing options
+deduplicate: true  # Remove duplicate rows where both parent and mutant sequences are the same
+filter_identities: true  # Filter out cases where parent sequence equals mutant sequence
+filter_length_mismatch: true  # Filter out cases where parent and mutant have different lengths after stripping whitespace
+max_sequence_length: 25  # Maximum sequence length to process (sequences with length <= 25 are kept)
+
+# Map parent dataset columns to output columns
+# Keys: columns to copy from parent dataset
+# Values: new names for these columns in the output
+parent_keep_columns_rename_map:
+  id: parent_id
+

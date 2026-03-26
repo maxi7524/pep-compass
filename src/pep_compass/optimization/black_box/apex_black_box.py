@@ -1,9 +1,10 @@
 
 import numpy as np
 import torch
-from poli_baselines.core.abstract_solver import AbstractSolver, AbstractBlackBox
+from poli_baselines.core.abstract_solver import AbstractBlackBox
 from poli.core.black_box_information import BlackBoxInformation
 import torch.nn.functional as F
+from einops import rearrange
 
 from pep_compass.models.apex.APEX_predictor import PredictorAPEX
 from pep_compass.models.encoder_decoder.hydramp_encoder_decoder import HydrAMPEncoderDecoder
@@ -11,6 +12,7 @@ from pep_compass.models.encoder_decoder.hydramp_encoder_decoder import HydrAMPEn
 class APEXBlackBox(AbstractBlackBox):
     def __init__(
         self,
+        *,
         mic_aggregate: str = "mean",
         mic_bacteria: str | list = "all",
         batch_size: int = None,
@@ -42,7 +44,7 @@ class APEXBlackBox(AbstractBlackBox):
         
         self.peptide_scorer = lambda x: mic_aggregate_func(np.log2(mic_bacteria_func(self.apex_predictor.predict(x))))
 
-        self.cache = []
+        self.maximize = False
 
     def get_black_box_info(self) -> BlackBoxInformation:
         return BlackBoxInformation(
@@ -59,19 +61,14 @@ class APEXBlackBox(AbstractBlackBox):
 
     def _black_box(self, x: np.ndarray, context: dict = None) -> np.ndarray:
         sequences = ["".join(seq) for seq in x]
-        predictions = -self.peptide_scorer(sequences)
-
-        for i, seq in enumerate(sequences):
-            self.cache.append((seq, predictions[i].item()))
+        predictions = self.peptide_scorer(sequences)
 
         return predictions.reshape(-1, 1)
-    
-    def clear_cache(self):
-        self.cache = []
 
 class HydrAMPAPEXBlackBox(AbstractBlackBox):
     def __init__(
         self,
+        *,
         mic_aggregate: str = "mean",
         mic_bacteria: str | list = "all",
         batch_size: int = None,
@@ -80,6 +77,8 @@ class HydrAMPAPEXBlackBox(AbstractBlackBox):
         evaluation_budget: int = float("inf"),
         force_isolation: bool = False,
         device: str = "cpu",
+        jacobian_eps: float,
+        field_eps: float,
     ):
         super().__init__(
             batch_size=batch_size,
@@ -105,9 +104,11 @@ class HydrAMPAPEXBlackBox(AbstractBlackBox):
         
         self.encoder_decoder = HydrAMPEncoderDecoder(
             device=device,
-            default_condition=torch.Tensor(np.array([1, 1])).view(1, -1).to(device),
+            default_condition=torch.tensor([1, 1], device=device),
             temp=1,
             jacobian_mode="approx",
+            jacobian_eps=jacobian_eps,
+            field_eps=field_eps,
         )
 
         self.cache = [] 
@@ -131,7 +132,7 @@ class HydrAMPAPEXBlackBox(AbstractBlackBox):
         )
 
     def _black_box(self, x: np.ndarray, context: dict = None) -> np.ndarray:
-        x_tensor = torch.Tensor(x).to(self.encoder_decoder.device)
+        x_tensor = torch.tensor(x, device=self.encoder_decoder.device)
         decoded_peptides = self.encoder_decoder.decode_peptides(x_tensor)
         predictions = self.peptide_scorer(decoded_peptides)
         

@@ -1,0 +1,16 @@
+# APEX prediction config for mutants (dbaasp) using full pathogen set
+input_files:
+  - results/mutants/data/hydramp/dbaasp/dbaasp_clean/dbaasp_clean_parentleq25_direction_threshold=1e-06_token_threshold=0.1_jacobian_mode=approx_jacobian_eps=0.05.csv
+  - results/mutants/data/hydramp/dbaasp/high_ecoli_activity/high_ecoli_activity_parentleq25_direction_threshold=1e-06_token_threshold=0.1_jacobian_mode=approx_jacobian_eps=0.05.csv
+  - results/mutants/data/hydramp/dbaasp/high_saureus_activity/high_saureus_activity_parentleq25_direction_threshold=1e-06_token_threshold=0.1_jacobian_mode=approx_jacobian_eps=0.05.csv
+  - results/mutants/data/hydramp/dbaasp/low_ecoli_activity/low_ecoli_activity_parentleq25_direction_threshold=1e-06_token_threshold=0.1_jacobian_mode=approx_jacobian_eps=0.05.csv
+  - results/mutants/data/hydramp/dbaasp/low_saureus_activity/low_saureus_activity_parentleq25_direction_threshold=1e-06_token_threshold=0.1_jacobian_mode=approx_jacobian_eps=0.05.csv
+output_dir: results/apex_predictions/mutants/hydramp/dbaasp/all
+sequence_column: mutant
+max_sequence_length: 25
+use_tqdm: true
+apex_predictor_kwargs:
+  path: all
+  device: cuda
+  batch_size: 12000
+

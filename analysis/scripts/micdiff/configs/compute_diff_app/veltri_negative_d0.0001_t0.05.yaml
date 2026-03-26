@@ -1,0 +1,26 @@
+# Configuration for compute_diff_app - Veltri dataset
+# This script computes the difference DataFrame between parent and mutant datasets
+# The output can then be used as input for the main micdiff_app analysis
+
+# Input/Output paths (relative to project root)
+parents_dataset_path: results/apex_predictions/data/hydramp/veltri/all/veltri_negative.csv
+mutants_dataset_path: results/apex_predictions/results/mutants/veltri_negative/all/veltri_negative_direction_threshold=0.0001_token_threshold=0.05_jacobian_mode=approx.csv
+output_path: results/micdiff/veltri_negative/all/veltri_negative_d0.0001_t0.05/veltri_negative_direction_threshold=0.0001_token_threshold=0.05_jacobian_mode=approx_diff.csv
+
+# Diff: Configuration for computing differences between parent and mutant values
+# This section defines how to merge parent and mutant datasets and compute differences
+diff:
+  # Column name in parents dataset used to match/merge with mutants (e.g., sequence ID or name)
+  match_col_parents: Name
+  # Column name in mutants dataset that references the parent (must match match_col_parents values)
+  match_col_mutants: parent_name
+  # List of numeric columns to compute differences for (mutant_value - parent_value)
+  # These columns should exist in both parent and mutant datasets
+  value_cols:
+    - "A. baumannii ATCC 19606"
+    - "E. coli ATCC 11775"
+    - "E. coli AIG221"
+  # Preprocessing to apply before computing differences: null (no preprocessing) or "log2" (base-2 logarithm)
+  value_preprocessing: null  # Options: null, "log2"
+  # Whether to compute relative differences: (mutant - parent) / parent
+  add_relative: true
