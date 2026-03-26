@@ -30,6 +30,28 @@ or
 uv sync --extra cu128
 ```
 
+# Example script
+
+```
+python scripts/run_lebo_optimization_apex.py
+```
+
+# Baselines and BlackBoxes
+
+Different baselines and black-boxes needs different packages.
+
+To run toxi:
+
+```
+uv sync
+uv pip install "tensorflow[and-cuda]==2.20"
+uv pip install "numpy==2.3"
+```
+
+To run battle:
+
+TBA
+
 
 ### Getting APEX model weights
 APEX weights are required for APEX-based evaluation/optimization.
