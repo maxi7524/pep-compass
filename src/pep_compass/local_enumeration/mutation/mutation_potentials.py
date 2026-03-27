@@ -9,6 +9,7 @@ from typing import Callable, NamedTuple
 
 
 import itertools
+import random
 from abc import ABC, abstractmethod
 
 import numpy as np
@@ -97,7 +98,10 @@ class ProjectedDirectionPairwiseSimilarityPotential(MutationPotential):
 
     For each full mutant combination:
 
-        E = sum_{i<j} log((1 + cos(v_i, v_j)) / 2)
+        E = mean( +T(cos) for mutated-mutated pairs
+                  -T(cos) for mutated-identity pairs )
+
+    where by default T(x) = log((1 + x) / 2).
 
     Returns:
         dict[tuple[int, ...], float]
@@ -114,17 +118,11 @@ class ProjectedDirectionPairwiseSimilarityPotential(MutationPotential):
         self.tangent_space = tangent_space
         self.alphabet = alphabet or DEFAULT_ALPHABET
 
-        # T(x) = log((1+x)/2)
-        # When cos(v_i, v_j) = -1 (anti-aligned), this gives -inf
-        # which correctly represents that such combinations should be avoided
+        # Default transform: +log((1+x)/2).
+        # Clamp keeps the argument strictly positive for numerical stability.
         def default_similarity_transform(x):
-            arg = 0.99 * (1.0 + x) / 2.0
-            result = torch.where(
-                arg > 0,
-                torch.log(arg),
-                torch.tensor(float("-inf"), dtype=x.dtype, device=x.device),
-            )
-            return result
+            arg = torch.clamp((1.0 + x) / 2.0, min=1e-12, max=1.0)
+            return torch.log(arg)
 
         self.similarity_transform = similarity_transform or default_similarity_transform
 
@@ -249,26 +247,44 @@ class ProjectedDirectionPairwiseSimilarityPotential(MutationPotential):
             if len(mutated_indices) == 0:
                 continue
 
-            # If only 1 mutation, no pairwise similarity to compute
-            if len(mutated_indices) == 1:
+            # Build cosine matrix over all selected residues (mutated + identity).
+            # We include pairs where at least one residue is mutated:
+            # mutated-mutated (taken-taken) and mutated-identity (taken-not-taken).
+            selected_all = torch.stack(
+                [vectors_per_position[i][combo_indices[i]] for i in range(n_pos)]
+            )
+            cos_matrix = selected_all @ selected_all.T  # (n_pos, n_pos)
+
+            mut_mask = torch.tensor(
+                mutated_positions_mask,
+                dtype=torch.bool,
+                device=device,
+            )
+            i_idx, j_idx = torch.triu_indices(n_pos, n_pos, offset=1, device=device)
+            include_mask = mut_mask[i_idx] | mut_mask[j_idx]
+            both_mutated_mask = mut_mask[i_idx] & mut_mask[j_idx]
+            taken_not_taken_mask = include_mask & (~both_mutated_mask)
+
+            if not torch.any(include_mask):
                 result[aa_choice] = 0.0
                 continue
 
-            # Select only vectors for mutated positions
-            selected = torch.stack(
-                [vectors_per_position[i][combo_indices[i]] for i in mutated_indices]
-            )
+            pairwise_cos_all = cos_matrix[i_idx, j_idx]
 
-            # macierz cosinusów
-            cos_matrix = selected @ selected.T  # (n_mutated, n_mutated)
+            # + sign for taken-taken pairs
+            score_taken_taken = self.similarity_transform(
+                pairwise_cos_all[both_mutated_mask]
+            ).sum()
 
-            # tylko i<j
-            n_mutated = len(mutated_indices)
-            i_idx, j_idx = torch.triu_indices(n_mutated, n_mutated, offset=1)
-            pairwise_cos = cos_matrix[i_idx, j_idx]
+            # - sign for taken-not-taken pairs
+            score_taken_not_taken = -self.similarity_transform(
+                pairwise_cos_all[taken_not_taken_mask]
+            ).sum()
 
-            # transformacja
-            energy = self.similarity_transform(pairwise_cos).sum().item()
+            total_pairs = include_mask.sum().item()
+
+            # Normalize by number of included pairs (taken-taken + taken-not-taken).
+            energy = (score_taken_taken + score_taken_not_taken).item() / total_pairs
 
             result[aa_choice] = energy
 
@@ -386,6 +402,7 @@ def compose_mutant_distribution(
     alphabet: list[str] | None = None,
     max_len: int = DEFAULT_MAX_LEN,
     include_parent_residue: bool = False,
+    sample_combinations: int | None = None,
     top_k: int | None = None,
 ) -> MutantDistribution:
     """Build a scored table of mutants from the cartesian product of per-position candidates.
@@ -401,6 +418,9 @@ def compose_mutant_distribution(
         max_len: Maximum peptide length (for padding).
         include_parent_residue: If True, the parent's own residue at each
             mutable position is included as a candidate.
+        sample_combinations: If set and potential returns cartesian tuple keys,
+            keep at most this many combinations sampled uniformly at random
+            before sorting/top-k selection.
         top_k: If set, only the *top_k* highest-scoring mutants are returned.
             Uses ``argpartition`` for O(N) selection instead of full sort.
 
@@ -439,6 +459,11 @@ def compose_mutant_distribution(
             seq = "".join(seq_arr[: len(parent_peptide)])
             sequences.append(seq)
             scores.append(score)
+
+        if sample_combinations is not None and 0 < sample_combinations < len(scores):
+            sampled_indices = random.sample(range(len(scores)), sample_combinations)
+            sequences = [sequences[i] for i in sampled_indices]
+            scores = [scores[i] for i in sampled_indices]
 
         # Sort by score descending
         sorted_idxs = np.argsort(scores)[::-1]

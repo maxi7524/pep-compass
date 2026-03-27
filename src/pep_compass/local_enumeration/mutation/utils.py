@@ -60,3 +60,24 @@ def get_mutations_from_s_u_standard(
                 mutations[change_position].append(j)
 
     return mutations
+
+
+def get_mutations_from_s_u(
+    s: np.ndarray,
+    u: np.ndarray,
+    max_len: int,
+    alphabet_size: int,
+    direction_significance_threshold: float,
+    min_number_of_directions: int,
+    token_threshold: float,
+) -> dict[int, list[int]]:
+    """Backward-compatible alias for mutation extraction from SVD tensors."""
+    return get_mutations_from_s_u_standard(
+        s=s,
+        u=u,
+        max_len=max_len,
+        alphabet_size=alphabet_size,
+        direction_significance_threshold=direction_significance_threshold,
+        min_number_of_directions=min_number_of_directions,
+        token_threshold=token_threshold,
+    )

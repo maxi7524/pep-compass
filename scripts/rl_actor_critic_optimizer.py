@@ -35,15 +35,14 @@ import torch.optim as optim
 sys.path.insert(0, os.path.dirname(__file__))
 from rl_peptide_optimizer import (
     LATENT_DIM,
-    ECOLI_INDICES,
     SEED_PEPTIDES,
-    ALPHABET,
     MAX_PEPTIDE_LEN,
     build_encoder_decoder,
     build_apex_predictor,
     score_peptides,
-    compute_jacobian_svd,
     generate_candidates,
+    discounted_sum,
+    resolve_start_peptides,
 )
 
 
@@ -336,6 +335,9 @@ class A2CAgent:
 
 def run_a2c_optimization(
     start_peptide: str = "FLPKKVIPLL",
+    start_peptides: str = "",
+    start_peptides_file: str = "",
+    start_selection: str = "cycle",
     n_episodes: int = 100,
     max_steps: int = 20,
     max_candidates: int = 40,
@@ -349,6 +351,16 @@ def run_a2c_optimization(
     temp_end: float = 0.2,
     output_dir: str = "results",
     start_from_best: bool = False,
+    potential_type: str = "similarity",
+    mutation_direction_significance_threshold: float = 1e-3,
+    mutation_min_number_of_directions: int = 5,
+    mutation_token_threshold: float = 0.1,
+    similarity_horizontal_threshold: float = 1e-3,
+    similarity_max_positions: int = 5,
+    similarity_max_mutations_per_position: int = 6,
+    similarity_max_combinations: int = 40_000,
+    similarity_sample_combinations: int = 8_000,
+    similarity_include_parent_residue: bool = False,
     run_name: str = "",
 ) -> None:
     """Run A2C-based peptide optimisation in the HydrAMP latent space.
@@ -359,7 +371,10 @@ def run_a2c_optimization(
 
     Parameters
     ----------
-    start_peptide : Amino-acid sequence of the seed peptide.
+    start_peptide : Fallback single seed peptide.
+    start_peptides : Inline peptide dataset (comma/space/newline separated).
+    start_peptides_file : Path to peptide dataset file.
+    start_selection : Episode start selector: ``cycle`` or ``random``.
     n_episodes : Number of training episodes.
     max_steps : Maximum transitions per episode.
     max_candidates : Maximum number of mutant candidates per step.
@@ -373,7 +388,8 @@ def run_a2c_optimization(
     temp_end : Final softmax temperature.
     output_dir : Directory to save results JSON and CSV.
     start_from_best : If True, each episode starts from the best peptide found
-                      so far instead of the fixed start_peptide.
+                      so far instead of sampled dataset starts.
+    potential_type : Candidate potential type (``similarity`` or ``decoder_logprob``).
     run_name : Optional tag prepended to the output file names.
     """
     from pep_compass.local_enumeration.mutation.mutation_enumerator import (
@@ -383,6 +399,10 @@ def run_a2c_optimization(
         DecoderLogProbPotential,
     )
 
+    selection = start_selection.strip().lower()
+    if selection not in {"cycle", "random"}:
+        raise ValueError("start_selection must be one of: 'cycle', 'random'")
+
     # ── build models ──────────────────────────────────────────────────────────
     if verbose:
         print("Loading models …")
@@ -391,9 +411,9 @@ def run_a2c_optimization(
 
     mutation_enumerator = MutationEnumerationInTangentSpace(
         max_len=MAX_PEPTIDE_LEN,
-        direction_significance_threshold=1e-3,
-        min_number_of_directions=5,
-        token_threshold=0.1,
+        direction_significance_threshold=mutation_direction_significance_threshold,
+        min_number_of_directions=mutation_min_number_of_directions,
+        token_threshold=mutation_token_threshold,
     )
     log_prob_potential = DecoderLogProbPotential(encoder_decoder=encoder_decoder)
 
@@ -404,16 +424,51 @@ def run_a2c_optimization(
         device=device,
     )
 
-    # ── encode start peptide and compute baseline score ───────────────────────
+    # ── resolve and encode start peptide dataset ──────────────────────────────
+    start_pool = resolve_start_peptides(
+        start_peptide=start_peptide,
+        start_peptides=start_peptides,
+        start_peptides_file=start_peptides_file,
+    )
     if verbose:
-        print(f"Encoding start peptide: {start_peptide!r}")
+        print(f"Encoding {len(start_pool)} start peptide(s) …")
     with torch.no_grad():
-        start_z_tensor: torch.Tensor = encoder_decoder.encode_peptides([start_peptide])
-    start_z: np.ndarray = start_z_tensor.detach().cpu().numpy()[0]  # (64,)
-    start_score: float = float(score_peptides(apex, [start_peptide])[0])
+        start_z_tensor: torch.Tensor = encoder_decoder.encode_peptides(start_pool)
+    start_zs: np.ndarray = start_z_tensor.detach().cpu().numpy()
+    start_scores_arr = score_peptides(apex, start_pool)
+
+    run_start_peptide = start_pool[0]
+    run_start_score = float(start_scores_arr[0])
+    best_init_idx = int(np.argmin(start_scores_arr))
+    best_peptide: str = start_pool[best_init_idx]
+    best_score: float = float(start_scores_arr[best_init_idx])
+    all_start_scores: list[float] = [float(x) for x in start_scores_arr.tolist()]
+
+    _latent_cache: dict[str, np.ndarray] = {
+        pep: start_zs[i].copy() for i, pep in enumerate(start_pool)
+    }
+    _score_cache: dict[str, float] = {
+        pep: float(start_scores_arr[i]) for i, pep in enumerate(start_pool)
+    }
+
+    def _get_latent(peptide: str) -> np.ndarray:
+        if peptide not in _latent_cache:
+            with torch.no_grad():
+                _z = encoder_decoder.encode_peptides([peptide])
+            _latent_cache[peptide] = _z.detach().cpu().numpy()[0]
+        return _latent_cache[peptide]
+
+    def _get_score(peptide: str) -> float:
+        if peptide not in _score_cache:
+            _score_cache[peptide] = float(score_peptides(apex, [peptide])[0])
+        return _score_cache[peptide]
 
     if verbose:
-        print(f"Start score (mean log2 MIC over E.coli): {start_score:.4f}")
+        print(
+            "Start dataset loaded: "
+            f"count={len(start_pool)}  first={run_start_peptide!r} ({run_start_score:.4f})  "
+            f"best={best_peptide!r} ({best_score:.4f})"
+        )
 
     # ── candidate cache (keyed by peptide string) ────────────────────────────
     _cand_cache: dict[str, tuple] = {}
@@ -421,18 +476,21 @@ def run_a2c_optimization(
     def _get_candidates(peptide: str, z: np.ndarray) -> tuple:
         if peptide not in _cand_cache:
             _cand_cache[peptide] = generate_candidates(
-                peptide, z, encoder_decoder, mutation_enumerator,
-                log_prob_potential, max_candidates=max_candidates,
+                peptide=peptide,
+                z_np=z,
+                encoder_decoder=encoder_decoder,
+                mutation_enumerator=mutation_enumerator,
+                potential_type=potential_type,
+                similarity_horizontal_threshold=similarity_horizontal_threshold,
+                similarity_max_positions=similarity_max_positions,
+                similarity_max_mutations_per_position=similarity_max_mutations_per_position,
+                similarity_max_combinations=similarity_max_combinations,
+                similarity_sample_combinations=similarity_sample_combinations,
+                similarity_include_parent_residue=similarity_include_parent_residue,
+                log_prob_potential=log_prob_potential,
+                max_candidates=max_candidates,
             )
         return _cand_cache[peptide]
-
-    # ── score cache (keyed by peptide string) ────────────────────────────────
-    _score_cache: dict[str, float] = {start_peptide: start_score}
-
-    def _get_score(peptide: str) -> float:
-        if peptide not in _score_cache:
-            _score_cache[peptide] = float(score_peptides(apex, [peptide])[0])
-        return _score_cache[peptide]
 
     # ── output dir + run id ───────────────────────────────────────────────────
     os.makedirs(output_dir, exist_ok=True)
@@ -445,19 +503,20 @@ def run_a2c_optimization(
     csv_writer = csv.writer(csv_file)
     csv_writer.writerow([
         "episode",
+        "run_start_mode", "run_start_count",
         "run_start_peptide", "run_start_log2mic",
         "ep_start_peptide", "ep_start_log2mic",
         "ep_best_peptide", "ep_best_log2mic",
-        "ep_reward_log2mic",
+        "ep_return_log2mic",
+        "ep_discounted_return_log2mic",
         "global_best_peptide", "global_best_log2mic",
         "temperature", "entropy_beta",
     ])
     csv_file.flush()
 
     # ── tracking containers ───────────────────────────────────────────────────
-    best_peptide: str = start_peptide
-    best_score: float = start_score
     episode_rewards: list[float] = []
+    episode_discounted_returns: list[float] = []
     all_best_scores: list[float] = []
     all_best_peptides: list[str] = []
     trajectories: list[list[str]] = []
@@ -475,16 +534,18 @@ def run_a2c_optimization(
         # ── episode starting point ────────────────────────────────────────────
         if start_from_best and ep > 0:
             current_peptide = best_peptide
-            with torch.no_grad():
-                _zt = encoder_decoder.encode_peptides([current_peptide])
-            current_z = _zt.detach().cpu().numpy()[0]
-            current_score = best_score
+            current_z = _get_latent(current_peptide).copy()
+            current_score = _get_score(current_peptide)
         else:
-            current_peptide = start_peptide
-            current_z = start_z.copy()
-            current_score = start_score
+            if selection == "random":
+                current_peptide = str(np.random.choice(start_pool))
+            else:
+                current_peptide = start_pool[ep % len(start_pool)]
+            current_z = _get_latent(current_peptide).copy()
+            current_score = _get_score(current_peptide)
 
         ep_reward = 0.0
+        step_rewards: list[float] = []
         ep_start_score = current_score
         ep_start_peptide = current_peptide
         ep_best_score = current_score
@@ -505,8 +566,11 @@ def run_a2c_optimization(
             # ── evaluate chosen candidate (cached) ────────────────────────────
             next_score: float = _get_score(chosen_seq)
 
-            # Reward = improvement beyond the running episode-best score.
-            reward: float = max(0.0, ep_best_score - next_score)
+            # Reward = consecutive score delta in log2(MIC).
+            reward: float = current_score - next_score
+            if not np.isfinite(reward):
+                reward = 0.0
+            step_rewards.append(reward)
             ep_reward += reward
 
             # ── store transition ──────────────────────────────────────────────
@@ -540,6 +604,7 @@ def run_a2c_optimization(
             current_z = chosen_z
             current_score = next_score
             current_peptide = chosen_seq
+            _latent_cache[chosen_seq] = chosen_z.copy()
 
             # Reuse next candidates as current candidates for the next step
             if step < max_steps - 1:
@@ -557,7 +622,9 @@ def run_a2c_optimization(
 
         # ── episode summary ───────────────────────────────────────────────────
         ep_improvement = ep_start_score - ep_best_score
+        ep_discounted_return = discounted_sum(step_rewards, gamma)
         episode_rewards.append(ep_reward)
+        episode_discounted_returns.append(ep_discounted_return)
         all_best_scores.append(ep_best_score)
         all_best_peptides.append(ep_best_peptide)
         trajectories.append(trajectory)
@@ -565,10 +632,12 @@ def run_a2c_optimization(
         # write CSV row
         csv_writer.writerow([
             ep + 1,
-            start_peptide, f"{start_score:.6f}",
+            selection, len(start_pool),
+            run_start_peptide, f"{run_start_score:.6f}",
             ep_start_peptide, f"{ep_start_score:.6f}",
             ep_best_peptide, f"{ep_best_score:.6f}",
-            f"{ep_improvement:.6f}",
+            f"{ep_reward:.6f}",
+            f"{ep_discounted_return:.6f}",
             best_peptide, f"{best_score:.6f}",
             f"{temperature:.4f}", f"{entropy_beta:.4f}",
         ])
@@ -577,7 +646,9 @@ def run_a2c_optimization(
         if verbose:
             print(
                 f"Ep {ep + 1:>3}/{n_episodes}  "
-                f"reward={ep_improvement:+.4f} log2  "
+                f"return={ep_reward:+.4f}  "
+                f"disc_return={ep_discounted_return:+.4f}  "
+                f"improvement={ep_improvement:+.4f}  "
                 f"ep_best={ep_best_score:.4f} log2 ({ep_best_peptide!r})  "
                 f"global_best={best_score:.4f} log2  "
                 f"τ={temperature:.2f}  β={entropy_beta:.3f}"
@@ -587,9 +658,9 @@ def run_a2c_optimization(
 
     if verbose:
         print(f"\nOptimisation complete.")
-        print(f"  Start : {start_peptide!r}  {start_score:.4f} log2 MIC  ({2**start_score:.1f} µM)")
+        print(f"  Start : {run_start_peptide!r}  {run_start_score:.4f} log2 MIC  ({2**run_start_score:.1f} µM)")
         print(f"  Best  : {best_peptide!r}  {best_score:.4f} log2 MIC  ({2**best_score:.1f} µM)")
-        print(f"  Improvement: {start_score - best_score:+.4f} log2 MIC  ({2**start_score / 2**best_score:.1f}x fold)")
+        print(f"  Improvement: {run_start_score - best_score:+.4f} log2 MIC  ({2**run_start_score / 2**best_score:.1f}x fold)")
         print(f"  Log saved  : {csv_path}")
 
     results = {
@@ -598,19 +669,26 @@ def run_a2c_optimization(
         "best_peptide": best_peptide,
         "best_log2mic": best_score,
         "best_mic_uM": 2 ** best_score,
-        "start_peptide": start_peptide,
-        "start_log2mic": start_score,
-        "start_mic_uM": 2 ** start_score,
-        "improvement_log2mic": start_score - best_score,
-        "fold_improvement": (2 ** start_score) / (2 ** best_score),
+        "start_peptide": run_start_peptide,
+        "start_log2mic": run_start_score,
+        "start_mic_uM": 2 ** run_start_score,
+        "start_peptides": start_pool,
+        "start_scores_log2mic": all_start_scores,
+        "start_selection_mode": selection,
+        "improvement_log2mic": run_start_score - best_score,
+        "fold_improvement": (2 ** run_start_score) / (2 ** best_score),
+        "reward_formula": "log2MIC_t - log2MIC_t+1",
+        "discount_gamma": gamma,
+        "potential_type": potential_type,
         "episode_rewards": episode_rewards,
+        "episode_discounted_returns": episode_discounted_returns,
         "all_best_scores": all_best_scores,
         "all_best_peptides": all_best_peptides,
         "trajectories": trajectories,
         # legacy aliases kept for report compatibility
         "best_score": best_score,
-        "start_score": start_score,
-        "improvement": start_score - best_score,
+        "start_score": run_start_score,
+        "improvement": run_start_score - best_score,
     }
 
     # ── persist results to JSON ───────────────────────────────────────────────
@@ -628,6 +706,9 @@ def run_a2c_optimization(
 
 
 def run_a2c_all_peptides(
+    start_peptides: str = "",
+    start_peptides_file: str = "",
+    start_selection: str = "cycle",
     n_episodes: int = 100,
     max_steps: int = 20,
     max_candidates: int = 40,
@@ -640,6 +721,16 @@ def run_a2c_all_peptides(
     temp_start: float = 2.0,
     temp_end: float = 0.2,
     start_from_best: bool = False,
+    potential_type: str = "similarity",
+    mutation_direction_significance_threshold: float = 1e-3,
+    mutation_min_number_of_directions: int = 5,
+    mutation_token_threshold: float = 0.1,
+    similarity_horizontal_threshold: float = 1e-3,
+    similarity_max_positions: int = 5,
+    similarity_max_mutations_per_position: int = 6,
+    similarity_max_combinations: int = 40_000,
+    similarity_sample_combinations: int = 8_000,
+    similarity_include_parent_residue: bool = False,
     peptide_name: str = "",
 ) -> None:
     """Run A2C optimisation for all six benchmark seed peptides.
@@ -671,6 +762,9 @@ def run_a2c_all_peptides(
         print("=" * 70)
         run_a2c_optimization(
             start_peptide=seq,
+            start_peptides=start_peptides,
+            start_peptides_file=start_peptides_file,
+            start_selection=start_selection,
             n_episodes=n_episodes,
             max_steps=max_steps,
             max_candidates=max_candidates,
@@ -683,6 +777,16 @@ def run_a2c_all_peptides(
             temp_start=temp_start,
             temp_end=temp_end,
             start_from_best=start_from_best,
+            potential_type=potential_type,
+            mutation_direction_significance_threshold=mutation_direction_significance_threshold,
+            mutation_min_number_of_directions=mutation_min_number_of_directions,
+            mutation_token_threshold=mutation_token_threshold,
+            similarity_horizontal_threshold=similarity_horizontal_threshold,
+            similarity_max_positions=similarity_max_positions,
+            similarity_max_mutations_per_position=similarity_max_mutations_per_position,
+            similarity_max_combinations=similarity_max_combinations,
+            similarity_sample_combinations=similarity_sample_combinations,
+            similarity_include_parent_residue=similarity_include_parent_residue,
             run_name=name,
             verbose=True,
         )
@@ -754,7 +858,12 @@ def test_components(peptide: str = "FLPKKVIPLL", device: str = "cpu") -> None:
 
     # Generate candidates
     cand_seqs, cand_probs, cand_zs = generate_candidates(
-        peptide, z_np, enc_dec, mutation_enumerator, log_prob_potential,
+        peptide=peptide,
+        z_np=z_np,
+        encoder_decoder=enc_dec,
+        mutation_enumerator=mutation_enumerator,
+        potential_type="decoder_logprob",
+        log_prob_potential=log_prob_potential,
         max_candidates=10,
     )
     print(f"  Generated {len(cand_seqs)} candidates  ✓")
@@ -787,8 +896,13 @@ def test_components(peptide: str = "FLPKKVIPLL", device: str = "cpu") -> None:
             current_z = chosen_z
             current_peptide = chosen_seq
             current_cand_seqs, _, current_cand_zs = generate_candidates(
-                current_peptide, current_z, enc_dec, mutation_enumerator,
-                log_prob_potential, max_candidates=10,
+                peptide=current_peptide,
+                z_np=current_z,
+                encoder_decoder=enc_dec,
+                mutation_enumerator=mutation_enumerator,
+                potential_type="decoder_logprob",
+                log_prob_potential=log_prob_potential,
+                max_candidates=10,
             )
 
         # Update

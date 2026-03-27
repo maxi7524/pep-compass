@@ -15,6 +15,8 @@ from __future__ import annotations
 import random
 from collections import deque
 from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Iterable
 
 import numpy as np
 import torch
@@ -71,6 +73,161 @@ def build_apex_predictor(device: str = "cpu"):
     return PredictorAPEX(device=device)
 
 
+def discounted_sum(rewards: list[float], gamma: float) -> float:
+    """Return discounted trajectory sum ``Σ_t gamma^t * rewards[t]``."""
+    total = 0.0
+    coeff = 1.0
+    for reward in rewards:
+        total += coeff * reward
+        coeff *= gamma
+    return float(total)
+
+
+def _iter_text_chunks(value: object) -> list[str]:
+    """Flatten CLI value into string chunks."""
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, bytes):
+        return [value.decode("utf-8", errors="ignore")]
+    if isinstance(value, Iterable) and not isinstance(value, (str, bytes, dict)):
+        chunks: list[str] = []
+        for item in value:
+            chunks.extend(_iter_text_chunks(item))
+        return chunks
+    return [str(value)]
+
+
+def _tokenize_peptide_text(text: str) -> list[str]:
+    """Split free-form text/csv input into peptide tokens."""
+    peptides: list[str] = []
+    valid_aas = set(ALPHABET[1:])
+    skip_tokens = {"peptide", "sequence", "seq"}
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        for token in stripped.replace(",", " ").split():
+            peptide = token.strip().upper()
+            if not peptide:
+                continue
+            if peptide.lower() in skip_tokens:
+                continue
+            if not set(peptide).issubset(valid_aas):
+                continue
+            if peptide:
+                peptides.append(peptide)
+    return peptides
+
+
+def resolve_start_peptides(
+    start_peptide: str,
+    start_peptides: object = "",
+    start_peptides_file: object = "",
+) -> list[str]:
+    """Resolve run starting peptides from CLI values and optional dataset file."""
+    resolved: list[str] = []
+
+    for chunk in _iter_text_chunks(start_peptides):
+        if chunk:
+            resolved.extend(_tokenize_peptide_text(chunk))
+
+    for path_chunk in _iter_text_chunks(start_peptides_file):
+        if not path_chunk:
+            continue
+        file_path = Path(path_chunk)
+        file_text = file_path.read_text(encoding="utf-8")
+        resolved.extend(_tokenize_peptide_text(file_text))
+
+    if not resolved and start_peptide:
+        resolved.append(start_peptide.strip().upper())
+
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for peptide in resolved:
+        if peptide and peptide not in seen:
+            deduped.append(peptide)
+            seen.add(peptide)
+
+    if not deduped:
+        raise ValueError("No valid start peptides were provided.")
+    return deduped
+
+
+def _normalise_mutations(
+    mutations: dict[int, list[int]],
+) -> dict[int, list[int]]:
+    """Return deterministic, deduplicated mutation lists per position."""
+    normalised: dict[int, list[int]] = {}
+    for pos, aa_indices in mutations.items():
+        unique = sorted({int(idx) for idx in aa_indices})
+        if unique:
+            normalised[int(pos)] = unique
+    return normalised
+
+
+def _prune_mutation_space(
+    mutations: dict[int, list[int]],
+    max_positions: int,
+    max_mutations_per_position: int,
+) -> dict[int, list[int]]:
+    """Prune mutation space for performance while keeping deterministic ordering."""
+    items = [(pos, indices) for pos, indices in mutations.items() if indices]
+    if not items:
+        return {}
+
+    # Keep positions with the richest mutation options first.
+    items.sort(key=lambda item: (-len(item[1]), item[0]))
+    if max_positions > 0:
+        items = items[:max_positions]
+
+    pruned: dict[int, list[int]] = {}
+    for pos, indices in items:
+        kept = indices[:max_mutations_per_position] if max_mutations_per_position > 0 else indices
+        if kept:
+            pruned[pos] = kept
+
+    return dict(sorted(pruned.items()))
+
+
+def _cartesian_size(mutations: dict[int, list[int]]) -> int:
+    """Return ``k = ∏_pos |mutations[pos]|``."""
+    if not mutations:
+        return 0
+    size = 1
+    for aa_indices in mutations.values():
+        size *= max(1, len(aa_indices))
+    return int(size)
+
+
+def _shrink_mutation_space_to_budget(
+    mutations: dict[int, list[int]],
+    max_combinations: int,
+) -> dict[int, list[int]]:
+    """Shrink per-position mutation lists until cartesian size is within budget."""
+    if max_combinations <= 0:
+        return mutations
+
+    current = {pos: list(indices) for pos, indices in sorted(mutations.items()) if indices}
+    if not current:
+        return {}
+
+    while _cartesian_size(current) > max_combinations:
+        candidates = [pos for pos, indices in current.items() if len(indices) > 1]
+        if candidates:
+            pos = max(candidates, key=lambda p: (len(current[p]), -p))
+            current[pos] = current[pos][:-1]
+            continue
+        if len(current) <= 1:
+            break
+        # If all positions already have one option, drop a position to reduce search.
+        drop_pos = max(current.keys())
+        current.pop(drop_pos)
+
+    return {pos: indices for pos, indices in current.items() if indices}
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Jacobian / SVD utilities
 # ──────────────────────────────────────────────────────────────────────────────
@@ -98,16 +255,26 @@ def compute_jacobian_svd(
         Left singular vectors (ambient tangent directions), shape
         ``(AMBIENT_DIM, LATENT_DIM)`` == ``(525, 64)``.
     """
+    S_np, U_np, _V_np = compute_jacobian_full_svd(encoder_decoder, z_tensor)
+    return S_np, U_np
+
+
+def compute_jacobian_full_svd(
+    encoder_decoder,
+    z_tensor: torch.Tensor,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Compute full SVD of decoder Jacobian returning ``(S, U, V)``."""
     z_2d = z_tensor.unsqueeze(0) if z_tensor.ndim == 1 else z_tensor  # ensure (1, 64)
     J: torch.Tensor = encoder_decoder.decoder_jacobian(z_2d)  # (1, 525, 64) or (525, 64)
     if J.ndim == 3:
         J = J.squeeze(0)  # → (525, 64)
-    # torch.linalg.svd with full_matrices=False gives:
-    #   U  : (525, 64)  – left singular vectors (ambient space)
-    #   S  : (64,)      – singular values
-    #   Vh : (64, 64)   – right singular vectors (latent space, transposed)
-    U, S, _Vh = torch.linalg.svd(J, full_matrices=False)
-    return S.detach().cpu().numpy(), U.detach().cpu().numpy()
+    U, S, Vh = torch.linalg.svd(J, full_matrices=False)
+    V = Vh.transpose(0, 1)
+    return (
+        S.detach().cpu().numpy(),
+        U.detach().cpu().numpy(),
+        V.detach().cpu().numpy(),
+    )
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -120,7 +287,14 @@ def generate_candidates(
     z_np: np.ndarray,
     encoder_decoder,
     mutation_enumerator,
-    log_prob_potential,
+    potential_type: str = "similarity",
+    similarity_horizontal_threshold: float = 1e-3,
+    similarity_max_positions: int = 5,
+    similarity_max_mutations_per_position: int = 6,
+    similarity_max_combinations: int = 40_000,
+    similarity_sample_combinations: int = 8_000,
+    similarity_include_parent_residue: bool = False,
+    log_prob_potential=None,
     max_candidates: int = 40,
 ) -> tuple[list[str], np.ndarray, np.ndarray]:
     """Generate candidate mutant peptides in the local tangent space.
@@ -129,8 +303,7 @@ def generate_candidates(
     1. Compute the decoder Jacobian and its SVD at the current latent point.
     2. Enumerate per-position amino-acid substitutions via
        MutationEnumerationInTangentSpace.
-    3. Rank candidates with DecoderLogProbPotential via
-       compose_mutant_distribution.
+    3. Rank candidates with selected potential via compose_mutant_distribution.
     4. Encode the top-k candidates with the encoder to obtain latent vectors.
 
     Parameters
@@ -143,8 +316,22 @@ def generate_candidates(
         HydrAMPEncoderDecoder instance.
     mutation_enumerator:
         MutationEnumerationInTangentSpace instance.
+    potential_type:
+        ``"similarity"`` (default) or ``"decoder_logprob"``.
+    similarity_horizontal_threshold:
+        Horizontal threshold used in ``SubRiemannianTangentSpace`` projection.
+    similarity_max_positions:
+        Maximum mutable positions retained for similarity scoring.
+    similarity_max_mutations_per_position:
+        Maximum amino-acid options retained per mutable position.
+    similarity_max_combinations:
+        Upper bound on cartesian combinations after deterministic pruning.
+    similarity_sample_combinations:
+        Maximum number of cartesian combinations sampled for similarity potentials.
+    similarity_include_parent_residue:
+        Whether to include parent amino acid per mutable position for similarity potential.
     log_prob_potential:
-        DecoderLogProbPotential instance.
+        Optional ``DecoderLogProbPotential`` used when ``potential_type="decoder_logprob"``.
     max_candidates:
         Maximum number of candidate sequences to return.
 
@@ -158,32 +345,79 @@ def generate_candidates(
         Encoded latent vectors for each candidate, shape ``(n, LATENT_DIM)``.
     """
     from pep_compass.local_enumeration.mutation.mutation_potentials import (
+        DecoderLogProbPotential,
+        ProjectedDirectionPairwiseSimilarityPotential,
         compose_mutant_distribution,
     )
+    from pep_compass.local_enumeration.sampling.sorbes import SubRiemannianTangentSpace
 
     z_tensor = torch.tensor(z_np, dtype=torch.float32, device=encoder_decoder.device)
 
     # ── 1. Jacobian SVD ──────────────────────────────────────────────────────
-    S_np, U_np = compute_jacobian_svd(encoder_decoder, z_tensor)
+    S_np, U_np, V_np = compute_jacobian_full_svd(encoder_decoder, z_tensor)
+    # Keep similarity projection on CPU for stability with current
+    # SubRiemannianTangentSpace implementation.
+    proj_device = "cpu"
+    S_t = torch.tensor(S_np, dtype=torch.float32, device=proj_device)
+    U_t = torch.tensor(U_np, dtype=torch.float32, device=proj_device)
+    V_t = torch.tensor(V_np, dtype=torch.float32, device=proj_device)
 
     # ── 2. Enumerate mutations in tangent space ──────────────────────────────
-    mutations: dict[int, list[int]] = mutation_enumerator.get_mutations_from_s_u(
+    raw_mutations: dict[int, list[int]] = mutation_enumerator.get_mutations_from_s_u(
         S_np, U_np
     )
+    mutations = _normalise_mutations(raw_mutations)
 
     # Edge case: no mutations discovered → fall back to current peptide only
     if not mutations:
         candidate_zs = z_np[np.newaxis, :]  # (1, 64)
         return [peptide], np.array([1.0]), candidate_zs
 
-    # ── 3. Rank with log-prob potential ─────────────────────────────────────
+    # ── 3. Rank with selected potential ─────────────────────────────────────
+    potential_key = potential_type.strip().lower()
+    if potential_key == "similarity":
+        tangent_space = SubRiemannianTangentSpace(
+            U_t,
+            S_t,
+            V_t,
+            horizontal_threshold=similarity_horizontal_threshold,
+            device=proj_device,
+        )
+        potential = ProjectedDirectionPairwiseSimilarityPotential(
+            tangent_space=tangent_space,
+            alphabet=ALPHABET,
+        )
+
+        pruned_mutations = _prune_mutation_space(
+            mutations,
+            max_positions=similarity_max_positions,
+            max_mutations_per_position=similarity_max_mutations_per_position,
+        )
+        effective_budget = similarity_max_combinations
+        if similarity_sample_combinations > 0:
+            effective_budget = min(effective_budget, similarity_sample_combinations)
+        budgeted_mutations = _shrink_mutation_space_to_budget(
+            pruned_mutations,
+            max_combinations=effective_budget,
+        )
+        if budgeted_mutations:
+            mutations = budgeted_mutations
+    elif potential_key in {"decoder_logprob", "logprob", "decoder"}:
+        potential = log_prob_potential or DecoderLogProbPotential(
+            encoder_decoder=encoder_decoder
+        )
+    else:
+        raise ValueError(f"Unsupported potential_type={potential_type!r}")
+
     mutant_dist = compose_mutant_distribution(
         parent_peptide=peptide,
         mutations=mutations,
-        potential=log_prob_potential,
+        potential=potential,
         alphabet=ALPHABET,
         max_len=MAX_PEPTIDE_LEN,
-        include_parent_residue=False,
+        include_parent_residue=(
+            similarity_include_parent_residue if potential_key == "similarity" else False
+        ),
         top_k=max_candidates,
     )
 
@@ -214,8 +448,10 @@ def generate_candidates(
     # ── 6. Filter to candidates above the uniform threshold 1/k ─────────────
     #  Keep only mutations whose softmax probability exceeds the uniform baseline.
     #  This sharpens the action space to above-average candidates only.
-    k = len(seqs)
-    keep = softmax_probs > (1.0 / (1.2 * k))
+    k = _cartesian_size(mutations)
+    if k <= 0:
+        k = len(seqs)
+    keep = softmax_probs > (1.0 / k)
     if keep.sum() == 0:
         keep[np.argmax(softmax_probs)] = True  # always keep the best one
     seqs = [s for s, m in zip(seqs, keep) if m]
@@ -562,6 +798,9 @@ class DQNAgent:
 
 def run_rl_optimization(
     start_peptide: str = "FLPKKVIPLL",
+    start_peptides: str = "",
+    start_peptides_file: str = "",
+    start_selection: str = "cycle",
     n_episodes: int = 50,
     max_steps: int = 20,
     max_candidates: int = 40,
@@ -578,23 +817,32 @@ def run_rl_optimization(
     output_dir: str = "results",
     start_from_best: bool = False,
     per_episode_epsilon: bool = True,
+    potential_type: str = "similarity",
+    mutation_direction_significance_threshold: float = 1e-3,
+    mutation_min_number_of_directions: int = 5,
+    mutation_token_threshold: float = 0.1,
+    similarity_horizontal_threshold: float = 1e-3,
+    similarity_max_positions: int = 5,
+    similarity_max_mutations_per_position: int = 6,
+    similarity_max_combinations: int = 40_000,
+    similarity_sample_combinations: int = 8_000,
+    similarity_include_parent_residue: bool = False,
     run_name: str = "",
 ) -> None:
     """Run DQN-based peptide optimisation in the HydrAMP latent space.
 
-    Starting from *start_peptide*, the agent navigates the latent space for
-    *n_episodes* episodes of *max_steps* steps each, guided by APEX MIC
-    predictions.  The objective is to minimise mean log2(MIC) over the three
-    E. coli strains (APEX pathogen indices 1, 2, 3).
-
-    The episode reward equals the total improvement in the trajectory-best MIC
-    achieved during that episode:  reward = start_score − min(trajectory_scores).
-    Per-step rewards are non-zero only when the agent discovers a new
-    episode-best candidate, rewarding the *improvement beyond the running best*.
+    Supports a dataset of starting peptides. If ``start_peptides`` and
+    ``start_peptides_file`` are empty, falls back to ``start_peptide``.
+    Per-step reward is the consecutive score delta:
+    ``reward_t = log2MIC_t - log2MIC_{t+1}``, and discounted return uses
+    ``gamma``.
 
     Parameters
     ----------
-    start_peptide     : Amino-acid sequence of the seed peptide.
+    start_peptide     : Fallback single amino-acid seed sequence.
+    start_peptides    : Inline peptide dataset (comma/space/newline separated).
+    start_peptides_file: Path to peptide dataset file.
+    start_selection   : Episode start selector: ``cycle`` or ``random``.
     n_episodes        : Number of training episodes.
     max_steps         : Maximum transitions per episode.
     max_candidates    : Maximum number of mutant candidates per step.
@@ -610,12 +858,20 @@ def run_rl_optimization(
     target_update_freq: Hard target-network update frequency (update steps).
     output_dir        : Directory to save results JSON and CSV.
     start_from_best   : If True, each episode starts from the best peptide found
-                        so far instead of the fixed start_peptide. Encourages
-                        continued frontier exploration.
+                        so far instead of sampled dataset starts.
     per_episode_epsilon: If True, reset ε at the start of every episode using a
                         linearly decaying schedule (epsilon_start → epsilon_end
-                        over n_episodes). Prevents premature convergence to the
-                        first local optimum found.
+                        over n_episodes).
+    potential_type    : Candidate potential type: ``similarity`` or ``decoder_logprob``.
+    mutation_direction_significance_threshold: MUTANG++ direction threshold.
+    mutation_min_number_of_directions: MUTANG++ minimum kept directions.
+    mutation_token_threshold: MUTANG++ token threshold.
+    similarity_horizontal_threshold: Horizontal threshold for similarity projection.
+    similarity_max_positions: Max positions for similarity potential scoring.
+    similarity_max_mutations_per_position: Max residues per position for similarity scoring.
+    similarity_max_combinations: Combination budget before deterministic shrinking.
+    similarity_sample_combinations: Sampling cap for similarity combinations.
+    similarity_include_parent_residue: Include parent AA as option in similarity scoring.
     run_name          : Optional tag prepended to the output file names.
     """
     from pep_compass.local_enumeration.mutation.mutation_enumerator import (
@@ -630,6 +886,10 @@ def run_rl_optimization(
     import os
     import time
 
+    selection = start_selection.strip().lower()
+    if selection not in {"cycle", "random"}:
+        raise ValueError("start_selection must be one of: 'cycle', 'random'")
+
     # ── build models ──────────────────────────────────────────────────────────
     if verbose:
         print("Loading models …")
@@ -638,9 +898,9 @@ def run_rl_optimization(
 
     mutation_enumerator = MutationEnumerationInTangentSpace(
         max_len=MAX_PEPTIDE_LEN,
-        direction_significance_threshold=1e-3,
-        min_number_of_directions=5,
-        token_threshold=0.1,
+        direction_significance_threshold=mutation_direction_significance_threshold,
+        min_number_of_directions=mutation_min_number_of_directions,
+        token_threshold=mutation_token_threshold,
     )
     log_prob_potential = DecoderLogProbPotential(encoder_decoder=encoder_decoder)
 
@@ -657,16 +917,53 @@ def run_rl_optimization(
         device=device,
     )
 
-    # ── encode start peptide and compute baseline score ───────────────────────
+    # ── resolve and encode start peptide dataset ──────────────────────────────
+    start_pool = resolve_start_peptides(
+        start_peptide=start_peptide,
+        start_peptides=start_peptides,
+        start_peptides_file=start_peptides_file,
+    )
     if verbose:
-        print(f"Encoding start peptide: {start_peptide!r}")
+        print(f"Encoding {len(start_pool)} start peptide(s) …")
+
     with torch.no_grad():
-        start_z_tensor: torch.Tensor = encoder_decoder.encode_peptides([start_peptide])
-    start_z: np.ndarray = start_z_tensor.detach().cpu().numpy()[0]  # (64,)
-    start_score: float = float(score_peptides(apex, [start_peptide])[0])
+        start_z_tensor: torch.Tensor = encoder_decoder.encode_peptides(start_pool)
+    start_zs: np.ndarray = start_z_tensor.detach().cpu().numpy()
+    start_scores_arr = score_peptides(apex, start_pool)
+
+    run_start_peptide = start_pool[0]
+    run_start_score = float(start_scores_arr[0])
+    best_init_idx = int(np.argmin(start_scores_arr))
+    best_peptide: str = start_pool[best_init_idx]
+    best_score: float = float(start_scores_arr[best_init_idx])
+    all_start_scores: list[float] = [float(x) for x in start_scores_arr.tolist()]
+
+    # ── latent + score caches keyed by peptide string ─────────────────────────
+    _latent_cache: dict[str, np.ndarray] = {
+        pep: start_zs[i].copy() for i, pep in enumerate(start_pool)
+    }
+    _score_cache: dict[str, float] = {
+        pep: float(start_scores_arr[i]) for i, pep in enumerate(start_pool)
+    }
+
+    def _get_latent(peptide: str) -> np.ndarray:
+        if peptide not in _latent_cache:
+            with torch.no_grad():
+                _z = encoder_decoder.encode_peptides([peptide])
+            _latent_cache[peptide] = _z.detach().cpu().numpy()[0]
+        return _latent_cache[peptide]
+
+    def _get_score(peptide: str) -> float:
+        if peptide not in _score_cache:
+            _score_cache[peptide] = float(score_peptides(apex, [peptide])[0])
+        return _score_cache[peptide]
 
     if verbose:
-        print(f"Start score (mean log2 MIC over E.coli): {start_score:.4f}")
+        print(
+            "Start dataset loaded: "
+            f"count={len(start_pool)}  first={run_start_peptide!r} ({run_start_score:.4f})  "
+            f"best={best_peptide!r} ({best_score:.4f})"
+        )
 
     # ── candidate cache (keyed by peptide string) ────────────────────────────
     _cand_cache: dict[str, tuple] = {}
@@ -674,18 +971,21 @@ def run_rl_optimization(
     def _get_candidates(peptide: str, z: np.ndarray) -> tuple:
         if peptide not in _cand_cache:
             _cand_cache[peptide] = generate_candidates(
-                peptide, z, encoder_decoder, mutation_enumerator,
-                log_prob_potential, max_candidates=max_candidates,
+                peptide=peptide,
+                z_np=z,
+                encoder_decoder=encoder_decoder,
+                mutation_enumerator=mutation_enumerator,
+                potential_type=potential_type,
+                similarity_horizontal_threshold=similarity_horizontal_threshold,
+                similarity_max_positions=similarity_max_positions,
+                similarity_max_mutations_per_position=similarity_max_mutations_per_position,
+                similarity_max_combinations=similarity_max_combinations,
+                similarity_sample_combinations=similarity_sample_combinations,
+                similarity_include_parent_residue=similarity_include_parent_residue,
+                log_prob_potential=log_prob_potential,
+                max_candidates=max_candidates,
             )
         return _cand_cache[peptide]
-
-    # ── score cache (keyed by peptide string) ────────────────────────────────
-    _score_cache: dict[str, float] = {start_peptide: start_score}
-
-    def _get_score(peptide: str) -> float:
-        if peptide not in _score_cache:
-            _score_cache[peptide] = float(score_peptides(apex, [peptide])[0])
-        return _score_cache[peptide]
 
     # ── output dir + run id ───────────────────────────────────────────────────
     os.makedirs(output_dir, exist_ok=True)
@@ -698,19 +998,20 @@ def run_rl_optimization(
     csv_writer = csv.writer(csv_file)
     csv_writer.writerow([
         "episode",
+        "run_start_mode", "run_start_count",
         "run_start_peptide", "run_start_log2mic",
         "ep_start_peptide", "ep_start_log2mic",
         "ep_best_peptide", "ep_best_log2mic",
-        "ep_reward_log2mic",
+        "ep_return_log2mic",
+        "ep_discounted_return_log2mic",
         "global_best_peptide", "global_best_log2mic",
         "epsilon",
     ])
     csv_file.flush()
 
     # ── tracking containers ───────────────────────────────────────────────────
-    best_peptide: str = start_peptide
-    best_score: float = start_score
     episode_rewards: list[float] = []
+    episode_discounted_returns: list[float] = []
     all_best_scores: list[float] = []
     all_best_peptides: list[str] = []
     trajectories: list[list[str]] = []
@@ -725,16 +1026,18 @@ def run_rl_optimization(
         # ── episode starting point ────────────────────────────────────────────
         if start_from_best and ep > 0:
             current_peptide = best_peptide
-            with torch.no_grad():
-                _zt = encoder_decoder.encode_peptides([current_peptide])
-            current_z = _zt.detach().cpu().numpy()[0]
-            current_score = best_score
+            current_z = _get_latent(current_peptide).copy()
+            current_score = _get_score(current_peptide)
         else:
-            current_peptide = start_peptide
-            current_z = start_z.copy()
-            current_score = start_score
+            if selection == "random":
+                current_peptide = random.choice(start_pool)
+            else:
+                current_peptide = start_pool[ep % len(start_pool)]
+            current_z = _get_latent(current_peptide).copy()
+            current_score = _get_score(current_peptide)
 
         ep_reward = 0.0
+        step_rewards: list[float] = []
         ep_start_score = current_score
         ep_start_peptide = current_peptide
         ep_best_score = current_score
@@ -753,11 +1056,11 @@ def run_rl_optimization(
             # ── evaluate chosen candidate (cached) ────────────────────────────
             next_score: float = _get_score(chosen_seq)
 
-            # Reward = improvement beyond the running episode-best score.
-            # Only positive when the agent finds a new trajectory minimum.
-            # The sum over an episode equals: ep_start_score − ep_best_score,
-            # i.e. the total MIC improvement achieved during the trajectory.
-            reward: float = max(0.0, ep_best_score - next_score)
+            # Reward = consecutive score delta in log2(MIC).
+            reward: float = current_score - next_score
+            if not np.isfinite(reward):
+                reward = 0.0
+            step_rewards.append(reward)
             ep_reward += reward
             done: bool = step == max_steps - 1
 
@@ -800,6 +1103,7 @@ def run_rl_optimization(
             current_z = chosen_z
             current_score = next_score
             current_peptide = chosen_seq
+            _latent_cache[chosen_seq] = chosen_z.copy()
 
             # Reuse next candidates as current candidates for the next step
             if not done:
@@ -813,8 +1117,10 @@ def run_rl_optimization(
                     )
 
         # ── episode summary ───────────────────────────────────────────────────
-        ep_improvement = ep_start_score - ep_best_score  # = sum of step rewards
+        ep_improvement = ep_start_score - ep_best_score
+        ep_discounted_return = discounted_sum(step_rewards, gamma)
         episode_rewards.append(ep_reward)
+        episode_discounted_returns.append(ep_discounted_return)
         all_best_scores.append(ep_best_score)
         all_best_peptides.append(ep_best_peptide)
         trajectories.append(trajectory)
@@ -822,10 +1128,12 @@ def run_rl_optimization(
         # write CSV row
         csv_writer.writerow([
             ep + 1,
-            start_peptide, f"{start_score:.6f}",
+            selection, len(start_pool),
+            run_start_peptide, f"{run_start_score:.6f}",
             ep_start_peptide, f"{ep_start_score:.6f}",
             ep_best_peptide, f"{ep_best_score:.6f}",
-            f"{ep_improvement:.6f}",
+            f"{ep_reward:.6f}",
+            f"{ep_discounted_return:.6f}",
             best_peptide, f"{best_score:.6f}",
             f"{agent.epsilon:.4f}",
         ])
@@ -834,7 +1142,9 @@ def run_rl_optimization(
         if verbose:
             print(
                 f"Ep {ep + 1:>3}/{n_episodes}  "
-                f"reward={ep_improvement:+.4f} log2  "
+                f"return={ep_reward:+.4f}  "
+                f"disc_return={ep_discounted_return:+.4f}  "
+                f"improvement={ep_improvement:+.4f}  "
                 f"ep_best={ep_best_score:.4f} log2 ({ep_best_peptide!r})  "
                 f"global_best={best_score:.4f} log2  "
                 f"ε={agent.epsilon:.3f}"
@@ -844,9 +1154,9 @@ def run_rl_optimization(
 
     if verbose:
         print(f"\nOptimisation complete.")
-        print(f"  Start : {start_peptide!r}  {start_score:.4f} log2 MIC  ({2**start_score:.1f} µM)")
+        print(f"  Start : {run_start_peptide!r}  {run_start_score:.4f} log2 MIC  ({2**run_start_score:.1f} µM)")
         print(f"  Best  : {best_peptide!r}  {best_score:.4f} log2 MIC  ({2**best_score:.1f} µM)")
-        print(f"  Improvement: {start_score - best_score:+.4f} log2 MIC  ({2**start_score / 2**best_score:.1f}x fold)")
+        print(f"  Improvement: {run_start_score - best_score:+.4f} log2 MIC  ({2**run_start_score / 2**best_score:.1f}x fold)")
         print(f"  Log saved  : {csv_path}")
 
     results = {
@@ -854,19 +1164,26 @@ def run_rl_optimization(
         "best_peptide": best_peptide,
         "best_log2mic": best_score,
         "best_mic_uM": 2 ** best_score,
-        "start_peptide": start_peptide,
-        "start_log2mic": start_score,
-        "start_mic_uM": 2 ** start_score,
-        "improvement_log2mic": start_score - best_score,
-        "fold_improvement": (2 ** start_score) / (2 ** best_score),
+        "start_peptide": run_start_peptide,
+        "start_log2mic": run_start_score,
+        "start_mic_uM": 2 ** run_start_score,
+        "start_peptides": start_pool,
+        "start_scores_log2mic": all_start_scores,
+        "start_selection_mode": selection,
+        "improvement_log2mic": run_start_score - best_score,
+        "fold_improvement": (2 ** run_start_score) / (2 ** best_score),
+        "reward_formula": "log2MIC_t - log2MIC_t+1",
+        "discount_gamma": gamma,
+        "potential_type": potential_type,
         "episode_rewards": episode_rewards,
+        "episode_discounted_returns": episode_discounted_returns,
         "all_best_scores": all_best_scores,
         "all_best_peptides": all_best_peptides,
         "trajectories": trajectories,
         # legacy aliases kept for notebook compatibility
         "best_score": best_score,
-        "start_score": start_score,
-        "improvement": start_score - best_score,
+        "start_score": run_start_score,
+        "improvement": run_start_score - best_score,
     }
 
     # ── persist results to JSON ───────────────────────────────────────────────
@@ -976,7 +1293,13 @@ def test_components(peptide: str = "FLPKKVIPLL", device: str = "cpu") -> None:
     print("\n[6] generate_candidates …")
     z_np = z_1d.detach().cpu().numpy()
     seqs, probs, cand_zs = generate_candidates(
-        peptide, z_np, enc_dec, mut_enum, pot, max_candidates=10
+        peptide=peptide,
+        z_np=z_np,
+        encoder_decoder=enc_dec,
+        mutation_enumerator=mut_enum,
+        potential_type="decoder_logprob",
+        log_prob_potential=pot,
+        max_candidates=10,
     )
     assert cand_zs.ndim == 2 and cand_zs.shape[1] == LATENT_DIM, (
         f"candidate_zs shape error: {cand_zs.shape}"
@@ -1019,6 +1342,9 @@ def test_components(peptide: str = "FLPKKVIPLL", device: str = "cpu") -> None:
 
 
 def run_all_peptides(
+    start_peptides: str = "",
+    start_peptides_file: str = "",
+    start_selection: str = "cycle",
     n_episodes: int = 100,
     max_steps: int = 20,
     max_candidates: int = 40,
@@ -1033,6 +1359,16 @@ def run_all_peptides(
     buffer_capacity: int = 10_000,
     target_update_freq: int = 50,
     start_from_best: bool = False,
+    potential_type: str = "similarity",
+    mutation_direction_significance_threshold: float = 1e-3,
+    mutation_min_number_of_directions: int = 5,
+    mutation_token_threshold: float = 0.1,
+    similarity_horizontal_threshold: float = 1e-3,
+    similarity_max_positions: int = 5,
+    similarity_max_mutations_per_position: int = 6,
+    similarity_max_combinations: int = 40_000,
+    similarity_sample_combinations: int = 8_000,
+    similarity_include_parent_residue: bool = False,
     peptide_name: str = "",
 ) -> None:
     """Run DQN optimisation for all six benchmark seed peptides.
@@ -1066,6 +1402,9 @@ def run_all_peptides(
         print("=" * 70)
         run_rl_optimization(
             start_peptide=seq,
+            start_peptides=start_peptides,
+            start_peptides_file=start_peptides_file,
+            start_selection=start_selection,
             n_episodes=n_episodes,
             max_steps=max_steps,
             max_candidates=max_candidates,
@@ -1080,6 +1419,16 @@ def run_all_peptides(
             buffer_capacity=buffer_capacity,
             target_update_freq=target_update_freq,
             start_from_best=start_from_best,
+            potential_type=potential_type,
+            mutation_direction_significance_threshold=mutation_direction_significance_threshold,
+            mutation_min_number_of_directions=mutation_min_number_of_directions,
+            mutation_token_threshold=mutation_token_threshold,
+            similarity_horizontal_threshold=similarity_horizontal_threshold,
+            similarity_max_positions=similarity_max_positions,
+            similarity_max_mutations_per_position=similarity_max_mutations_per_position,
+            similarity_max_combinations=similarity_max_combinations,
+            similarity_sample_combinations=similarity_sample_combinations,
+            similarity_include_parent_residue=similarity_include_parent_residue,
             run_name=name,
             verbose=True,
         )
