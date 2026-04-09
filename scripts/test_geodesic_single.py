@@ -46,7 +46,6 @@ from pep_compass.models.encoder_decoder.utils import decoder_jacobian
 from pep_compass.local_enumeration.mutation.utils import get_mutations_from_s_u_standard
 from pep_compass.local_enumeration.sampling.sorbes import SubRiemannianTangentSpace
 from pep_compass.local_enumeration.mutation.mutation_potentials import (
-    DecoderLogProbPotential,
     ProjectedDirectionPairwiseSimilarityPotential,
 )
 from pep_compass.geometry.utils import integrate_geodesic_rk4
@@ -422,15 +421,8 @@ def run_test(
     )
 
     # ── Potentials ─────────────────────────────────────────────────────────
-    potentials = log_prob_potential.compute(peptide, mutations)
-    flat: list[tuple[int, int, float]] = []
-    for pos, aa_dict in potentials.items():
-        parent_aa_idx = ALPHABET.index(padded[pos])
-        for aa_idx, lp in aa_dict.items():
-            if aa_idx != parent_aa_idx:
-                flat.append((pos, aa_idx, lp))
-
-    log_pots = np.array([m[2] for m in flat])
+    flat = _single_mutation_similarity_scores(peptide, mutations, tangent_space)
+    log_pots = np.array([m[2] for m in flat], dtype=np.float64)
     shifted = log_pots - log_pots.max()
     softmax_probs = np.exp(shifted) / np.exp(shifted).sum()
     n_mut = len(flat)
