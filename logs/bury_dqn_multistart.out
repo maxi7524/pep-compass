@@ -1,0 +1,20 @@
+Loading models …
+Encoding 2 start peptide(s) …
+Start dataset loaded: count=2  first='FLPKKVIPLL' (8.9550)  best='RMARNLVRYVQGLKKKKVI' (6.9616)
+Ep   1/10  return=+0.0774  disc_return=+0.1235  improvement=+0.8467  ep_best=8.1083 log2 ('FLCWKVIKWL')  global_best=6.9616 log2  ε=1.000
+Ep   2/10  return=-0.3137  disc_return=-0.0146  improvement=+3.7731  ep_best=3.1885 log2 ('RGGRKLVRYVWGLKKWKCK')  global_best=3.1885 log2  ε=0.855
+Ep   3/10  return=+1.3500  disc_return=+1.2530  improvement=+2.3302  ep_best=6.6248 log2 ('RLGKKVIKWL')  global_best=3.1885 log2  ε=0.714
+Ep   4/10  return=+3.2919  disc_return=+2.8803  improvement=+3.2919  ep_best=3.6698 log2 ('RLARNWVRRVYGLRRRRRW')  global_best=3.1885 log2  ε=0.618
+Ep   5/10  return=+0.2863  disc_return=+0.3975  improvement=+2.7759  ep_best=6.1791 log2 ('RLVKKVHWLL')  global_best=3.1885 log2  ε=0.523
+Ep   6/10  return=+2.2037  disc_return=+1.9825  improvement=+2.7338  ep_best=4.2278 log2 ('RVARKLVRFVWGLKKWKCW')  global_best=3.1885 log2  ε=0.427
+Ep   7/10  return=+2.7759  disc_return=+2.5086  improvement=+3.6781  ep_best=5.2770 log2 ('RLIKKVHWLL')  global_best=3.1885 log2  ε=0.332
+Ep   8/10  return=+1.1491  disc_return=+1.2439  improvement=+3.8982  ep_best=3.0634 log2 ('RLARKLVRFVKGLWKWKYR')  global_best=3.0634 log2  ε=0.236
+Ep   9/10  return=+1.9100  disc_return=+1.9180  improvement=+3.8599  ep_best=5.0951 log2 ('RLFWKVFWKL')  global_best=3.0634 log2  ε=0.141
+Ep  10/10  return=+3.7524  disc_return=+3.4740  improvement=+3.8982  ep_best=3.0634 log2 ('RLARKLVRFVKGLWKWKYR')  global_best=3.0634 log2  ε=0.050
+
+Optimisation complete.
+  Start : 'FLPKKVIPLL'  8.9550 log2 MIC  (496.3 µM)
+  Best  : 'RLARKLVRFVKGLWKWKYR'  3.0634 log2 MIC  (8.4 µM)
+  Improvement: +5.8916 log2 MIC  (59.4x fold)
+  Log saved  : results/bury_dqn_multistart_rl_1774201886_log.csv
+  JSON saved : results/bury_dqn_multistart_rl_1774201886_results.json

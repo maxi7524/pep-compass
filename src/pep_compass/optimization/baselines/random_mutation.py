@@ -36,10 +36,9 @@ class ESMFilteredRandomMutation(RandomMutation):
             sequence = "".join(candidate.reshape(-1))
             if self.esm_scorer.passes_threshold(sequence, self.esm_ppl_threshold):
                 return candidate
-        raise RuntimeError(
-            "Could not find a mutation that passes ESM PPL threshold "
-            f"{self.esm_ppl_threshold} after {self.esm_max_resampling_attempts} attempts."
-        )
+        # Keep current best sequence when no mutation passes threshold.
+        best_x = self.get_best_solution(top_k=1)[0]
+        return best_x.copy().reshape(1, -1)
 
 
 class RandomMutationOptimizer(AbstractOptimizer):
@@ -89,12 +88,6 @@ class RandomMutationOptimizer(AbstractOptimizer):
             return result
 
         starting_sequence = str(starting_point)
-        starting_pll = self.esm_scorer.pll(starting_sequence)
-        if starting_pll < self.esm_ppl_threshold:
-            raise ValueError(
-                f"Starting sequence '{starting_sequence}' has ESM PLL {starting_pll:.4f}, "
-                f"below threshold {self.esm_ppl_threshold}."
-            )
 
         random_mutation_solver = ESMFilteredRandomMutation(
             black_box=self.black_box,
