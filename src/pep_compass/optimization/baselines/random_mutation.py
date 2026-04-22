@@ -31,13 +31,17 @@ class ESMFilteredRandomMutation(RandomMutation):
         return np.concatenate(candidates, axis=0)
 
     def _sample_passing_candidate(self) -> np.ndarray:
+        # Compute current peptide score for dynamic thresholding
+        best_x = self.get_best_solution(top_k=1)[0]
+        best_sequence = "".join(best_x.reshape(-1))
+        current_score = self.esm_scorer.pll(best_sequence)
+        threshold = min(self.esm_ppl_threshold, current_score)
         for _ in range(self.esm_max_resampling_attempts):
             candidate = self._next_candidate()
             sequence = "".join(candidate.reshape(-1))
-            if self.esm_scorer.passes_threshold(sequence, self.esm_ppl_threshold):
+            if self.esm_scorer.passes_threshold(sequence, threshold):
                 return candidate
         # Keep current best sequence when no mutation passes threshold.
-        best_x = self.get_best_solution(top_k=1)[0]
         return best_x.copy().reshape(1, -1)
 
 
