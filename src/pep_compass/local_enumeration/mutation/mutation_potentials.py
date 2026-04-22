@@ -114,6 +114,7 @@ class ProjectedDirectionPairwiseSimilarityPotential(MutationPotential):
         tangent_space: SubRiemannianTangentSpace,
         alphabet: list[str] | None = None,
         similarity_transform: Callable[[torch.Tensor], torch.Tensor] | None = None,
+        taken_not_taken_transform: Callable[[torch.Tensor], torch.Tensor] | None = None,
     ):
         self.tangent_space = tangent_space
         self.alphabet = alphabet or DEFAULT_ALPHABET
@@ -124,7 +125,14 @@ class ProjectedDirectionPairwiseSimilarityPotential(MutationPotential):
             arg = torch.clamp((1.0 + x) / 2.0, min=1e-12, max=1.0)
             return torch.log(arg)
 
+        def default_taken_not_taken_transform(x):
+            arg = torch.clamp((1.0 - x) / 2.0, min=1e-12, max=1.0)
+            return torch.log(arg)
+
         self.similarity_transform = similarity_transform or default_similarity_transform
+        self.taken_not_taken_transform = (
+            taken_not_taken_transform or default_taken_not_taken_transform
+        )
 
     def compute_similarity_matrix(
         self,
@@ -271,13 +279,13 @@ class ProjectedDirectionPairwiseSimilarityPotential(MutationPotential):
 
             pairwise_cos_all = cos_matrix[i_idx, j_idx]
 
-            # + sign for taken-taken pairs
+            # standard transform for taken-taken pairs
             score_taken_taken = self.similarity_transform(
                 pairwise_cos_all[both_mutated_mask]
             ).sum()
 
-            # - sign for taken-not-taken pairs
-            score_taken_not_taken = -self.similarity_transform(
+            # other transform for taken-not-taken pairs
+            score_taken_not_taken = self.taken_not_taken_transform(
                 pairwise_cos_all[taken_not_taken_mask]
             ).sum()
 
