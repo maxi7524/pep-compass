@@ -236,3 +236,11 @@ src/pep_compass/models/apex/Full_APEX_pathogen_models/
 
 # Development directory
 dev/
+
+#logs
+logs/
+src/pep_compass/models/apex/weights/
+src/pep_compass/models/hydramp/weights/
+
+*.json
+*.txt

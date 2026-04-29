@@ -233,7 +233,7 @@ def run_basic_epsilon_greedy(
     epsilon_decay: float = 0.9995,
     max_candidates: int = 40,
     device: str = "cpu",
-    output_dir: str = "results\\basic_eps_greedy_rl",
+    output_dir: str = "results/basic_eps_greedy_rl",
     run_name: str = "",
     seed: int = 0,
     verbose: bool = True,
@@ -407,6 +407,7 @@ def run_basic_epsilon_greedy(
 
     results = {
         "run_name": run_name or run_id,
+        "run_id": run_id,
         "algorithm": "basic_epsilon_greedy",
         "seed": seed,
         "n_epochs": n_epochs,
@@ -438,7 +439,7 @@ def run_five_agents(
     n_epochs: int = 1500,
     max_steps: int = 200,
     device: str = "cpu",
-    output_dir: str = "results\\basic_eps_greedy_rl",
+    output_dir: str = "results/basic_eps_greedy_rl",
     start_selection: str = "random",
     verbose: bool = True,
 ) -> list[dict]:
@@ -462,6 +463,13 @@ def run_five_agents(
             verbose=verbose,
         )
         results.append(res)
+        
+        # Memory cleanup: explicitly delete model instances between agents to prevent OOM
+        import gc
+        gc.collect()
+        if device == "cuda":
+            torch.cuda.empty_cache()
+    
     return results
 
 

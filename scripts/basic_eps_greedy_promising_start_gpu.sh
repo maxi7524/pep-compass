@@ -4,14 +4,14 @@
 #SBATCH --qos=kjurasz
 #SBATCH --gres=gpu:rtx5000:1
 #SBATCH --cpus-per-task=8
-#SBATCH --mem=32G
+#SBATCH --mem=40G
 #SBATCH --time=24:00:00
 #SBATCH --output=logs/eps_promising_%j.out
 #SBATCH --error=logs/eps_promising_%j.err
 
 set -euo pipefail
 
-cd /home/kjurasz/pep-compass.worktrees/rl_trials
+cd /home/kjurasz/pep-compass
 mkdir -p logs basic_eps_greedy_rl/inputs results/basic_eps_greedy_rl_promising_start
 
 if ! command -v nvidia-smi >/dev/null 2>&1; then
@@ -25,6 +25,7 @@ PEPTIDE_LIST=basic_eps_greedy_rl/inputs/sampled_500_peptides.txt
 
 "${PYTHON}" scripts/sample_peptides_from_csvs.py \
   --root /home/kjurasz/pep-compass \
+  --dataset_subdir results/mutants/mutants \
   --sample_size 500 \
   --max_len 25 \
   --seed 2026 \

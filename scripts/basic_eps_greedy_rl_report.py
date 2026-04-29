@@ -23,7 +23,7 @@ def _load_results(results_dir: Path) -> list[dict]:
     return runs
 
 
-def plot_losses_and_returns(results_dir: str = "results\\basic_eps_greedy_rl") -> None:
+def plot_losses_and_returns(results_dir: str = "results/basic_eps_greedy_rl") -> None:
     out_dir = Path(results_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     runs = _load_results(out_dir)
@@ -67,6 +67,6 @@ def plot_losses_and_returns(results_dir: str = "results\\basic_eps_greedy_rl") -
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--results_dir", default="results\\basic_eps_greedy_rl")
+    parser.add_argument("--results_dir", default="results/basic_eps_greedy_rl")
     args = parser.parse_args()
     plot_losses_and_returns(args.results_dir)
