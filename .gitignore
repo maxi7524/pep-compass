@@ -244,3 +244,6 @@ src/pep_compass/models/hydramp/weights/
 
 *.json
 *.txt
+.claude/
+*.pdf
+*.sh

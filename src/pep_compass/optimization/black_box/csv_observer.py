@@ -132,7 +132,12 @@ class CSVObserver(AbstractObserver):
         if self.best_score in scores:
             self.best_sequence = sequences[scores.index(self.best_score)]
 
-        self.append_results(sequences, scores, latent_points)
+        # Extract peptides_discovered from context if available
+        peptides_discovered = None
+        if context is not None and "peptides_discovered" in context:
+            peptides_discovered = context["peptides_discovered"]
+
+        self.append_results(sequences, scores, latent_points, peptides_discovered)
 
         print(
             f"Observer: Best score so far: {self.best_score} for sequence {self.best_sequence}"
@@ -141,18 +146,22 @@ class CSVObserver(AbstractObserver):
     def save_header(self):
         self._make_folder_for_experiment()
         with open(self.csv_file_path, "w") as f:
-            f.write("time,sequence,score,latent_point\n")
+            f.write("time,sequence,score,latent_point,peptides_discovered\n")
 
     def append_results(
-        self, x: list[str], y: list[float], latent_points: list[list[float]]
+        self, x: list[str], y: list[float], latent_points: list[list[float]], peptides_discovered: list[int] = None
     ):
+        if peptides_discovered is None:
+            peptides_discovered = [None] * len(x)
+            
         with open(self.csv_file_path, "a") as f:
-            for x_i, y_i, latent_point in zip(x, y, latent_points):
+            for x_i, y_i, latent_point, pep_count in zip(x, y, latent_points, peptides_discovered):
                 formatted_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 latent_str = (
                     json.dumps(latent_point.tolist())
                     if latent_point is not None
                     else ""
                 )
-                f.write(f"{formatted_time},{x_i},{y_i},{latent_str}\n")
-                print(f"{formatted_time},{x_i},{y_i},{latent_str}")
+                pep_count_str = str(pep_count) if pep_count is not None else ""
+                f.write(f"{formatted_time},{x_i},{y_i},{latent_str},{pep_count_str}\n")
+                print(f"{formatted_time},{x_i},{y_i},{latent_str},{pep_count_str}")
