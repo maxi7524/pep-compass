@@ -4,6 +4,7 @@ import time
 import Levenshtein
 import numpy as np
 import pybktree
+from pep_compass.utils.blosum_utils import blosum_score, load_blosum
 import torch
 from botorch.acquisition import LogExpectedImprovement
 from botorch.fit import fit_gpytorch_mll
@@ -50,14 +51,18 @@ class LocalEnumerationBayesianOptimizer(AbstractOptimizer):
             acquisition_batch_size: int = 64,
             standardize: bool = False,
             best_as_center: bool = False,
+            blosum_diversity_matrix: int | None = None,
+            blosum_diversity_max_score: float | None = None,
         ):
             super().__init__(black_box)
-        
+
             self.local_enumerator = local_enumerator
             self.device = device
             self.map4 = Map4Fingerprint(input_type="fasta", chiral=False)
             self.evaluations_per_iteration = evaluations_per_iteration
             self.levenstain_diversity_threshold = levenstain_diversity_threshold
+            self._blosum_div_mat = load_blosum(blosum_diversity_matrix) if blosum_diversity_matrix is not None else None
+            self.blosum_diversity_max_score = blosum_diversity_max_score
             self.initial_peptides_number = initial_peptides_number
             self.acquisition_batch_size = acquisition_batch_size
 
@@ -208,10 +213,11 @@ class LocalEnumerationBayesianOptimizer(AbstractOptimizer):
 
                 remaining_inices = []
                 for i, peptide in enumerate(test_peptides):
-                    if (
-                        Levenshtein.distance(peptide, best_improvement_peptide)
-                        > self.levenstain_diversity_threshold
-                    ):
+                    if self._blosum_div_mat is not None:
+                        diverse = blosum_score(peptide, best_improvement_peptide, self._blosum_div_mat) < self.blosum_diversity_max_score
+                    else:
+                        diverse = Levenshtein.distance(peptide, best_improvement_peptide) > self.levenstain_diversity_threshold
+                    if diverse:
                         remaining_inices.append(i)
 
                 test_peptides = [test_peptides[i] for i in remaining_inices]

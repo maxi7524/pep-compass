@@ -5,6 +5,7 @@ from copy import deepcopy
 
 import Levenshtein
 import numpy as np
+from pep_compass.utils.blosum_utils import is_blosum_neighbour, load_blosum
 import torch
 from joblib import Parallel, delayed, parallel_backend
 
@@ -25,6 +26,20 @@ from pep_compass.utils.sequence_utils import translate_generated_peptide
 
 logger = logging.getLogger(__name__)
 
+
+def _is_neighbour(
+    seq: str,
+    center: str,
+    *,
+    max_lev: int,
+    blosum_mat,
+    blosum_min: float | None,
+) -> bool:
+    if blosum_mat is not None:
+        return is_blosum_neighbour(seq, center, blosum_min, blosum_mat)
+    return Levenshtein.distance(seq, center) <= max_lev
+
+
 class LocalEnumerator(ABC):
 
     def local_enumeration(self, center_sequence: str) -> set[str]:
@@ -44,6 +59,8 @@ class SamplingMutationLocalEnumerator(LocalEnumerator):
         walker_trajectories_number: int,
         time_walk_budget: float,
         max_neighbour_levenstein: int | None = None,
+        blosum_matrix: int | None = None,
+        blosum_min_score: float | None = None,
         device: str = "cpu",
     ):
         super().__init__()
@@ -52,10 +69,11 @@ class SamplingMutationLocalEnumerator(LocalEnumerator):
         self.mutation_enumerator = mutation_enumerator
         self.walker_trajectories_number = walker_trajectories_number
         self.time_walk_budget = time_walk_budget
-        self.max_neighbour_levenstein = max_neighbour_levenstein
+        self.max_neighbour_levenstein = max_neighbour_levenstein or 25
         self.device = device
 
-        self.max_neighbour_levenstein = max_neighbour_levenstein or 25
+        self._blosum_mat = load_blosum(blosum_matrix) if blosum_matrix is not None else None
+        self.blosum_min_score = blosum_min_score
 
     def local_enumeration(self, center_peptide) -> set[str]:
         neighbor_peptides = set()
@@ -96,8 +114,12 @@ class SamplingMutationLocalEnumerator(LocalEnumerator):
                 new_neighbor_peptides = [
                     peptide
                     for peptide in mutated_peptides
-                    if Levenshtein.distance(peptide, center_peptide)
-                    <= self.max_neighbour_levenstein
+                    if _is_neighbour(
+                        peptide, center_peptide,
+                        max_lev=self.max_neighbour_levenstein,
+                        blosum_mat=self._blosum_mat,
+                        blosum_min=self.blosum_min_score,
+                    )
                 ]
 
                 neighbor_peptides.update(new_neighbor_peptides)
@@ -105,9 +127,11 @@ class SamplingMutationLocalEnumerator(LocalEnumerator):
                 logger.info(
                     f"Trajectory {trajectory_iter} Step {walker_step} Time {time_walk} / {self.time_walk_budget} Levenstain {Levenshtein.distance(current_peptide, center_peptide)}: Found {len(neighbor_peptides)} peptides ."
                 )
-                if (
-                    Levenshtein.distance(current_peptide, center_peptide)
-                    > self.max_neighbour_levenstein
+                if not _is_neighbour(
+                    current_peptide, center_peptide,
+                    max_lev=self.max_neighbour_levenstein,
+                    blosum_mat=self._blosum_mat,
+                    blosum_min=self.blosum_min_score,
                 ):
                     logger.info(
                         f"Reached {Levenshtein.distance(current_peptide, center_peptide)} distance. Stopping trajectory."
@@ -124,6 +148,8 @@ class EuclideanWalkerLocalEnumeratorWithAmbientDistance(LocalEnumerator):
         walker_trajectories_number: int,
         max_walker_ambient_distance: float,
         max_neighbour_levenstein: int = None,
+        blosum_matrix: int | None = None,
+        blosum_min_score: float | None = None,
         time_step: float = 0.1,
         device: str = "cpu",
     ):
@@ -131,9 +157,10 @@ class EuclideanWalkerLocalEnumeratorWithAmbientDistance(LocalEnumerator):
         self.walker_trajectories_number = walker_trajectories_number
         self.max_walker_ambient_distance = max_walker_ambient_distance
         self.time_step = time_step
-        self.max_neighbour_levenstein = max_neighbour_levenstein
-        self.device = device
         self.max_neighbour_levenstein = max_neighbour_levenstein or 25
+        self.device = device
+        self._blosum_mat = load_blosum(blosum_matrix) if blosum_matrix is not None else None
+        self.blosum_min_score = blosum_min_score
 
     def local_enumeration(self, center_peptide: str) -> set[str]:
 
@@ -189,9 +216,11 @@ class EuclideanWalkerLocalEnumeratorWithAmbientDistance(LocalEnumerator):
                     f"Trajectory {i} Ambient distance {walker_ambient_distance:.4f} / {self.max_walker_ambient_distance:.4f} Levenshtein {Levenshtein.distance(current_peptide, center_peptide)}"
                 )
 
-                if (
-                    Levenshtein.distance(current_peptide, center_peptide)
-                    > self.max_neighbour_levenstein
+                if not _is_neighbour(
+                    current_peptide, center_peptide,
+                    max_lev=self.max_neighbour_levenstein,
+                    blosum_mat=self._blosum_mat,
+                    blosum_min=self.blosum_min_score,
                 ):
                     logger.info(
                         f"Reached {Levenshtein.distance(current_peptide, center_peptide)} distance. Stopping trajectory."
@@ -272,6 +301,8 @@ class NormalSamplingLocalEnumerator(LocalEnumerator):
         self,
         encoder_decoder: HydrAMPEncoderDecoder,
         max_neighbour_levenstein: int = None,
+        blosum_matrix: int | None = None,
+        blosum_min_score: float | None = None,
         number_of_samples: int = 1000,
         sampling_temperature: float = 1.0,
         batch_size: int = 5000,
@@ -281,6 +312,8 @@ class NormalSamplingLocalEnumerator(LocalEnumerator):
         self.batch_size = batch_size
         self.encoder_decoder = encoder_decoder
         self.device = device
+        self._blosum_mat = load_blosum(blosum_matrix) if blosum_matrix is not None else None
+        self.blosum_min_score = blosum_min_score
 
         self.sampling_temperature = sampling_temperature
         self.number_of_samples = number_of_samples
@@ -305,8 +338,12 @@ class NormalSamplingLocalEnumerator(LocalEnumerator):
         neighbour_peptides = {
             peptide
             for peptide in generated_peptides
-            if Levenshtein.distance(peptide, center_peptide)
-            <= self.max_neighbour_levenstein
+            if _is_neighbour(
+                peptide, center_peptide,
+                max_lev=self.max_neighbour_levenstein,
+                blosum_mat=self._blosum_mat,
+                blosum_min=self.blosum_min_score,
+            )
         }
 
         return neighbour_peptides
@@ -318,15 +355,16 @@ class MutationLocalEnumerator(LocalEnumerator):
         encoder_decoder: HydrAMPEncoderDecoder,
         mutation_generator: MutationEnumerator,
         max_neighbour_levenstein: int = None,
+        blosum_matrix: int | None = None,
+        blosum_min_score: float | None = None,
         device: str = "cpu",
     ):
         self.encoder_decoder = encoder_decoder
         self.mutation_generator = mutation_generator
         self.device = device
-        self.max_neighbour_levenstein = max_neighbour_levenstein
-
-        if self.max_neighbour_levenstein is None:
-            self.max_neighbour_levenstein = 25
+        self.max_neighbour_levenstein = max_neighbour_levenstein or 25
+        self._blosum_mat = load_blosum(blosum_matrix) if blosum_matrix is not None else None
+        self.blosum_min_score = blosum_min_score
 
     def local_enumeration(self, center_peptide, **kwargs) -> set[str]:
 
@@ -348,8 +386,12 @@ class MutationLocalEnumerator(LocalEnumerator):
         neighbor_peptides = {
             peptide
             for peptide in mutated_peptides
-            if Levenshtein.distance(peptide, center_peptide)
-            <= self.max_neighbour_levenstein
+            if _is_neighbour(
+                peptide, center_peptide,
+                max_lev=self.max_neighbour_levenstein,
+                blosum_mat=self._blosum_mat,
+                blosum_min=self.blosum_min_score,
+            )
         }
 
         return neighbor_peptides
@@ -374,6 +416,8 @@ class PotentialFilteredMutationLocalEnumerator(LocalEnumerator):
         min_number_of_directions: int = 5,
         token_threshold: float = 0.1,
         max_neighbour_levenstein: int | None = None,
+        blosum_matrix: int | None = None,
+        blosum_min_score: float | None = None,
         alphabet: list[str] | None = None,
         max_len: int = DEFAULT_MAX_LEN,
         device: str = "cpu",
@@ -386,6 +430,8 @@ class PotentialFilteredMutationLocalEnumerator(LocalEnumerator):
         self.min_number_of_directions = min_number_of_directions
         self.token_threshold = token_threshold
         self.max_neighbour_levenstein = max_neighbour_levenstein or 25
+        self._blosum_mat = load_blosum(blosum_matrix) if blosum_matrix is not None else None
+        self.blosum_min_score = blosum_min_score
         self.alphabet = alphabet or DEFAULT_ALPHABET
         self.max_len = max_len
         self.device = device
@@ -450,8 +496,12 @@ class PotentialFilteredMutationLocalEnumerator(LocalEnumerator):
         neighbor_peptides = {
             dist.sequences[i]
             for i in kept_idx
-            if Levenshtein.distance(dist.sequences[i], center_peptide)
-            <= self.max_neighbour_levenstein
+            if _is_neighbour(
+                dist.sequences[i], center_peptide,
+                max_lev=self.max_neighbour_levenstein,
+                blosum_mat=self._blosum_mat,
+                blosum_min=self.blosum_min_score,
+            )
         }
 
         logger.info(
