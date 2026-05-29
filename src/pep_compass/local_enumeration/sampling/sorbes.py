@@ -87,7 +87,7 @@ class SubRiemannianTangentSpace:
     def project_ambient_vector_to_horizontal_space(self, ambient_vector):
         if self.projection_matrix is None:
             # Compute jacobian taking to account only horizontal directions
-            S_horizontal_with_vertical_zeroed = torch.Tensor(self.S)
+            S_horizontal_with_vertical_zeroed = self.S.clone()
             S_horizontal_with_vertical_zeroed[self.S <= self.horizontal_threshold] = 0
             jac_horizontal = torch.matmul(
                 torch.matmul(self.U, torch.diag(S_horizontal_with_vertical_zeroed)),

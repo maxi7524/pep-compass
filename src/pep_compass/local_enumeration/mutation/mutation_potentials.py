@@ -191,13 +191,19 @@ class ProjectedDirectionPairwiseSimilarityPotential(MutationPotential):
         parent_peptide: str,
         mutations: dict[int, list[int]],
     ) -> dict[tuple[int, ...], float]:
-
         positions = sorted(mutations.keys())
+        if not positions:
+            return {}
+
         n_pos = len(positions)
 
         # Get parent amino acid indices for identity detection
         padded = parent_peptide.ljust(DEFAULT_MAX_LEN)
-        parent_aa_indices = [self.alphabet.index(padded[pos]) for pos in positions]
+        parent_aa_indices = torch.tensor(
+            [self.alphabet.index(padded[pos]) for pos in positions],
+            device=self.tangent_space.device,
+            dtype=torch.long,
+        )
 
         # Ambient space: (max_len, alphabet_size) flattened
         max_len = DEFAULT_MAX_LEN
@@ -205,98 +211,92 @@ class ProjectedDirectionPairwiseSimilarityPotential(MutationPotential):
         ambient_dim = max_len * alphabet_size
         device = self.tangent_space.device
 
-        # ---- 1. Precompute projected + normalized vectors per position ----
+        # Ensure projection matrix is initialized once
+        if self.tangent_space.projection_matrix is None:
+            _ = self.tangent_space.project_ambient_vector_to_horizontal_space(
+                torch.zeros(ambient_dim, device=device)
+            )
+        proj = self.tangent_space.projection_matrix
 
+        # ---- 1. Precompute projected + normalized vectors per position ----
         vectors_per_position = []
+        aa_indices_per_position = []
 
         for pos in positions:
-            dirs = []
-            for aa_idx in mutations[pos]:
-                # Create one-hot vector in ambient (decoder output) space
-                direction = torch.zeros(ambient_dim, device=device)
-                flat_idx = pos * alphabet_size + aa_idx
-                direction[flat_idx] = 1.0
-                dirs.append(direction)
-
-            dirs = torch.stack(dirs)  # (k_pos, ambient_dim)
-
-            # Project each direction vector
-            projected = torch.stack(
-                [
-                    self.tangent_space.project_ambient_vector_to_horizontal_space(d)
-                    for d in dirs
-                ]
+            aa_indices = torch.tensor(
+                mutations[pos], device=device, dtype=torch.long
             )
+            aa_indices_per_position.append(aa_indices)
 
-            norms = torch.norm(projected, dim=1, keepdim=True)
+            k_pos = aa_indices.shape[0]
+            ambient = torch.zeros((k_pos, ambient_dim), device=device)
+            flat_idx = pos * alphabet_size + aa_indices
+            ambient[torch.arange(k_pos, device=device), flat_idx] = 1.0
+
+            projected = ambient @ proj.T
+            norms = torch.linalg.norm(projected, dim=1, keepdim=True)
             projected = projected / (norms + 1e-12)
+            vectors_per_position.append(projected)
 
-            vectors_per_position.append(projected)  # list of (k_pos, latent_dim)
+        # ---- 2. Enumerate Cartesian product (vectorized) ----
+        index_ranges = [
+            torch.arange(len(a), device=device) for a in aa_indices_per_position
+        ]
+        if n_pos == 1:
+            combo_indices = index_ranges[0].unsqueeze(1)
+        else:
+            combo_indices = torch.cartesian_prod(*index_ranges)
 
-        # ---- 2. Enumerate true Cartesian product ----
+        aa_choice = torch.stack(
+            [
+                aa_indices_per_position[i][combo_indices[:, i]]
+                for i in range(n_pos)
+            ],
+            dim=1,
+        )
 
-        result: dict[tuple[int, ...], float] = {}
+        mut_mask = aa_choice != parent_aa_indices
+        has_mutation = mut_mask.any(dim=1)
 
-        for combo_indices in itertools.product(
-            *[range(len(mutations[p])) for p in positions]
-        ):
-            # tuple aa_idx (nie indeks lokalny!)
-            aa_choice = tuple(
-                mutations[positions[i]][combo_indices[i]] for i in range(n_pos)
+        if n_pos < 2:
+            energy = torch.zeros(combo_indices.shape[0], device=device)
+        else:
+            selected_vectors = torch.stack(
+                [
+                    vectors_per_position[i][combo_indices[:, i]]
+                    for i in range(n_pos)
+                ],
+                dim=1,
             )
+            cos_matrix = selected_vectors @ selected_vectors.transpose(1, 2)
 
-            # ---- Identify non-identity positions (actual mutations) ----
-            mutated_positions_mask = [
-                aa_choice[i] != parent_aa_indices[i] for i in range(n_pos)
-            ]
-            mutated_indices = [i for i in range(n_pos) if mutated_positions_mask[i]]
-
-            # Exclude parent peptide (all identities)
-            if len(mutated_indices) == 0:
-                continue
-
-            # Build cosine matrix over all selected residues (mutated + identity).
-            # We include pairs where at least one residue is mutated:
-            # mutated-mutated (taken-taken) and mutated-identity (taken-not-taken).
-            selected_all = torch.stack(
-                [vectors_per_position[i][combo_indices[i]] for i in range(n_pos)]
-            )
-            cos_matrix = selected_all @ selected_all.T  # (n_pos, n_pos)
-
-            mut_mask = torch.tensor(
-                mutated_positions_mask,
-                dtype=torch.bool,
-                device=device,
-            )
             i_idx, j_idx = torch.triu_indices(n_pos, n_pos, offset=1, device=device)
-            include_mask = mut_mask[i_idx] | mut_mask[j_idx]
-            both_mutated_mask = mut_mask[i_idx] & mut_mask[j_idx]
+            pairwise_cos_all = cos_matrix[:, i_idx, j_idx]
+
+            mut_i = mut_mask[:, i_idx]
+            mut_j = mut_mask[:, j_idx]
+            include_mask = mut_i | mut_j
+            both_mutated_mask = mut_i & mut_j
             taken_not_taken_mask = include_mask & (~both_mutated_mask)
 
-            if not torch.any(include_mask):
-                result[aa_choice] = 0.0
-                continue
+            score_taken_taken = (
+                self.similarity_transform(pairwise_cos_all) * both_mutated_mask
+            ).sum(dim=1)
+            score_taken_not_taken = (
+                self.taken_not_taken_transform(pairwise_cos_all) * taken_not_taken_mask
+            ).sum(dim=1)
 
-            pairwise_cos_all = cos_matrix[i_idx, j_idx]
+            total_pairs = include_mask.sum(dim=1).clamp(min=1)
+            energy = (score_taken_taken + score_taken_not_taken) / total_pairs
 
-            # standard transform for taken-taken pairs
-            score_taken_taken = self.similarity_transform(
-                pairwise_cos_all[both_mutated_mask]
-            ).sum()
+        valid_mask = has_mutation
+        aa_choice_valid = aa_choice[valid_mask].cpu().tolist()
+        energy_valid = energy[valid_mask].cpu().tolist()
 
-            # other transform for taken-not-taken pairs
-            score_taken_not_taken = self.taken_not_taken_transform(
-                pairwise_cos_all[taken_not_taken_mask]
-            ).sum()
-
-            total_pairs = include_mask.sum().item()
-
-            # Normalize by number of included pairs (taken-taken + taken-not-taken).
-            energy = (score_taken_taken + score_taken_not_taken).item() / total_pairs
-
-            result[aa_choice] = energy
-
-        return result
+        return {
+            tuple(aa_tuple): float(score)
+            for aa_tuple, score in zip(aa_choice_valid, energy_valid)
+        }
 
     def compute_with_identities(
         self,
@@ -450,6 +450,11 @@ def compose_mutant_distribution(
         augmented = mutations
 
     potentials = potential.compute(parent_peptide, augmented)
+    if not potentials:
+        return MutantDistribution(
+            sequences=[],
+            log_potentials=np.array([], dtype=np.float64),
+        )
 
     # Check if potentials is Cartesian product format or per-position format
     if potentials and isinstance(next(iter(potentials.keys())), tuple):
@@ -486,6 +491,11 @@ def compose_mutant_distribution(
     else:
         # Per-position format: dict[int, dict[int, float]]
         sorted_positions = sorted(potentials.keys())
+        if not sorted_positions:
+            return MutantDistribution(
+                sequences=[],
+                log_potentials=np.array([], dtype=np.float64),
+            )
         pos_aa_indices: list[np.ndarray] = []
         pos_log_pots: list[np.ndarray] = []
         for pos in sorted_positions:
