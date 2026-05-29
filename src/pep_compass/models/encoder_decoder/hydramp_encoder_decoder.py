@@ -5,6 +5,7 @@ from pep_compass.models.hydramp.hydramp import HydrAMPDecoder, HydrAMPEncoder
 from pep_compass.models.encoder_decoder.encoder_decoder import EncoderDecoder
 from pep_compass.utils.sequence_utils import to_one_hot, translate_generated_peptide
 from einops import repeat, rearrange
+import os
 
 
 class HydrAMPEncoderDecoder(EncoderDecoder, nn.Module):
@@ -18,6 +19,12 @@ class HydrAMPEncoderDecoder(EncoderDecoder, nn.Module):
         jacobian_eps: float,
         field_eps: float,
     ):
+        assert default_condition.ndim == 1, ValueError(
+            f"Default condition should be 1D, got {default_condition.ndim}D instead."
+        )
+        assert default_condition.shape[0] == 2, ValueError(
+            f"Default condition should have 2 elements, got {default_condition.shape[0]} instead."
+        )
         EncoderDecoder.__init__(
             self,
             jacobian_mode=jacobian_mode,
@@ -33,6 +40,24 @@ class HydrAMPEncoderDecoder(EncoderDecoder, nn.Module):
 
         self.encoder = HydrAMPEncoder(device=device)
         self.decoder = HydrAMPDecoder(device=device)
+
+        self._load_weights()
+
+    def _load_weights(self):
+        file_dir = os.path.dirname(os.path.abspath(__file__))
+        weights_dir = f"{file_dir}/../hydramp/weights"
+
+        if not os.path.exists(weights_dir):
+            raise FileNotFoundError(
+                f"Weights directory {weights_dir} not found. To get the HydrAMP weights follow the instructtions in README.md under 'Download Model Weights' section."
+            )
+
+        self.encoder.load_state_dict(
+            torch.load(f"{weights_dir}/encoder_weights.pickle", weights_only=True)
+        )
+        self.decoder.load_state_dict(
+            torch.load(f"{weights_dir}/decoder_weights.pickle", weights_only=True)
+        )
 
     @property
     def latent_dim(self):
@@ -72,9 +97,9 @@ class HydrAMPEncoderDecoder(EncoderDecoder, nn.Module):
             decoder_output = torch.log_softmax(decoder_output / self.temp, dim=-1)
         if flatten:
             decoder_output = rearrange(decoder_output, "b seq vocab -> b (seq vocab)")
-        assert decoder_output.shape[-1] == self.ambient_dim, ValueError(
-            f"Decoder output shape is {decoder_output.shape[-1]}, expected {self.ambient_dim}"
-        )
+            assert decoder_output.shape[-1] == self.ambient_dim, ValueError(
+                f"Decoder output shape is {decoder_output.shape[-1]}, expected {self.ambient_dim}"
+            )
         return decoder_output
 
     def decode_peptides(self, batch: torch.Tensor, batch_size: int = 1) -> list[str]:
@@ -84,7 +109,7 @@ class HydrAMPEncoderDecoder(EncoderDecoder, nn.Module):
         decoded_peptides = []
         for i in range(0, batch.shape[0], batch_size):
             z = batch[i : i + batch_size]
-            decoded_logits = self.decoder_forward(z, softmax_and_flatten=False)
+            decoded_logits = self.decoder_forward(z, softmax=False, flatten=False)
             decoded_peptides.extend(
                 [
                     translate_generated_peptide(logits.unsqueeze(0))
