@@ -11,7 +11,7 @@
 
 set -euo pipefail
 
-cd /home/kjurasz/pep-compass.worktrees/rl_trials
+cd /home/kjurasz/pep-compass
 mkdir -p logs basic_eps_greedy_rl/inputs results/basic_eps_greedy_rl_promising_start
 
 if ! command -v nvidia-smi >/dev/null 2>&1; then
@@ -25,6 +25,7 @@ PEPTIDE_LIST=basic_eps_greedy_rl/inputs/sampled_500_peptides.txt
 
 "${PYTHON}" scripts/sample_peptides_from_csvs.py \
   --root /home/kjurasz/pep-compass \
+  --dataset_subdir results/mutants/mutants \
   --sample_size 500 \
   --max_len 25 \
   --seed 2026 \

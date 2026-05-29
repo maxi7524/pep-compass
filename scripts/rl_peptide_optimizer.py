@@ -407,6 +407,7 @@ def run_basic_epsilon_greedy(
 
     results = {
         "run_name": run_name or run_id,
+        "run_id": run_id,
         "algorithm": "basic_epsilon_greedy",
         "seed": seed,
         "n_epochs": n_epochs,

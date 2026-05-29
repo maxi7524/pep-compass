@@ -4,7 +4,10 @@ import argparse
 import json
 from pathlib import Path
 
-from rl_peptide_optimizer import run_basic_epsilon_greedy
+try:
+    from .rl_peptide_optimizer import run_basic_epsilon_greedy  # type: ignore
+except ImportError:
+    from rl_peptide_optimizer import run_basic_epsilon_greedy
 
 
 def _load_peptides(path: Path) -> list[str]:
@@ -31,6 +34,11 @@ def run_dataset(
     start_selection: str = "random",
     verbose: bool = False,
 ) -> dict:
+    if num_workers < 1:
+        raise ValueError("num_workers must be >= 1")
+    if worker_id < 0 or worker_id >= num_workers:
+        raise ValueError("worker_id must satisfy 0 <= worker_id < num_workers")
+
     in_path = Path(peptides_file)
     out_path = Path(output_dir)
     out_path.mkdir(parents=True, exist_ok=True)
@@ -72,6 +80,7 @@ def run_dataset(
                     "peptide": peptide,
                     "repeat": rep + 1,
                     "run_name": result.get("run_name", run_name),
+                    "run_id": result.get("run_id"),
                     "best_peptide": result.get("best_peptide"),
                     "best_log2mic": result.get("best_log2mic"),
                     "status": "ok",
@@ -108,6 +117,10 @@ def run_dataset(
         json.dumps(manifest_rows, indent=2), encoding="utf-8"
     )
     print(json.dumps(summary, indent=2))
+    if failed > 0:
+        raise RuntimeError(
+            f"Worker {worker_id} finished with failures: {failed}/{len(assigned)} tasks failed."
+        )
     return summary
 
 

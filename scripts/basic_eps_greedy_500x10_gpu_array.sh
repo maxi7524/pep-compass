@@ -11,7 +11,7 @@
 
 set -euo pipefail
 
-cd /home/kjurasz/pep-compass.worktrees/rl_trials
+cd /home/kjurasz/pep-compass
 mkdir -p logs basic_eps_greedy_rl/inputs results/basic_eps_greedy_rl_500x10
 
 if ! command -v nvidia-smi >/dev/null 2>&1; then
@@ -26,6 +26,7 @@ META_JSON=basic_eps_greedy_rl/inputs/sampled_500_peptides_meta.json
 
 "${PYTHON}" scripts/sample_peptides_from_csvs.py \
   --root /home/kjurasz/pep-compass \
+  --dataset_subdir results/mutants/mutants \
   --sample_size 500 \
   --max_len 25 \
   --seed 2026 \
@@ -37,6 +38,7 @@ if [ ! -s "${PEPTIDE_LIST}" ]; then
   exit 1
 fi
 
+PIDS=()
 for W in 0 1 2 3 4 5; do
   "${PYTHON}" scripts/basic_eps_greedy_dataset_runner.py \
     --peptides_file "${PEPTIDE_LIST}" \
@@ -48,6 +50,17 @@ for W in 0 1 2 3 4 5; do
     --device cuda \
     --output_dir results/basic_eps_greedy_rl_500x10 \
     --start_selection random &
+  PIDS+=($!)
 done
 
-wait
+FAIL=0
+for PID in "${PIDS[@]}"; do
+  if ! wait "${PID}"; then
+    FAIL=1
+  fi
+done
+
+if [ "${FAIL}" -ne 0 ]; then
+  echo "ERROR: One or more worker processes failed."
+  exit 1
+fi

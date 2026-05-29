@@ -4,9 +4,19 @@ import argparse
 import csv
 import json
 import random
+import sys
 from pathlib import Path
 
-PEPTIDE_COLUMNS = {"peptide", "peptides", "sequence", "seq"}
+PEPTIDE_COLUMNS = {
+    "mutant",
+    "parent",
+    "mutant_sequence",
+    "parent_sequence",
+    "sequence",
+    "seq",
+    "peptide",
+    "peptides",
+}
 VALID_AAS = set("ACDEFGHIKLMNPQRSTVWY")
 
 
@@ -27,6 +37,7 @@ def _iter_csv_files(root: Path) -> list[Path]:
 
 def sample_peptides(
     root: str = ".",
+    dataset_subdir: str = "results/mutants/mutants",
     sample_size: int = 500,
     max_len: int = 25,
     seed: int = 42,
@@ -39,9 +50,19 @@ def sample_peptides(
     out_path.parent.mkdir(parents=True, exist_ok=True)
     meta_path.parent.mkdir(parents=True, exist_ok=True)
 
-    csv_files = _iter_csv_files(root_path)
+    preferred_root = (root_path / Path(dataset_subdir)).resolve()
+    if preferred_root.exists():
+        csv_files = _iter_csv_files(preferred_root)
+        scan_root = preferred_root
+        scan_mode = "preferred_subdir_only"
+    else:
+        csv_files = _iter_csv_files(root_path)
+        scan_root = root_path
+        scan_mode = "full_root_fallback"
+
     all_peptides: set[str] = set()
     source_hits: dict[str, int] = {}
+    read_errors: list[str] = []
 
     for csv_path in csv_files:
         try:
@@ -61,8 +82,9 @@ def sample_peptides(
                             all_peptides.add(val)
                 added = len(all_peptides) - before
                 if added > 0:
-                    source_hits[str(csv_path.relative_to(root_path))] = added
-        except Exception:
+                    source_hits[str(csv_path.relative_to(scan_root))] = added
+        except Exception as exc:
+            read_errors.append(f"{csv_path}: {exc}")
             continue
 
     peptides = sorted(all_peptides)
@@ -74,6 +96,9 @@ def sample_peptides(
 
     meta = {
         "root": str(root_path),
+        "scan_mode": scan_mode,
+        "scan_root": str(scan_root),
+        "dataset_subdir_requested": dataset_subdir,
         "sample_size_requested": sample_size,
         "sample_size_obtained": len(chosen),
         "unique_candidates_total": len(peptides),
@@ -81,14 +106,23 @@ def sample_peptides(
         "max_len": max_len,
         "output_file": str(out_path),
         "sources_with_hits": source_hits,
+        "read_error_count": len(read_errors),
+        "read_errors": read_errors[:50],
     }
     meta_path.write_text(json.dumps(meta, indent=2), encoding="utf-8")
+    if read_errors:
+        print(
+            f"Warning: {len(read_errors)} CSV files could not be read. "
+            f"See metadata at {meta_path}.",
+            file=sys.stderr,
+        )
     return meta
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", default=".")
+    parser.add_argument("--dataset_subdir", default="results/mutants/mutants")
     parser.add_argument("--sample_size", type=int, default=500)
     parser.add_argument("--max_len", type=int, default=25)
     parser.add_argument("--seed", type=int, default=42)
@@ -103,6 +137,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
     result = sample_peptides(
         root=args.root,
+        dataset_subdir=args.dataset_subdir,
         sample_size=args.sample_size,
         max_len=args.max_len,
         seed=args.seed,

@@ -49,13 +49,14 @@ Outputs:
 
 ## 500 random peptides + 10 runs each (separate submission)
 
-This pipeline samples ~500 unique peptides from CSV files and runs
+This pipeline samples ~500 unique peptides from CSV files in
+`results/mutants/mutants/**` and runs
 10 independent runs per peptide using **6 agents** (SLURM array workers).
 
 Sampling command (standalone):
 
 ```bash
-python scripts/sample_peptides_from_csvs.py --root /home/kjurasz/pep-compass --sample_size 500 --max_len 25 --seed 2026 --output_file basic_eps_greedy_rl/inputs/sampled_500_peptides.txt --meta_file basic_eps_greedy_rl/inputs/sampled_500_peptides_meta.json
+python scripts/sample_peptides_from_csvs.py --root /home/kjurasz/pep-compass --dataset_subdir results/mutants/mutants --sample_size 500 --max_len 25 --seed 2026 --output_file basic_eps_greedy_rl/inputs/sampled_500_peptides.txt --meta_file basic_eps_greedy_rl/inputs/sampled_500_peptides_meta.json
 ```
 
 Queue the dataset run:

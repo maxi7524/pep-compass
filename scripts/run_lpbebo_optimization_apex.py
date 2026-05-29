@@ -4,7 +4,11 @@ import time
 
 import torch
 from pep_compass.local_enumeration.local_enumerator import PotentialFilteredMutationLocalEnumerator
-from pep_compass.local_enumeration.mutation.mutation_potentials import DecoderLogProbPotential
+from pep_compass.local_enumeration.mutation.mutation_potentials import (
+    DecoderLogProbPotential,
+    ProjectedDirectionPairwiseSimilarityPotential,
+)
+from pep_compass.local_enumeration.sampling.sorbes import SubRiemannianTangentSpace
 from pep_compass.models.encoder_decoder.hydramp_encoder_decoder import HydrAMPEncoderDecoder
 from pep_compass.optimization.black_box.apex_black_box import (
     APEXBlackBox,
@@ -20,6 +24,7 @@ EVALUATION_BUDGET = 1400
 
 TOP_P = 0.9
 TEMPERATURE = 1.0
+POTENTIAL_TYPE = "similarity"
 
 logging.basicConfig(
     level=logging.DEBUG,
@@ -50,8 +55,42 @@ encoder_decoder = HydrAMPEncoderDecoder(
     field_eps=0.05,
 )
 
+class DynamicProjectedSimilarityPotential:
+    """Mutation potential computed from current peptide tangent-space similarities."""
+
+    def __init__(self, encoder_decoder, alphabet):
+        self.encoder_decoder = encoder_decoder
+        self.alphabet = alphabet
+
+    @torch.no_grad()
+    def compute(self, parent_peptide: str, mutations: dict[int, list[int]]):
+        if not mutations:
+            return {}
+        z_parent = self.encoder_decoder.encode_peptides([parent_peptide])[0]
+        jacobian = self.encoder_decoder.decoder_jacobian(z_parent)
+        U, S, V = torch.linalg.svd(jacobian, full_matrices=False)
+        tangent_space = SubRiemannianTangentSpace(
+            U=U,
+            S=S,
+            V=V,
+            horizontal_threshold=1e-3,
+            device=str(z_parent.device),
+        )
+        potential = ProjectedDirectionPairwiseSimilarityPotential(
+            tangent_space=tangent_space,
+            alphabet=self.alphabet,
+        )
+        return potential.compute(parent_peptide, mutations)
+
+
 # Define mutation potential
-potential = DecoderLogProbPotential(encoder_decoder=encoder_decoder)
+if POTENTIAL_TYPE == "similarity":
+    potential = DynamicProjectedSimilarityPotential(
+        encoder_decoder=encoder_decoder,
+        alphabet=list(" ACDEFGHIKLMNPQRSTVWY"),
+    )
+else:
+    potential = DecoderLogProbPotential(encoder_decoder=encoder_decoder)
 
 # Define local enumerator
 local_enumerator = PotentialFilteredMutationLocalEnumerator(
@@ -61,7 +100,7 @@ local_enumerator = PotentialFilteredMutationLocalEnumerator(
     temperature=TEMPERATURE,
     direction_significance_threshold=1e-3,
     min_number_of_directions=5,
-    token_threshold=0.1,
+    token_threshold=0.09,
     max_neighbour_levenstein=4,
     device=DEVICE,
 )
