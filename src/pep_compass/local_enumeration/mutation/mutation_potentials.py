@@ -27,6 +27,42 @@ DEFAULT_ALPHABET = list(" ACDEFGHIKLMNPQRSTVWY")
 DEFAULT_MAX_LEN = 25
 
 
+# --------------------------------------------------------------------------- #
+# Pair transforms used by the pairwise-similarity potentials.
+# Each pair (i, j) of single-position mutations contributes, to a candidate's energy:
+#   * the "taken-taken" transform  T_tt(x)   when both mutations are applied,
+#   * the "taken-not-taken" transform T_tnt(x) when exactly one is applied,
+# with x = CS(v_i, v_j) in [-1, 1]. The required monotonic intuitions are:
+#   T_tt  increasing in x  (reward aligned, penalise opposed mutations taken together),
+#   T_tnt decreasing in x  (penalise taking only one of a parallel/cooperative pair).
+# --------------------------------------------------------------------------- #
+def log_taken_taken_transform(x):
+    """Default: log((1 + x) / 2).  0 at x=1, -> -inf at x=-1 (clamped)."""
+    return torch.log(torch.clamp((1.0 + x) / 2.0, min=1e-12, max=1.0))
+
+
+def log_taken_not_taken_transform(x):
+    """Default: log((1 - x) / 2).  0 at x=-1, -> -inf at x=+1 (clamped)."""
+    return torch.log(torch.clamp((1.0 - x) / 2.0, min=1e-12, max=1.0))
+
+
+def linear_taken_taken_transform(x):
+    """Bounded linear alternative: (x - 1) / 2 in [-1, 0].  0 at x=1, -1 at x=-1.
+
+    Satisfies the same monotonic intuition as the log form (increasing in x, maximal for
+    perfectly aligned mutations) but is finite at x=-1, so strongly-opposed pairs are not
+    clamped to a flat -inf and remain rankable."""
+    return (x - 1.0) / 2.0
+
+
+def linear_taken_not_taken_transform(x):
+    """Bounded linear alternative: -(x + 1) / 2 in [-1, 0].  0 at x=-1, -1 at x=+1.
+
+    Decreasing in x: taking only one of a parallel pair (x->+1) is maximally penalised,
+    while independent/opposed mutations (x<=0) are not."""
+    return -(x + 1.0) / 2.0
+
+
 class MutantDistribution(NamedTuple):
     sequences: list[str]
     log_potentials: np.ndarray  # 1-D float64, sorted descending
@@ -115,9 +151,16 @@ class ProjectedDirectionPairwiseSimilarityPotential(MutationPotential):
         alphabet: list[str] | None = None,
         similarity_transform: Callable[[torch.Tensor], torch.Tensor] | None = None,
         taken_not_taken_transform: Callable[[torch.Tensor], torch.Tensor] | None = None,
+        direction_mode: str = "onehot",
     ):
         self.tangent_space = tangent_space
         self.alphabet = alphabet or DEFAULT_ALPHABET
+        # "onehot": a mutation l->a is the ambient one-hot e_{l,a}.
+        # "diff":   it is the difference e_{l,a} - e_{l,p_l} (+1 at target, -1 at parent residue),
+        #           a more faithful "movement from parent to target" direction.
+        if direction_mode not in ("onehot", "diff"):
+            raise ValueError(f"direction_mode must be 'onehot' or 'diff', got {direction_mode!r}")
+        self.direction_mode = direction_mode
 
         # Default transform: +log((1+x)/2).
         # Clamp keeps the argument strictly positive for numerical stability.
@@ -134,6 +177,54 @@ class ProjectedDirectionPairwiseSimilarityPotential(MutationPotential):
             taken_not_taken_transform or default_taken_not_taken_transform
         )
 
+    # ------------------------------------------------------------------ #
+    # Direction construction (overridden by the metric variant)
+    # ------------------------------------------------------------------ #
+    def _ensure_projection(self) -> torch.Tensor:
+        """Return the cached ambient->latent horizontal projection matrix (latent, ambient)."""
+        ambient_dim = DEFAULT_MAX_LEN * len(self.alphabet)
+        if self.tangent_space.projection_matrix is None:
+            _ = self.tangent_space.project_ambient_vector_to_horizontal_space(
+                torch.zeros(ambient_dim, device=self.tangent_space.device)
+            )
+        return self.tangent_space.projection_matrix
+
+    def _raw_directions(self, flat_indices: torch.Tensor) -> torch.Tensor:
+        """Representation of the ambient one-hot directions at the given flat indices.
+
+        Variant A (this class): the latent pseudo-inverse pull-back ``J_h^+ e``, i.e.\\ the
+        columns of the horizontal projection matrix. Comparing these by Euclidean cosine
+        gives the whitened (inverse-singular-value weighted) similarity.
+        """
+        proj = self._ensure_projection()  # (latent, ambient)
+        return proj[:, flat_indices].T    # (n, latent)
+
+    def _normalized_directions(self, flat_indices: torch.Tensor) -> torch.Tensor:
+        vecs = self._raw_directions(flat_indices)
+        norms = torch.linalg.norm(vecs, dim=1, keepdim=True)
+        return vecs / (norms + 1e-12)
+
+    def _position_vectors(
+        self, pos: int, aa_indices: torch.Tensor, parent_aa_idx: int
+    ) -> torch.Tensor:
+        """Normalised direction vectors for the candidate residues at one position.
+
+        ``onehot``: representation of e_{pos,a}. ``diff``: representation of
+        e_{pos,a} - e_{pos,parent}, built before normalisation (linearity of ``_raw_directions``);
+        the parent/identity candidate then maps to the zero direction.
+        """
+        alphabet_size = len(self.alphabet)
+        flat = pos * alphabet_size + aa_indices
+        vecs = self._raw_directions(flat)
+        if self.direction_mode == "diff":
+            parent_flat = torch.tensor(
+                [pos * alphabet_size + parent_aa_idx],
+                device=aa_indices.device, dtype=torch.long,
+            )
+            vecs = vecs - self._raw_directions(parent_flat)  # broadcast (1, dim)
+        norms = torch.linalg.norm(vecs, dim=1, keepdim=True)
+        return vecs / (norms + 1e-12)
+
     def compute_similarity_matrix(
         self,
         parent_peptide: str,
@@ -148,38 +239,19 @@ class ProjectedDirectionPairwiseSimilarityPotential(MutationPotential):
         import numpy as np
 
         positions = sorted(mutations.keys())
-        max_len = (
-            getattr(self, "DEFAULT_MAX_LEN", 25)
-            if hasattr(self, "DEFAULT_MAX_LEN")
-            else 25
-        )
+        max_len = DEFAULT_MAX_LEN
         alphabet_size = len(self.alphabet)
-        ambient_dim = max_len * alphabet_size
         device = self.tangent_space.device
 
         padded = parent_peptide.ljust(max_len)
         sim_matrices = {}
         for pos in positions:
+            parent_aa_idx = self.alphabet.index(padded[pos])
             aa_indices = list(mutations[pos])
-            if use_parent:
-                parent_aa_idx = self.alphabet.index(padded[pos])
-                if parent_aa_idx not in aa_indices:
-                    aa_indices.append(parent_aa_idx)
-            dirs = []
-            for aa_idx in aa_indices:
-                direction = torch.zeros(ambient_dim, device=device)
-                flat_idx = pos * alphabet_size + aa_idx
-                direction[flat_idx] = 1.0
-                dirs.append(direction)
-            dirs = torch.stack(dirs)
-            projected = torch.stack(
-                [
-                    self.tangent_space.project_ambient_vector_to_horizontal_space(d)
-                    for d in dirs
-                ]
-            )
-            norms = torch.norm(projected, dim=1, keepdim=True)
-            projected = projected / (norms + 1e-12)
+            if use_parent and parent_aa_idx not in aa_indices:
+                aa_indices.append(parent_aa_idx)
+            aa_t = torch.tensor(aa_indices, device=device, dtype=torch.long)
+            projected = self._position_vectors(pos, aa_t, parent_aa_idx)
             # Cosine similarity matrix
             cos_matrix = projected @ projected.T
             sim_matrices[pos] = cos_matrix.detach().cpu().numpy()
@@ -208,35 +280,24 @@ class ProjectedDirectionPairwiseSimilarityPotential(MutationPotential):
         # Ambient space: (max_len, alphabet_size) flattened
         max_len = DEFAULT_MAX_LEN
         alphabet_size = len(self.alphabet)
-        ambient_dim = max_len * alphabet_size
         device = self.tangent_space.device
 
-        # Ensure projection matrix is initialized once
-        if self.tangent_space.projection_matrix is None:
-            _ = self.tangent_space.project_ambient_vector_to_horizontal_space(
-                torch.zeros(ambient_dim, device=device)
-            )
-        proj = self.tangent_space.projection_matrix
-
         # ---- 1. Precompute projected + normalized vectors per position ----
+        # The direction representation is provided by ``_normalized_directions`` and is the
+        # only thing that differs between the projected (Variant A) and metric (Variant B)
+        # potentials.
         vectors_per_position = []
         aa_indices_per_position = []
 
-        for pos in positions:
+        for i_pos, pos in enumerate(positions):
             aa_indices = torch.tensor(
                 mutations[pos], device=device, dtype=torch.long
             )
             aa_indices_per_position.append(aa_indices)
-
-            k_pos = aa_indices.shape[0]
-            ambient = torch.zeros((k_pos, ambient_dim), device=device)
-            flat_idx = pos * alphabet_size + aa_indices
-            ambient[torch.arange(k_pos, device=device), flat_idx] = 1.0
-
-            projected = ambient @ proj.T
-            norms = torch.linalg.norm(projected, dim=1, keepdim=True)
-            projected = projected / (norms + 1e-12)
-            vectors_per_position.append(projected)
+            parent_aa_idx = int(parent_aa_indices[i_pos].item())
+            vectors_per_position.append(
+                self._position_vectors(pos, aa_indices, parent_aa_idx)
+            )
 
         # ---- 2. Enumerate Cartesian product (vectorized) ----
         index_ranges = [
@@ -379,6 +440,61 @@ class ProjectedDirectionPairwiseSimilarityPotential(MutationPotential):
         potential_values = [potential_values[i] for i in sorted_indices]
 
         return sequences, potential_values
+
+
+class AmbientMetricPairwiseSimilarityPotential(
+    ProjectedDirectionPairwiseSimilarityPotential
+):
+    r"""Pairwise similarity potential using the decoder pullback metric (paper variant).
+
+    This is the metric-aware variant of \S sec:similarities: the similarity of two mutation
+    directions is the cosine under the pullback metric ``G = J^T J``,
+
+        CS(v_i, v_j) = <v_i, v_j>_G / (||v_i||_G ||v_j||_G).
+
+    For the ambient one-hot mutation directions ``e_i`` read off the tangent space, this
+    reduces to the *normalised horizontal projector* ``U_h U_h^T``: writing ``U_h`` for the
+    left singular vectors of the decoder Jacobian whose singular values exceed
+    ``horizontal_threshold`` (the kappa-stable subspace), ``CS_ij`` is the cosine of the rows
+    ``U_h[i, :]`` and ``U_h[j, :]``. The metric basis ``U_h`` is therefore formed **once** in
+    ``__init__`` and every pairwise similarity is an inner product of two of its rows -- no
+    per-pair recomputation of ``G``.
+
+    The pairwise aggregation (taken-taken ``+T(cos)``, taken-not-taken ``-T(cos)``, averaged
+    over involved pairs) and the ``similarity_transform`` / ``taken_not_taken_transform``
+    hooks are inherited unchanged from the projected variant; only the per-direction
+    representation differs (rows of ``U_h`` instead of the whitened latent pull-back). With
+    the default transform ``T(x) = log((1 + x) / 2)`` this is the TANDEM potential of the
+    thesis evaluated with the decoder-pullback (rather than Euclidean-latent) angle.
+    """
+
+    def __init__(
+        self,
+        tangent_space: SubRiemannianTangentSpace,
+        alphabet: list[str] | None = None,
+        similarity_transform: Callable[[torch.Tensor], torch.Tensor] | None = None,
+        taken_not_taken_transform: Callable[[torch.Tensor], torch.Tensor] | None = None,
+        direction_mode: str = "onehot",
+    ):
+        super().__init__(
+            tangent_space=tangent_space,
+            alphabet=alphabet,
+            similarity_transform=similarity_transform,
+            taken_not_taken_transform=taken_not_taken_transform,
+            direction_mode=direction_mode,
+        )
+        # Metric basis U_h: horizontal left-singular vectors, computed ONCE.
+        S = tangent_space.S
+        U = tangent_space.U
+        horizontal_mask = torch.abs(S) > tangent_space.horizontal_threshold
+        # U has shape (ambient_dim, n_singular); keep the horizontal columns -> (ambient, h).
+        self.U_h = U[:, horizontal_mask].contiguous()
+
+    def _raw_directions(self, flat_indices: torch.Tensor) -> torch.Tensor:
+        """Metric variant: the ambient one-hot direction ``e_i`` is represented by row ``i``
+        of ``U_h``; the Euclidean cosine of these rows equals the metric-aware cosine
+        ``CS`` under ``G = J^T J``."""
+        return self.U_h[flat_indices]  # (n, horizontal_dim)
 
 
 def _build_sequences(
