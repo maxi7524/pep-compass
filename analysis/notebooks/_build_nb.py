@@ -1,0 +1,279 @@
+"""Build mutang_geodesic_sanity_check.ipynb programmatically.
+
+Run from analysis/notebooks/: python _build_nb.py
+"""
+
+from pathlib import Path
+import nbformat as nbf
+
+HERE = Path(__file__).parent
+NB_PATH = HERE / "mutang_geodesic_sanity_check.ipynb"
+
+nb = nbf.v4.new_notebook()
+cells: list = []
+
+cells.append(nbf.v4.new_markdown_cell(
+    "# MUTANG++ Geodesic Sanity Check\n"
+    "\n"
+    "For each of 500 sampled peptides:\n"
+    "1. Encode the parent → z, compute decoder-Jacobian SVD.\n"
+    "2. Enumerate MUTANG candidates and score the full Cartesian product\n"
+    "   with `ProjectedDirectionPairwiseSimilarityPotential` (MUTANG++).\n"
+    "3. Take the top-20 % by potential.\n"
+    "4. Build frozen Christoffel symbols Γ at z (regularised pullback metric).\n"
+    "5. For each top mutant, project the aggregate ambient one-hot direction\n"
+    "   `Σ_p e_{p, new_aa}` through `J_H⁺`, integrate a geodesic for unit time,\n"
+    "   decode the endpoint, and compare against the predicted mutant.\n"
+    "\n"
+    "Headline question: *what fraction of top-20 % MUTANG++ mutants are reachable\n"
+    "by geodesic traversal in the projected direction?*"
+))
+
+cells.append(nbf.v4.new_code_cell(
+    "import json\n"
+    "import os\n"
+    "import random\n"
+    "import sys\n"
+    "import time\n"
+    "from pathlib import Path\n"
+    "\n"
+    "import matplotlib.pyplot as plt\n"
+    "import numpy as np\n"
+    "import pandas as pd\n"
+    "import torch\n"
+    "from tqdm.auto import tqdm\n"
+    "\n"
+    "sys.path.insert(0, str(Path('.').resolve()))\n"
+    "from _mutang_geodesic_helpers import run_one_parent, summarize_results\n"
+    "from pep_compass.models.encoder_decoder.hydramp_encoder_decoder import HydrAMPEncoderDecoder\n"
+    "\n"
+    "SEED = 42\n"
+    "torch.manual_seed(SEED)\n"
+    "np.random.seed(SEED)\n"
+    "random.seed(SEED)\n"
+    "\n"
+    "DEVICE = 'cuda:0' if torch.cuda.is_available() else 'cpu'\n"
+    "print(f'device: {DEVICE}')\n"
+    "\n"
+    "encoder_decoder = HydrAMPEncoderDecoder(\n"
+    "    jacobian_mode='approx',\n"
+    "    device=DEVICE,\n"
+    "    jacobian_eps=0.05,\n"
+    "    field_eps=0.05,\n"
+    ")\n"
+    "encoder_decoder.eval()\n"
+    "\n"
+    "RESULTS_DIR = Path('results/mutang_geodesic_sanity')\n"
+    "RESULTS_DIR.mkdir(parents=True, exist_ok=True)\n"
+    "\n"
+    "PILOT_N = 25\n"
+    "FULL_N = 500\n"
+    "TOP_FRAC = 0.20\n"
+    "MAX_MUTANTS_PER_PARENT = 50\n"
+    "N_RK4_STEPS = 32\n"
+    "GEODESIC_T1 = 1.0\n"
+    "print('Setup complete.')"
+))
+
+cells.append(nbf.v4.new_markdown_cell("## Load the 500 sampled peptides"))
+
+cells.append(nbf.v4.new_code_cell(
+    "PEPTIDES_FILE = Path('../../basic_eps_greedy_rl/inputs/sampled_500_peptides.txt')\n"
+    "all_peptides = [\n"
+    "    line.strip()\n"
+    "    for line in PEPTIDES_FILE.read_text().splitlines()\n"
+    "    if line.strip()\n"
+    "]\n"
+    "MAX_LEN = 25\n"
+    "valid_peptides = [p for p in all_peptides if 1 <= len(p) <= MAX_LEN]\n"
+    "print(f'loaded {len(all_peptides)} lines, {len(valid_peptides)} ≤ {MAX_LEN} aa')\n"
+    "print('length distribution:')\n"
+    "lens = pd.Series([len(p) for p in valid_peptides])\n"
+    "print(lens.describe().to_string())"
+))
+
+cells.append(nbf.v4.new_markdown_cell(
+    "## Per-parent driver\n"
+    "Wraps `run_one_parent` from the helpers module (MUTANG → MUTANG++ → top-20 %\n"
+    "→ frozen Γ → geodesic for each top mutant) and adds a tqdm progress loop."
+))
+
+cells.append(nbf.v4.new_code_cell(
+    "def run_batch(peptides, label, *, save_path=None, rng_seed=SEED):\n"
+    "    rng = random.Random(rng_seed)\n"
+    "    rows = []\n"
+    "    start = time.time()\n"
+    "    pbar = tqdm(peptides, desc=label)\n"
+    "    for p in pbar:\n"
+    "        try:\n"
+    "            parent_rows = run_one_parent(\n"
+    "                encoder_decoder, p,\n"
+    "                top_frac=TOP_FRAC,\n"
+    "                max_mutants=MAX_MUTANTS_PER_PARENT,\n"
+    "                n_steps=N_RK4_STEPS,\n"
+    "                t1=GEODESIC_T1,\n"
+    "                rng=rng,\n"
+    "            )\n"
+    "        except Exception as e:\n"
+    "            print(f'  ! {p[:25]}: {type(e).__name__}: {e}')\n"
+    "            continue\n"
+    "        rows.extend(parent_rows)\n"
+    "        elapsed = time.time() - start\n"
+    "        pbar.set_postfix(rows=len(rows), elapsed=f'{elapsed:.0f}s')\n"
+    "    total = time.time() - start\n"
+    "    print(f'\\n{label}: {len(rows)} rows from {len(peptides)} parents in {total/60:.1f} min')\n"
+    "    if save_path is not None:\n"
+    "        df = pd.DataFrame(rows)\n"
+    "        df.to_csv(save_path, index=False)\n"
+    "        print(f'  saved → {save_path}')\n"
+    "    return rows"
+))
+
+cells.append(nbf.v4.new_markdown_cell(
+    "## Pilot: 25 peptides\n"
+    "Quick first run to confirm the pipeline works and to estimate runtime.\n"
+    "We expect ~10 minutes on CPU."
+))
+
+cells.append(nbf.v4.new_code_cell(
+    "pilot_peptides = valid_peptides[:PILOT_N]\n"
+    "pilot_rows = run_batch(\n"
+    "    pilot_peptides, 'pilot-25',\n"
+    "    save_path=RESULTS_DIR / 'pilot_25_results.csv',\n"
+    ")\n"
+    "pilot_summary, pilot_df = summarize_results(pilot_rows)\n"
+    "print(json.dumps(pilot_summary, indent=2))"
+))
+
+cells.append(nbf.v4.new_code_cell(
+    "# Spot-check: parent #0, top-1 mutant — side-by-side parent / mutant / decoded\n"
+    "if len(pilot_df) > 0:\n"
+    "    spot = pilot_df.sort_values(['parent', 'rank']).groupby('parent').first().head(5)\n"
+    "    for parent, row in spot.iterrows():\n"
+    "        print(f'parent : {parent}')\n"
+    "        print(f'mutant : {row[\"mutant\"]}')\n"
+    "        print(f'decoded: {row[\"decoded\"]}')\n"
+    "        print(f'  n_mutated={row[\"n_mutated\"]}  pos_match={row[\"pos_match_count\"]}/{row[\"n_mutated\"]}  full={row[\"full_match\"]}  hamming={row[\"hamming\"]}  |v|={row[\"direction_norm\"]:.1f}')\n"
+    "        print()"
+))
+
+cells.append(nbf.v4.new_markdown_cell(
+    "### Pilot interpretation\n"
+    "Inspect the pilot summary above. The key numbers:\n"
+    "\n"
+    "- **full_match_rate**: fraction of top-20 % MUTANG++ mutants whose geodesic endpoint *exactly* decodes to the predicted sequence.\n"
+    "- **pos_match_mean**: average fraction of mutated positions correctly recovered at the endpoint (more forgiving).\n"
+    "- **mean_hamming**: edit distance between decoded endpoint and predicted mutant.\n"
+    "- **mean_n_mutated**: typical Hamming distance between predicted mutants and parents.\n"
+    "- **geo_fallback_rate**: fraction of geodesics that diverged numerically (NaN/Inf) and fell back to Euclidean lines.\n"
+    "\n"
+    "If `full_match_rate` is ≈ 0 % and `pos_match_mean` is at chance level (~5 % per position),\n"
+    "that's a meaningful negative result: MUTANG++'s projected directions, while useful for *ranking*\n"
+    "mutations by geometric synergy, do **not** correspond to manifold geodesics that literally\n"
+    "reach the predicted mutant peptide. This is consistent with the linearisation argument:\n"
+    "`J_H⁺ · e_mut` amplifies a unit ambient probability shift by the spectral norm of the\n"
+    "pseudo-inverse, producing latent directions that overshoot far past the mutant's basin."
+))
+
+cells.append(nbf.v4.new_markdown_cell(
+    "## Full run: 500 peptides\n"
+    "Runs the same pipeline on the full input. Expect ~3 hours on CPU. Results are\n"
+    "checkpointed to `full_500_results.csv` so they survive notebook restarts."
+))
+
+cells.append(nbf.v4.new_code_cell(
+    "full_rows = run_batch(\n"
+    "    valid_peptides[:FULL_N], 'full-500',\n"
+    "    save_path=RESULTS_DIR / 'full_500_results.csv',\n"
+    ")\n"
+    "summary, df = summarize_results(full_rows)\n"
+    "with open(RESULTS_DIR / 'summary.json', 'w') as f:\n"
+    "    json.dump(summary, f, indent=2)\n"
+    "print(json.dumps(summary, indent=2))"
+))
+
+cells.append(nbf.v4.new_markdown_cell("## Aggregate summary"))
+
+cells.append(nbf.v4.new_code_cell(
+    "df = pd.read_csv(RESULTS_DIR / 'full_500_results.csv')\n"
+    "n_rows = len(df)\n"
+    "n_parents = df['parent'].nunique()\n"
+    "print(f'{n_rows} (parent, mutant) rows from {n_parents} unique parents')\n"
+    "print()\n"
+    "print('Overall:')\n"
+    "print(f'  full_match_rate     : {df[\"full_match\"].mean():.4f}')\n"
+    "print(f'  pos_match_mean      : {df[\"pos_match_frac\"].mean():.4f}')\n"
+    "print(f'  mean_hamming        : {df[\"hamming\"].mean():.2f}')\n"
+    "print(f'  mean_n_mutated      : {df[\"n_mutated\"].mean():.2f}')\n"
+    "print(f'  geo_fallback_rate   : {df[\"geo_fallback\"].mean():.4f}')\n"
+    "print(f'  mean_direction_norm : {df[\"direction_norm\"].mean():.2f}')\n"
+    "print()\n"
+    "print('By n_mutated:')\n"
+    "by_n = df.groupby('n_mutated').agg(\n"
+    "    n=('full_match', 'size'),\n"
+    "    full=('full_match', 'mean'),\n"
+    "    posfrac=('pos_match_frac', 'mean'),\n"
+    "    hamming=('hamming', 'mean'),\n"
+    ")\n"
+    "print(by_n.to_string())"
+))
+
+cells.append(nbf.v4.new_code_cell(
+    "# Stratify by MUTANG++ rank decile within each parent's top-20%\n"
+    "df_ranked = df.copy()\n"
+    "def to_decile(s):\n"
+    "    if s.nunique() < 2:\n"
+    "        return pd.Series(0, index=s.index)\n"
+    "    try:\n"
+    "        return pd.qcut(s, q=min(10, s.nunique()), labels=False, duplicates='drop')\n"
+    "    except Exception:\n"
+    "        return pd.Series(0, index=s.index)\n"
+    "df_ranked['rank_decile'] = df_ranked.groupby('parent')['rank'].transform(to_decile)\n"
+    "by_dec = df_ranked.groupby('rank_decile').agg(\n"
+    "    n=('full_match', 'size'),\n"
+    "    full=('full_match', 'mean'),\n"
+    "    posfrac=('pos_match_frac', 'mean'),\n"
+    "    log_pot=('log_potential', 'mean'),\n"
+    ")\n"
+    "print('By MUTANG++ rank decile within each parent (0 = highest potential):')\n"
+    "print(by_dec.to_string())"
+))
+
+cells.append(nbf.v4.new_code_cell(
+    "# Histograms\n"
+    "fig, axes = plt.subplots(1, 3, figsize=(15, 4))\n"
+    "axes[0].hist(df['pos_match_frac'].dropna(), bins=20, edgecolor='black')\n"
+    "axes[0].set_xlabel('fraction of mutated positions recovered')\n"
+    "axes[0].set_ylabel('count (mutants)')\n"
+    "axes[0].set_title('Per-position match distribution')\n"
+    "axes[1].hist(df['hamming'].clip(upper=25), bins=25, edgecolor='black')\n"
+    "axes[1].set_xlabel('Hamming(decoded, predicted mutant)')\n"
+    "axes[1].set_title('Hamming distance distribution')\n"
+    "axes[2].hist(np.log10(df['direction_norm'].clip(lower=1e-3)), bins=30, edgecolor='black')\n"
+    "axes[2].set_xlabel('log10 ||v|| (projected direction norm)')\n"
+    "axes[2].set_title('Direction-norm distribution')\n"
+    "plt.tight_layout()\n"
+    "plt.savefig(RESULTS_DIR / 'distributions.png', dpi=120)\n"
+    "plt.show()"
+))
+
+cells.append(nbf.v4.new_code_cell(
+    "# Persist final summary\n"
+    "summary, _ = summarize_results(df.to_dict('records'))\n"
+    "with open(RESULTS_DIR / 'summary.json', 'w') as f:\n"
+    "    json.dump(summary, f, indent=2)\n"
+    "print(json.dumps(summary, indent=2))"
+))
+
+cells.append(nbf.v4.new_markdown_cell(
+    "## Headline\n"
+    "*X %* of top-20 % MUTANG++ mutants are reachable by geodesic traversal in the\n"
+    "projected direction (substitute X from `summary['full_match_rate'] * 100`).\n"
+    "\n"
+    "Per-position recovery: *Y %* of mutated positions are correctly recovered on\n"
+    "average (substitute Y from `summary['pos_match_mean'] * 100`)."
+))
+
+nb["cells"] = cells
+NB_PATH.write_text(nbf.writes(nb))
+print(f"wrote {NB_PATH}")

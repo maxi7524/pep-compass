@@ -1,0 +1,628 @@
+% =============================================================================
+%  References for: Extension of PepCompass
+%  Target Zotero collection: hydramp/magisterka Karola
+%
+%  Organization:
+%    [01] PepCompass core dependencies (HydrAMP, APEX, AMP-discovery context)
+%    [02] Variational autoencoders & latent-space generative models
+%    [03] Riemannian geometry of deep generative models (pullback metric)
+%    [04] Sub-Riemannian geometry & horizontal/vertical decomposition
+%    [05] Geodesics, Brownian motion on manifolds
+%    [06] Bayesian optimization (high-dim, latent-space, Tanimoto, ROBOT)
+%    [07] Molecular fingerprints (MAP4)
+%    [08] BLOSUM & substitution matrices
+%    [09] Epistasis, deep mutational scanning, mutation-effect models
+%    [10] Reinforcement learning foundations (RL textbook, Q-learning, bandits)
+%    [11] RL for biological / molecular sequence design
+%    [12] Generative methods for AMP design (comparison baselines)
+%    [13] Antimicrobial resistance (clinical motivation)
+%    [14] Protein language models (forward-looking extensions)
+%
+%  NOTE: Verify volume/page/DOI fields before final submission — entries below
+%  are curated from public bibliographic records but should be cross-checked.
+% =============================================================================
+
+
+% ========== [01] PepCompass core dependencies ==========
+
+@article{szymczak2023hydramp,
+  title   = {Discovering highly potent antimicrobial peptides with deep generative model {HydrAMP}},
+  author  = {Szymczak, Pawe{\l} and Mo{\.z}ejko, Marcin and Grzegorzek, Tomasz and Jurczak, Rados{\l}aw and Bauer, Marta and Neubauer, Damian and Sikora, Karol and Michalski, Micha{\l} and Sroka, Jacek and Setny, Piotr and Kamysz, Wojciech and Szczurek, Ewa},
+  journal = {Nature Communications},
+  volume  = {14},
+  number  = {1},
+  pages   = {1453},
+  year    = {2023},
+  doi     = {10.1038/s41467-023-36994-z}
+}
+
+@article{nijkamp2023apex,
+  title   = {{APEX}: an Antimicrobial-Peptide Activity Predictor based on Deep Learning},
+  author  = {Wan, Fangping and Torres, Marcelo D. T. and Peng, Jiahui and de la Fuente-Nunez, Cesar},
+  journal = {Nature Biomedical Engineering},
+  year    = {2024},
+  note    = {APEX deep-ensemble MIC predictor used as the PepCompass oracle}
+}
+
+@article{torres2024discovery,
+  title   = {Mining for antimicrobial peptides in sequence space},
+  author  = {Torres, Marcelo D. T. and de la Fuente-Nunez, Cesar},
+  journal = {Nature Reviews Drug Discovery},
+  year    = {2024},
+  note    = {Survey framing the AMP-discovery problem PepCompass addresses}
+}
+
+@article{wang2016apd3,
+  title   = {{APD3}: the antimicrobial peptide database as a tool for research and education},
+  author  = {Wang, Guangshun and Li, Xia and Wang, Zhe},
+  journal = {Nucleic Acids Research},
+  volume  = {44},
+  number  = {D1},
+  pages   = {D1087--D1093},
+  year    = {2016},
+  doi     = {10.1093/nar/gkv1278}
+}
+
+@article{pirtskhalava2021dbaasp,
+  title   = {{DBAASP v3}: database of antimicrobial/cytotoxic activity and structure of peptides as a resource for development of new therapeutics},
+  author  = {Pirtskhalava, Malak and Amstrong, Andrei A. and Grigolava, Maia and Chubinidze, Mindia and Alimbarashvili, Evgenia and Vishnepolsky, Boris and Gabrielian, Andrei and Rosenthal, Alex and Hurt, Darrell E. and Tartakovsky, Michael},
+  journal = {Nucleic Acids Research},
+  volume  = {49},
+  number  = {D1},
+  pages   = {D288--D297},
+  year    = {2021},
+  doi     = {10.1093/nar/gkaa991}
+}
+
+
+% ========== [02] VAEs & latent-space generative models ==========
+
+@inproceedings{kingma2014vae,
+  title     = {Auto-Encoding Variational {B}ayes},
+  author    = {Kingma, Diederik P. and Welling, Max},
+  booktitle = {International Conference on Learning Representations (ICLR)},
+  year      = {2014}
+}
+
+@inproceedings{higgins2017betavae,
+  title     = {beta-{VAE}: Learning Basic Visual Concepts with a Constrained Variational Framework},
+  author    = {Higgins, Irina and Matthey, Loic and Pal, Arka and Burgess, Christopher and Glorot, Xavier and Botvinick, Matthew and Mohamed, Shakir and Lerchner, Alexander},
+  booktitle = {International Conference on Learning Representations (ICLR)},
+  year      = {2017}
+}
+
+@article{gomezbombarelli2018automatic,
+  title   = {Automatic chemical design using a data-driven continuous representation of molecules},
+  author  = {G{\'o}mez-Bombarelli, Rafael and Wei, Jennifer N. and Duvenaud, David and Hern{\'a}ndez-Lobato, Jos{\'e} Miguel and S{\'a}nchez-Lengeling, Benjam{\'\i}n and Sheberla, Dennis and Aguilera-Iparraguirre, Jorge and Hirzel, Timothy D. and Adams, Ryan P. and Aspuru-Guzik, Al{\'a}n},
+  journal = {ACS Central Science},
+  volume  = {4},
+  number  = {2},
+  pages   = {268--276},
+  year    = {2018},
+  doi     = {10.1021/acscentsci.7b00572}
+}
+
+@inproceedings{bowman2016generating,
+  title     = {Generating Sentences from a Continuous Space},
+  author    = {Bowman, Samuel R. and Vilnis, Luke and Vinyals, Oriol and Dai, Andrew M. and J{\'o}zefowicz, Rafal and Bengio, Samy},
+  booktitle = {Conference on Computational Natural Language Learning (CoNLL)},
+  year      = {2016}
+}
+
+
+% ========== [03] Riemannian geometry of deep generative models ==========
+
+@inproceedings{arvanitidis2018latent,
+  title     = {Latent Space Oddity: on the Curvature of Deep Generative Models},
+  author    = {Arvanitidis, Georgios and Hansen, Lars Kai and Hauberg, S{\o}ren},
+  booktitle = {International Conference on Learning Representations (ICLR)},
+  year      = {2018},
+  note      = {Pullback metric G = J^T J — the geometric foundation underlying PepCompass}
+}
+
+@article{shao2018riemannian,
+  title   = {The Riemannian Geometry of Deep Generative Models},
+  author  = {Shao, Hang and Kumar, Abhishek and Fletcher, P. Thomas},
+  journal = {CVPR Workshops},
+  year    = {2018}
+}
+
+@inproceedings{chen2018metrics,
+  title     = {Metrics for Deep Generative Models},
+  author    = {Chen, Nutan and Klushyn, Alexej and Kurle, Richard and Jiang, Xueyan and Bayer, Justin and van der Smagt, Patrick},
+  booktitle = {International Conference on Artificial Intelligence and Statistics (AISTATS)},
+  year      = {2018}
+}
+
+@inproceedings{tosi2014metrics,
+  title     = {Metrics for Probabilistic Geometries},
+  author    = {Tosi, Alessandra and Hauberg, S{\o}ren and Vellido, Alfredo and Lawrence, Neil D.},
+  booktitle = {Uncertainty in Artificial Intelligence (UAI)},
+  year      = {2014}
+}
+
+@inproceedings{detlefsen2022reliable,
+  title     = {Reliable Estimation of {KL} Divergence using a Discriminator in Reproducing Kernel {H}ilbert Space},
+  author    = {Detlefsen, Nicki Skafte and Hauberg, S{\o}ren and Boomsma, Wouter},
+  booktitle = {NeurIPS},
+  year      = {2022},
+  note      = {Related work on stable latent-space geometric estimation}
+}
+
+@inproceedings{arvanitidis2021geometrically,
+  title     = {Geometrically Enriched Latent Spaces},
+  author    = {Arvanitidis, Georgios and Hauberg, S{\o}ren and Sch{\"o}lkopf, Bernhard},
+  booktitle = {AISTATS},
+  year      = {2021}
+}
+
+
+% ========== [04] Sub-Riemannian geometry & horizontal/vertical decomposition ==========
+
+@book{montgomery2002subriemannian,
+  title     = {A Tour of Subriemannian Geometries, Their Geodesics and Applications},
+  author    = {Montgomery, Richard},
+  publisher = {American Mathematical Society},
+  series    = {Mathematical Surveys and Monographs},
+  volume    = {91},
+  year      = {2002}
+}
+
+@book{agrachev2019sub,
+  title     = {A Comprehensive Introduction to Sub-{R}iemannian Geometry},
+  author    = {Agrachev, Andrei and Barilari, Davide and Boscain, Ugo},
+  publisher = {Cambridge University Press},
+  series    = {Cambridge Studies in Advanced Mathematics},
+  year      = {2019}
+}
+
+@incollection{bellaiche1996tangent,
+  title     = {The Tangent Space in Sub-{R}iemannian Geometry},
+  author    = {Bella{\"\i}che, Andr{\'e}},
+  booktitle = {Sub-{R}iemannian Geometry},
+  editor    = {Bella{\"\i}che, Andr{\'e} and Risler, Jean-Jacques},
+  publisher = {Birkh{\"a}user},
+  series    = {Progress in Mathematics},
+  volume    = {144},
+  year      = {1996}
+}
+
+
+% ========== [05] Geodesics & Brownian motion on manifolds ==========
+
+@book{hsu2002stochastic,
+  title     = {Stochastic Analysis on Manifolds},
+  author    = {Hsu, Elton P.},
+  publisher = {American Mathematical Society},
+  series    = {Graduate Studies in Mathematics},
+  volume    = {38},
+  year      = {2002},
+  note      = {Reference for the Riemannian Brownian motion approximated by SORBES}
+}
+
+@inproceedings{kalatzis2020brownian,
+  title     = {Variational Autoencoders with Riemannian Brownian Motion Priors},
+  author    = {Kalatzis, Dimitris and Eklund, David and Arvanitidis, Georgios and Hauberg, S{\o}ren},
+  booktitle = {International Conference on Machine Learning (ICML)},
+  year      = {2020}
+}
+
+@book{do1992riemannian,
+  title     = {Riemannian Geometry},
+  author    = {do Carmo, Manfredo Perdig{\~a}o},
+  publisher = {Birkh{\"a}user},
+  year      = {1992}
+}
+
+
+% ========== [06] Bayesian optimization in (high-dim) latent space ==========
+
+@article{shahriari2016taking,
+  title   = {Taking the Human Out of the Loop: A Review of {B}ayesian Optimization},
+  author  = {Shahriari, Bobak and Swersky, Kevin and Wang, Ziyu and Adams, Ryan P. and de Freitas, Nando},
+  journal = {Proceedings of the IEEE},
+  volume  = {104},
+  number  = {1},
+  pages   = {148--175},
+  year    = {2016},
+  doi     = {10.1109/JPROC.2015.2494218}
+}
+
+@inproceedings{eriksson2019turbo,
+  title     = {Scalable Global Optimization via Local {B}ayesian Optimization},
+  author    = {Eriksson, David and Pearce, Michael and Gardner, Jacob R. and Turner, Ryan and Poloczek, Matthias},
+  booktitle = {NeurIPS},
+  year      = {2019}
+}
+
+@inproceedings{eriksson2021saasbo,
+  title     = {High-Dimensional {B}ayesian Optimization with Sparse Axis-Aligned Subspaces},
+  author    = {Eriksson, David and Jankowiak, Martin},
+  booktitle = {Uncertainty in Artificial Intelligence (UAI)},
+  year      = {2021},
+  note      = {SAASBO baseline against which LE-BO is compared}
+}
+
+@inproceedings{maus2022local,
+  title     = {Local Latent Space {B}ayesian Optimization over Structured Inputs},
+  author    = {Maus, Natalie and Jones, Haydn T. and Moore, Juston S. and Kusner, Matt J. and Bradshaw, John and Gardner, Jacob R.},
+  booktitle = {NeurIPS},
+  year      = {2022},
+  note      = {LOL-BO — directly relevant to PepCompass LE-BO}
+}
+
+@inproceedings{maus2023robot,
+  title     = {Discovering Many Diverse Solutions with {B}ayesian Optimization},
+  author    = {Maus, Natalie and Wu, Kaiwen and Eriksson, David and Gardner, Jacob R.},
+  booktitle = {AISTATS},
+  year      = {2023},
+  note      = {ROBOT diversity scheme used in LE-BO}
+}
+
+@inproceedings{hvarfner2024vanilla,
+  title     = {Vanilla {B}ayesian Optimization Performs Great in High Dimensions},
+  author    = {Hvarfner, Carl and Hellsten, Erik Orm and Nardi, Luigi},
+  booktitle = {ICML},
+  year      = {2024}
+}
+
+@inproceedings{griffiths2020constrained,
+  title     = {Constrained {B}ayesian Optimization for Automatic Chemical Design Using Variational Autoencoders},
+  author    = {Griffiths, Ryan-Rhys and Hern{\'a}ndez-Lobato, Jos{\'e} Miguel},
+  booktitle = {Chemical Science},
+  volume    = {11},
+  year      = {2020},
+  doi       = {10.1039/C9SC04026A},
+  note      = {Tanimoto kernel + latent-space BO for molecules}
+}
+
+@article{ralaivola2005graph,
+  title   = {Graph Kernels for Chemical Informatics},
+  author  = {Ralaivola, Liva and Swamidass, S. Joshua and Saigo, Hiroto and Baldi, Pierre},
+  journal = {Neural Networks},
+  volume  = {18},
+  number  = {8},
+  pages   = {1093--1110},
+  year    = {2005},
+  note    = {Tanimoto kernel origin for molecular fingerprints}
+}
+
+
+% ========== [07] Molecular fingerprints ==========
+
+@article{capecchi2020map4,
+  title   = {One molecular fingerprint to rule them all: drugs, biomolecules, and the metabolome},
+  author  = {Capecchi, Alice and Probst, Daniel and Reymond, Jean-Louis},
+  journal = {Journal of Cheminformatics},
+  volume  = {12},
+  pages   = {43},
+  year    = {2020},
+  doi     = {10.1186/s13321-020-00445-4},
+  note    = {MAP4 — used inside LE-BO surrogate}
+}
+
+
+% ========== [08] BLOSUM & substitution matrices ==========
+
+@article{henikoff1992blosum,
+  title   = {Amino Acid Substitution Matrices from Protein Blocks},
+  author  = {Henikoff, Steven and Henikoff, Jorja G.},
+  journal = {Proceedings of the National Academy of Sciences},
+  volume  = {89},
+  number  = {22},
+  pages   = {10915--10919},
+  year    = {1992},
+  doi     = {10.1073/pnas.89.22.10915}
+}
+
+@article{eddy2004blosum62,
+  title   = {Where Did the {BLOSUM62} Alignment Score Matrix Come From?},
+  author  = {Eddy, Sean R.},
+  journal = {Nature Biotechnology},
+  volume  = {22},
+  number  = {8},
+  pages   = {1035--1036},
+  year    = {2004},
+  doi     = {10.1038/nbt0804-1035}
+}
+
+@article{altschul1991amino,
+  title   = {Amino Acid Substitution Matrices from an Information Theoretic Perspective},
+  author  = {Altschul, Stephen F.},
+  journal = {Journal of Molecular Biology},
+  volume  = {219},
+  number  = {3},
+  pages   = {555--565},
+  year    = {1991},
+  doi     = {10.1016/0022-2836(91)90193-A}
+}
+
+@article{styczynski2008blosum62,
+  title   = {{BLOSUM62} Miscalculations Improve Search Performance},
+  author  = {Styczynski, Mark P. and Jensen, Kyle L. and Rigoutsos, Isidore and Stephanopoulos, Gregory},
+  journal = {Nature Biotechnology},
+  volume  = {26},
+  number  = {3},
+  pages   = {274--275},
+  year    = {2008},
+  doi     = {10.1038/nbt0308-274}
+}
+
+
+% ========== [09] Epistasis, deep mutational scanning, mutation-effect models ==========
+
+@article{fowler2014deep,
+  title   = {Deep Mutational Scanning: a New Style of Protein Science},
+  author  = {Fowler, Douglas M. and Fields, Stanley},
+  journal = {Nature Methods},
+  volume  = {11},
+  number  = {8},
+  pages   = {801--807},
+  year    = {2014},
+  doi     = {10.1038/nmeth.3027}
+}
+
+@article{olson2014comprehensive,
+  title   = {A Comprehensive Biophysical Description of Pairwise Epistasis Throughout an Entire Protein Domain},
+  author  = {Olson, C. Anders and Wu, Nicholas C. and Sun, Ren},
+  journal = {Current Biology},
+  volume  = {24},
+  number  = {22},
+  pages   = {2643--2651},
+  year    = {2014},
+  note    = {Motivates pairwise-similarity scoring used by MUTANG++}
+}
+
+@article{starr2016epistasis,
+  title   = {Epistasis in Protein Evolution},
+  author  = {Starr, Tyler N. and Thornton, Joseph W.},
+  journal = {Protein Science},
+  volume  = {25},
+  number  = {7},
+  pages   = {1204--1218},
+  year    = {2016},
+  doi     = {10.1002/pro.2897}
+}
+
+@article{riesselman2018deep,
+  title   = {Deep Generative Models of Genetic Variation Capture the Effects of Mutations},
+  author  = {Riesselman, Adam J. and Ingraham, John B. and Marks, Debora S.},
+  journal = {Nature Methods},
+  volume  = {15},
+  number  = {10},
+  pages   = {816--822},
+  year    = {2018},
+  doi     = {10.1038/s41592-018-0138-4}
+}
+
+@article{hopf2017mutation,
+  title   = {Mutation Effects Predicted from Sequence Co-Variation},
+  author  = {Hopf, Thomas A. and Ingraham, John B. and Poelwijk, Frank J. and Sch{\"a}rfe, Charlotta P. I. and Springer, Michael and Sander, Chris and Marks, Debora S.},
+  journal = {Nature Biotechnology},
+  volume  = {35},
+  number  = {2},
+  pages   = {128--135},
+  year    = {2017},
+  doi     = {10.1038/nbt.3769}
+}
+
+@article{stiffler2015evolvability,
+  title   = {Evolvability as a Function of Purifying Selection in {TEM-1} {$\beta$}-Lactamase},
+  author  = {Stiffler, Michael A. and Hekstra, Doeke R. and Ranganathan, Rama},
+  journal = {Cell},
+  volume  = {160},
+  number  = {5},
+  pages   = {882--892},
+  year    = {2015}
+}
+
+
+% ========== [10] Reinforcement learning foundations ==========
+
+@book{sutton2018reinforcement,
+  title     = {Reinforcement Learning: An Introduction},
+  author    = {Sutton, Richard S. and Barto, Andrew G.},
+  edition   = {2},
+  publisher = {MIT Press},
+  year      = {2018},
+  note      = {Reference for {$\epsilon$}-greedy, Q-learning, TD(0)}
+}
+
+@article{watkins1992qlearning,
+  title   = {{Q}-Learning},
+  author  = {Watkins, Christopher J. C. H. and Dayan, Peter},
+  journal = {Machine Learning},
+  volume  = {8},
+  number  = {3--4},
+  pages   = {279--292},
+  year    = {1992},
+  doi     = {10.1007/BF00992698}
+}
+
+@article{auer2002bandit,
+  title   = {Finite-Time Analysis of the Multiarmed Bandit Problem},
+  author  = {Auer, Peter and Cesa-Bianchi, Nicol{\`o} and Fischer, Paul},
+  journal = {Machine Learning},
+  volume  = {47},
+  number  = {2--3},
+  pages   = {235--256},
+  year    = {2002},
+  doi     = {10.1023/A:1013689704352}
+}
+
+@article{mnih2015human,
+  title   = {Human-Level Control Through Deep Reinforcement Learning},
+  author  = {Mnih, Volodymyr and Kavukcuoglu, Koray and Silver, David and Rusu, Andrei A. and Veness, Joel and Bellemare, Marc G. and Graves, Alex and Riedmiller, Martin and Fidjeland, Andreas K. and Ostrovski, Georg and others},
+  journal = {Nature},
+  volume  = {518},
+  number  = {7540},
+  pages   = {529--533},
+  year    = {2015},
+  doi     = {10.1038/nature14236}
+}
+
+@article{williams1992simple,
+  title   = {Simple Statistical Gradient-Following Algorithms for Connectionist Reinforcement Learning},
+  author  = {Williams, Ronald J.},
+  journal = {Machine Learning},
+  volume  = {8},
+  number  = {3--4},
+  pages   = {229--256},
+  year    = {1992},
+  doi     = {10.1007/BF00992696}
+}
+
+
+% ========== [11] RL for biological / molecular sequence design ==========
+
+@inproceedings{angermueller2020dyna,
+  title     = {Model-Based Reinforcement Learning for Biological Sequence Design},
+  author    = {Angermueller, Christof and Dohan, David and Belanger, David and Deshpande, Ramya and Murphy, Kevin and Colwell, Lucy J.},
+  booktitle = {International Conference on Learning Representations (ICLR)},
+  year      = {2020},
+  note      = {DyNA-PPO — direct baseline class for the {$\epsilon$}-greedy RL extension}
+}
+
+@article{olivecrona2017molecular,
+  title   = {Molecular De-Novo Design Through Deep Reinforcement Learning},
+  author  = {Olivecrona, Marcus and Blaschke, Thomas and Engkvist, Ola and Chen, Hongming},
+  journal = {Journal of Cheminformatics},
+  volume  = {9},
+  pages   = {48},
+  year    = {2017},
+  doi     = {10.1186/s13321-017-0235-x}
+}
+
+@article{popova2018deep,
+  title   = {Deep Reinforcement Learning for De Novo Drug Design},
+  author  = {Popova, Mariya and Isayev, Olexandr and Tropsha, Alexander},
+  journal = {Science Advances},
+  volume  = {4},
+  number  = {7},
+  pages   = {eaap7885},
+  year    = {2018},
+  doi     = {10.1126/sciadv.aap7885}
+}
+
+@article{zhou2019moldqn,
+  title   = {Optimization of Molecules via Deep Reinforcement Learning},
+  author  = {Zhou, Zhenpeng and Kearnes, Steven and Li, Li and Zare, Richard N. and Riley, Patrick},
+  journal = {Scientific Reports},
+  volume  = {9},
+  pages   = {10752},
+  year    = {2019},
+  doi     = {10.1038/s41598-019-47148-x},
+  note    = {MolDQN — Q-learning over molecular action spaces; closest published analog to eps\_greedy\_learn}
+}
+
+@inproceedings{jain2022biological,
+  title     = {Biological Sequence Design with {GFlowNets}},
+  author    = {Jain, Moksh and Bengio, Emmanuel and Garcia, Alex-Hern{\'a}ndez and Rector-Brooks, Jarrid and Dossou, Bonaventure F. P. and Ekbote, Chanakya Ajit and Fu, Jie and Zhang, Tianyu and Kilgour, Michael and Zhang, Dinghuai and Simine, Lena and Das, Payel and Bengio, Yoshua},
+  booktitle = {ICML},
+  year      = {2022}
+}
+
+@inproceedings{stanton2022accelerating,
+  title     = {Accelerating {B}ayesian Optimization for Biological Sequence Design with Denoising Autoencoders},
+  author    = {Stanton, Samuel and Maddox, Wesley J. and Gruver, Nate and Maffettone, Phillip M. and Delaney, Emily and Greenside, Peyton and Wilson, Andrew Gordon},
+  booktitle = {ICML},
+  year      = {2022}
+}
+
+
+% ========== [12] Generative methods for AMP design (comparison baselines) ==========
+
+@article{muller2018recurrent,
+  title   = {Recurrent Neural Network Model for Constructive Peptide Design},
+  author  = {M{\"u}ller, Alex T. and Hiss, Jan A. and Schneider, Gisbert},
+  journal = {Journal of Chemical Information and Modeling},
+  volume  = {58},
+  number  = {2},
+  pages   = {472--479},
+  year    = {2018},
+  doi     = {10.1021/acs.jcim.7b00414}
+}
+
+@article{tucs2020ampgan,
+  title   = {Generating Ampicillin-Level Antimicrobial Peptides with Activity-Aware Generative Adversarial Networks},
+  author  = {Tucs, Andrejs and Tran, Duy Phuoc and Yumoto, Akiko and Ito, Yoshihiro and Uzawa, Takanori and Tsuda, Koji},
+  journal = {ACS Omega},
+  volume  = {5},
+  number  = {36},
+  pages   = {22847--22851},
+  year    = {2020}
+}
+
+@article{vanoort2021ampgan,
+  title   = {{AMPGAN v2}: Machine Learning-Guided Design of Antimicrobial Peptides},
+  author  = {Van Oort, Colin M. and Ferrell, Jonathon B. and Remington, Jacob M. and Wshah, Safwan and Li, Jianing},
+  journal = {Journal of Chemical Information and Modeling},
+  volume  = {61},
+  number  = {5},
+  pages   = {2198--2207},
+  year    = {2021}
+}
+
+@article{das2021accelerated,
+  title   = {Accelerated Antimicrobial Discovery via Deep Generative Models and Molecular Dynamics Simulations},
+  author  = {Das, Payel and Sercu, Tom and Wadhawan, Kahini and Padhi, Inkit and Gehrmann, Sebastian and Cipcigan, Flaviu and Chenthamarakshan, Vijil and Strobelt, Hendrik and dos Santos, Cicero and Chen, Pin-Yu and Yang, Yi Yan and Tan, James and Hedrick, James and Crain, Jason and Mojsilovic, Aleksandra},
+  journal = {Nature Biomedical Engineering},
+  volume  = {5},
+  number  = {6},
+  pages   = {613--623},
+  year    = {2021},
+  doi     = {10.1038/s41551-021-00689-x}
+}
+
+
+% ========== [13] Antimicrobial resistance — clinical motivation ==========
+
+@misc{oneill2016tackling,
+  title        = {Tackling Drug-Resistant Infections Globally: Final Report and Recommendations},
+  author       = {O'Neill, Jim},
+  year         = {2016},
+  howpublished = {Review on Antimicrobial Resistance, UK Government / Wellcome Trust}
+}
+
+@article{murray2022global,
+  title   = {Global Burden of Bacterial Antimicrobial Resistance in 2019: a Systematic Analysis},
+  author  = {Murray, Christopher J. L. and Ikuta, Kevin Shunji and Sharara, Fablina and Swetschinski, Lucien and Aguilar, Gisela Robles and Gray, Authia and others},
+  journal = {The Lancet},
+  volume  = {399},
+  number  = {10325},
+  pages   = {629--655},
+  year    = {2022},
+  doi     = {10.1016/S0140-6736(21)02724-0}
+}
+
+
+% ========== [14] Protein language models (forward-looking) ==========
+
+@article{rives2021biological,
+  title   = {Biological Structure and Function Emerge from Scaling Unsupervised Learning to 250 Million Protein Sequences},
+  author  = {Rives, Alexander and Meier, Joshua and Sercu, Tom and Goyal, Siddharth and Lin, Zeming and Liu, Jason and Guo, Demi and Ott, Myle and Zitnick, C. Lawrence and Ma, Jerry and Fergus, Rob},
+  journal = {Proceedings of the National Academy of Sciences},
+  volume  = {118},
+  number  = {15},
+  pages   = {e2016239118},
+  year    = {2021},
+  doi     = {10.1073/pnas.2016239118}
+}
+
+@article{lin2023evolutionary,
+  title   = {Evolutionary-Scale Prediction of Atomic-Level Protein Structure},
+  author  = {Lin, Zeming and Akin, Halil and Rao, Roshan and Hie, Brian and Zhu, Zhongkai and Lu, Wenting and Smetanin, Nikita and Verkuil, Robert and Kabeli, Ori and Shmueli, Yaniv and dos Santos Costa, Allan and Fazel-Zarandi, Maryam and Sercu, Tom and Candido, Salvatore and Rives, Alexander},
+  journal = {Science},
+  volume  = {379},
+  number  = {6637},
+  pages   = {1123--1130},
+  year    = {2023},
+  doi     = {10.1126/science.ade2574}
+}
+
+@article{meier2021language,
+  title   = {Language Models Enable Zero-Shot Prediction of the Effects of Mutations on Protein Function},
+  author  = {Meier, Joshua and Rao, Roshan and Verkuil, Robert and Liu, Jason and Sercu, Tom and Rives, Alexander},
+  journal = {Advances in Neural Information Processing Systems (NeurIPS)},
+  year    = {2021}
+}
