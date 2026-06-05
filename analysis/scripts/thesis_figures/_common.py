@@ -6,6 +6,7 @@ every figure is written as a real vector PDF into the thesis ``figures/`` folder
 """
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import numpy as np
@@ -28,8 +29,10 @@ matplotlib.rcParams.update({
     "font.size": 11,
 })
 
-# --- Destination: the thesis figures directory. --------------------------------------
-THESIS_FIG = Path(r"C:\Users\Karol\Desktop\Magisterka\magisterka-karola-txt\figures")
+# --- Destination: the thesis figures directory (override with THESIS_FIG_DIR, e.g. on
+# the GPU cluster where the Windows thesis path does not exist). -----------------------
+THESIS_FIG = Path(os.environ.get(
+    "THESIS_FIG_DIR", r"C:\Users\Karol\Desktop\Magisterka\magisterka-karola-txt\figures"))
 THESIS_FIG.mkdir(parents=True, exist_ok=True)
 
 
