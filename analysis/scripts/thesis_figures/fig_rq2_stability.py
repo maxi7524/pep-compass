@@ -33,6 +33,18 @@ APEX = PROJECT_ROOT / "results" / "data" / "all_in" / "peptides_apex.csv"
 KAPPA_SYM = r"$\kappa$"
 TMUT_SYM = r"$\theta_{\mathrm{mut}}$"
 
+# PepCompass production hyperparameters (paper appendix, Table of LE-BO settings).
+#   * PROD_KAPPA is the *singular-value* threshold used by the implementation
+#     (direction_significance_threshold). The paper states kappa_MUTANG = 1e-6 as a bound on
+#     the eigenvalues of the pullback metric G = J^T J, i.e. on the squared singular values;
+#     the implementation thresholds the singular values directly, so the equivalent value is
+#     sqrt(1e-6) = 1e-3.
+#   * PROD_TMUT is the token / mutation sensitivity threshold theta_mut = 1e-6.
+#   * PROD_EPS is the finite-difference step of the decoder-Jacobian approximation = 5e-2.
+PROD_KAPPA = 1e-3
+PROD_TMUT = 1e-6
+PROD_EPS = 5e-2
+
 
 def sample_from_parquet(parquet_path, n, seed=0, max_len=25):
     df = pd.read_parquet(parquet_path)
@@ -63,42 +75,37 @@ def main():
           f"sample_big: {len(sample_big)}")
 
     # ---------------- (a) combinatorial explosion ----------------
-    explosion_thresholds = [(1e-3, 0.20), (1e-3, 0.10), (1e-3, 0.05),
-                            (1e-4, 0.05), (1e-4, 0.02), (1e-5, 0.01)]
+    # production-centered sweep: theta_mut steps by x10 down to the production 1e-6, at the
+    # production kappa=1e-3. The loosest point is the production setting itself.
+    explosion_thresholds = [(PROD_KAPPA, 1e-2), (PROD_KAPPA, 1e-3), (PROD_KAPPA, 1e-4),
+                            (PROD_KAPPA, 1e-5), (PROD_KAPPA, PROD_TMUT)]
     expl = st.explosion_scan(benchmarks, model, explosion_thresholds, mode="approx",
-                             eps=1e-6, cache=cache)
+                             eps=PROD_EPS, cache=cache)
     expl.to_csv(CACHE / "_thesis_rq2_explosion.csv", index=False)
 
-    fig, axes = plt.subplots(1, 2, figsize=(12, 4.6))
+    fig, ax = plt.subplots(figsize=(7.5, 4.8))
     for name, g in expl.groupby("peptide"):
-        axes[0].plot(range(len(g)), g["joint_count"].values, marker="o", label=name)
-    axes[0].set_yscale("log")
-    axes[0].set_xticks(range(len(explosion_thresholds)))
-    axes[0].set_xticklabels([f"$\\kappa$={d:g}\n$\\theta_{{mut}}$={t:g}"
-                             for d, t in explosion_thresholds], fontsize=7)
-    axes[0].set_ylabel("joint mutants (Cartesian product)")
-    axes[0].set_title("(a) Joint enumeration explodes as thresholds loosen")
-    axes[0].legend(fontsize=7)
-    tight = expl[(expl.d_thresh == 1e-5) & (expl.t_thresh == 0.01)]
-    x = np.arange(len(tight))
-    axes[1].bar(x - 0.2, tight["single_count"], width=0.4, label="single-position (sum)")
-    axes[1].bar(x + 0.2, tight["joint_count"], width=0.4, label="joint (product)")
-    axes[1].set_yscale("log")
-    axes[1].set_xticks(x)
-    axes[1].set_xticklabels(tight["peptide"], rotation=45, ha="right", fontsize=7)
-    axes[1].set_ylabel("# mutants (log)")
-    axes[1].set_title(r"single vs joint @ $\kappa$=1e-5, $\theta_{mut}$=0.01")
-    axes[1].legend(fontsize=8)
+        ax.plot(range(len(g)), g["joint_count"].values, marker="o", label=name)
+    ax.set_yscale("log")
+    ax.set_xticks(range(len(explosion_thresholds)))
+    ax.set_xticklabels([f"$\\theta_{{mut}}$={t:g}" for _, t in explosion_thresholds], fontsize=8)
+    ax.set_xlabel(r"token threshold $\theta_{mut}$ (at production $\kappa$=1e-3)")
+    ax.set_ylabel("joint mutants (Cartesian product)")
+    ax.set_title(r"(a) Joint enumeration explodes as $\theta_{mut}$ loosens toward production")
+    ax.legend(fontsize=7)
     fig.tight_layout()
     save(fig, "rq2_explosion.pdf")
-    ratio = (expl["joint_count"] / expl["single_count"].clip(lower=1)).max()
-    print(f"max joint/single ratio across the scan: {ratio:,.1f}")
+    prod = expl[(expl.d_thresh == PROD_KAPPA) & (expl.t_thresh == PROD_TMUT)]
+    ratio = (prod["joint_count"] / prod["single_count"].clip(lower=1)).max()
+    print("PRODUCTION explosion (kappa=1e-3, theta_mut=1e-6):")
+    print(prod[["peptide", "len", "n_positions", "single_count", "joint_count"]].to_string(index=False))
+    print(f"max joint/single ratio at production: {ratio:,.1f}")
 
     # ---------------- (b) threshold instability ----------------
-    d_grid = [1e-2, 1e-3, 1e-4, 1e-5]      # kappa
-    t_grid = [0.20, 0.10, 0.05, 0.02, 0.01]  # theta_mut
+    d_grid = [1e-2, 1e-3, 1e-4, 1e-5]            # kappa (1e-3 = production)
+    t_grid = [1e-4, 1e-5, 1e-6, 1e-7, 1e-8]      # theta_mut, production-centered (1e-6) in x10 steps
     bench_scan = st.threshold_grid_scan(benchmarks, model, d_grid, t_grid, mode="approx",
-                                        eps=1e-6, cache=cache)
+                                        eps=PROD_EPS, cache=cache)
     fig, axes = plt.subplots(2, 3, figsize=(13, 7))
     for ax, (name, g) in zip(axes.ravel(), bench_scan.groupby("peptide")):
         pivot = g.pivot(index="d_thresh", columns="t_thresh", values="n_mutants")
@@ -119,9 +126,9 @@ def main():
     fig.tight_layout()
     save(fig, "rq2_threshold_heatmaps.pdf")
 
-    scan_full = st.threshold_grid_scan(sample_full, model, d_grid, t_grid, mode="approx", eps=1e-6)
+    scan_full = st.threshold_grid_scan(sample_full, model, d_grid, t_grid, mode="approx", eps=PROD_EPS)
     print(f"running threshold grid on {len(sample_big)} peptides (this is the slow step) ...")
-    scan_big = st.threshold_grid_scan(sample_big, model, d_grid, t_grid, mode="approx", eps=1e-6)
+    scan_big = st.threshold_grid_scan(sample_big, model, d_grid, t_grid, mode="approx", eps=PROD_EPS)
     frames = {f"Veltri-positive sample (n={len(sample_full)})": st.cross_peptide_instability(scan_full),
               f"broad all_in sample (n={len(sample_big)})": st.cross_peptide_instability(scan_big)}
     cvbig = st.cross_peptide_instability(scan_big).sort_values("cv", ascending=False)
@@ -152,12 +159,12 @@ def main():
     save(fig, "rq2_cv.pdf")
 
     # ---- churn: theta_mut-sweep (flat) vs kappa-sweep (churns) ----
-    tmut_path = [(1e-3, t) for t in [0.20, 0.15, 0.10, 0.07, 0.05, 0.03, 0.02, 0.01]]
-    kappa_path = [(d, 0.1) for d in [1e-2, 3e-3, 1e-3, 3e-4, 1e-4, 3e-5, 1e-5, 1e-6]]
+    tmut_path = [(PROD_KAPPA, t) for t in [1e-3, 1e-4, 1e-5, 1e-6, 1e-7, 1e-8]]  # x10 steps incl prod 1e-6
+    kappa_path = [(d, PROD_TMUT) for d in [1e-1, 1e-2, 1e-3, 1e-4, 1e-5, 1e-6]]  # x10 steps incl prod 1e-3
     fig, axes = plt.subplots(1, 2, figsize=(13, 4.4), sharey=True)
     all_t, all_k = [], []
     for name, seq in benchmarks.items():
-        U, S = st.compute_svd(model, seq, mode="approx", eps=1e-6, cache=cache)
+        U, S = st.compute_svd(model, seq, mode="approx", eps=PROD_EPS, cache=cache)
         c_t = st.set_sensitivity_curve(seq, S, U, tmut_path)
         c_k = st.set_sensitivity_curve(seq, S, U, kappa_path)
         all_t += c_t
@@ -167,14 +174,14 @@ def main():
     axes[0].set_xticks(range(len(tmut_path) - 1))
     axes[0].set_xticklabels([f"{tmut_path[i][1]:g}$\\to${tmut_path[i+1][1]:g}"
                              for i in range(len(tmut_path) - 1)], fontsize=7, rotation=30)
-    axes[0].set_title(r"$\theta_{mut}$-sweep ($\kappa$=1e-3 fixed) -- nearly no churn")
+    axes[0].set_title(r"$\theta_{mut}$-sweep ($\kappa$=1e-3 fixed, prod.) -- nearly no churn")
     axes[0].set_xlabel(r"$\theta_{mut}$ step")
     axes[0].set_ylabel("Jaccard between adjacent settings")
     axes[0].set_ylim(0, 1.05)
     axes[1].set_xticks(range(len(kappa_path) - 1))
     axes[1].set_xticklabels([f"{kappa_path[i][0]:g}$\\to${kappa_path[i+1][0]:g}"
                              for i in range(len(kappa_path) - 1)], fontsize=7, rotation=30)
-    axes[1].set_title(r"$\kappa$-sweep ($\theta_{mut}$=0.1 fixed) -- set churns")
+    axes[1].set_title(r"$\kappa$-sweep ($\theta_{mut}$=1e-6 fixed, prod.) -- set churns")
     axes[1].set_xlabel(r"$\kappa$ step")
     axes[1].set_ylim(0, 1.05)
     axes[1].legend(fontsize=7)
@@ -186,10 +193,10 @@ def main():
           f"kappa-sweep={np.mean(all_k):.3f}  (lower = more churn)")
 
     # ---------------- (c) Jacobian eps sensitivity ----------------
-    eps_grid = [1e-1, 1e-2, 1e-3, 1e-4, 1e-5, 1e-6, 1e-7, 1e-8]
-    D_C, T_C = 1e-3, 0.05
+    eps_grid = [1e-1, PROD_EPS, 1e-2, 3e-3, 2e-3, 1e-3, 1e-4, 1e-5, 1e-6, 1e-7, 1e-8]
+    D_C, T_C = PROD_KAPPA, PROD_TMUT
     eps_bench = st.eps_sensitivity_scan(benchmarks, model, eps_grid, D_C, T_C, k=10)
-    eps_sample_peptides = sample_full[:100]
+    eps_sample_peptides = sample_full[:60]  # matches the "60 sampled peptides" reported in the thesis
     print(f"(c) eps sweep over {len(eps_sample_peptides)} sampled peptides x {len(eps_grid)} eps ...")
     eps_sample = st.eps_sensitivity_scan(eps_sample_peptides, model, eps_grid, D_C, T_C, k=10)
     eps_sample.to_csv(CACHE / "_thesis_rq2_eps.csv", index=False)
@@ -211,11 +218,15 @@ def main():
         if logy:
             ax.set_yscale("log")
         ax.invert_xaxis()
+        # production default finite-difference step (PepCompass paper appendix)
+        ax.axvline(PROD_EPS, color="C0", ls="--", lw=1.2,
+                   label=f"production default $\\varepsilon$={PROD_EPS:g}")
+        ax.axvspan(1e-3, 1e-2, color="0.85", alpha=0.5, zorder=0)  # downstream sweet spot
         ax.set_xlabel("jacobian_eps")
         ax.set_title(title, fontsize=9)
         ax.legend(fontsize=7)
     fig.suptitle(r"(c) Approx vs exact Jacobian across eps  (gray = 6 benchmarks, "
-                 r"red = sample mean$\pm$std; $\kappa$=" + f"{D_C}" + r", $\theta_{mut}$=" + f"{T_C})")
+                 r"red = sample mean$\pm$std; $\kappa$=" + f"{D_C:g}" + r", $\theta_{mut}$=" + f"{T_C:g})")
     fig.tight_layout()
     save(fig, "rq2_eps_sensitivity.pdf")
     best = eps_sample.groupby("eps")["mut_jaccard"].mean().idxmax()
