@@ -51,17 +51,33 @@ BENCH = {
 }
 
 
-# ---- per-pair transforms (tt = both taken, tnt = exactly one taken); all <= 0, higher=better ----
+# ---- per-pair transforms (tt = both taken, tnt = exactly one taken); higher=better -------------
 def _clog(a):
     return np.log(np.clip(a, 1e-12, 1.0))
 
+# Hyperparameters for the alternative penalty transforms (see thesis sec:tandem-family).
+EPS_RAT = 1e-2     # rational-barrier regulariser (prevents division by zero at the boundary)
+LAM_EXP = 10.0     # exponential-growth severity
+SIG_M, SIG_C, SIG_K = 1.0, 0.0, 10.0   # sigmoidal-cliff: cap, activation centre, steepness
+
 TRANSFORMS = {
-    # name : (T_tt(x), T_tnt(x))
+    # name : (T_tt(x), T_tnt(x))   -- T_tt penalises OPPOSED pairs taken together (x->-1),
+    #                                 T_tnt penalises PARALLEL pairs left half-done (x->+1).
     "log":    (lambda x: _clog((1 + x) / 2), lambda x: _clog((1 - x) / 2)),
     "linear": (lambda x: (x - 1) / 2,        lambda x: -(x + 1) / 2),
     "hinge":  (lambda x: np.minimum(0.0, x), lambda x: np.minimum(0.0, -x)),   # penalise only wrong sign
     "quad":   (lambda x: -np.maximum(0.0, -x) ** 2, lambda x: -np.maximum(0.0, x) ** 2),  # steeper
     "count":  (lambda x: -(x < 0).astype(float),     lambda x: -(x > 0).astype(float)),    # # violations
+    # --- alternative log/linear replacements (rigorous barrier / soft-wall / cliff) ---
+    # Rational barrier: hyperbola-like vertical asymptote at the forbidden state -> -inf.
+    "rational": (lambda x: 1.0 - 2.0 / (x + 1.0 + EPS_RAT),
+                 lambda x: 1.0 - 2.0 / (1.0 - x + EPS_RAT)),
+    # Exponential growth: soft wall, mild at low deviation, drastic for flagrant violations.
+    "exp":      (lambda x: 1.0 - np.exp(LAM_EXP * (1.0 - x) / 2.0),
+                 lambda x: 1.0 - np.exp(LAM_EXP * (1.0 + x) / 2.0)),
+    # Sigmoidal cliff: indifferent until a coordinate threshold c, then drops off a cliff to -M.
+    "sigmoid":  (lambda x: -SIG_M / (1.0 + np.exp(SIG_K * (x - SIG_C))),
+                 lambda x: -SIG_M / (1.0 + np.exp(-SIG_K * (x - SIG_C)))),
 }
 AGGS = ["mean", "min"]
 SIMS = ["A", "B"]
@@ -156,6 +172,51 @@ def eval_peptide(hyd, pep, n_sample):
     return df
 
 
+def eval_peptide_reuse(hyd, pep, sub):
+    """Recompute the pairwise-similarity scores for the *cached* candidates of one peptide,
+    REUSING the geodesic distances already stored in ``_thesis_rq5_distances.parquet`` instead
+    of recomputing them.  ``sub`` has columns ``seq``, ``n_mut``, ``dist_geo`` for this peptide.
+    Only the cheap per-pair similarity (setup + direction cosines + transforms) is recomputed."""
+    z, ts, muts, G = setup(hyd, pep)
+    if len(muts) < 2:
+        return None
+    positions = sorted(muts.keys())
+    pos_set = set(positions)
+    padded = pep.ljust(MAXLEN)
+    parent_aa = [ALPHABET.index(padded[p]) for p in positions]
+
+    potA = ProjectedDirectionPairwiseSimilarityPotential(ts, direction_mode="onehot")
+    potB = AmbientMetricPairwiseSimilarityPotential(ts, direction_mode="onehot")
+    dirs = {"A": {}, "B": {}}
+    for k, p in enumerate(positions):
+        augmented = sorted(set(muts[p]) | {parent_aa[k]})
+        aa_t = torch.tensor(augmented, dtype=torch.long)
+        vA = potA._position_vectors(p, aa_t, parent_aa[k]).detach().cpu().numpy()
+        vB = potB._position_vectors(p, aa_t, parent_aa[k]).detach().cpu().numpy()
+        dirs["A"][p] = {int(a): vA[i] for i, a in enumerate(augmented)}
+        dirs["B"][p] = {int(a): vB[i] for i, a in enumerate(augmented)}
+
+    # keep only cached candidates whose substitutions all fall on MUTANG-enumerable positions
+    seqs = sub["seq"].astype(str).tolist()
+    keep, rows = [], []
+    for s in seqs:
+        diff = {i for i in range(min(len(s), len(pep))) if s[i] != pep[i]}
+        ok = diff <= pos_set
+        keep.append(ok)
+        if ok:
+            rows.append([ALPHABET.index(s[p]) for p in positions])
+    keep = np.asarray(keep)
+    if not keep.any():
+        return None
+    cand = np.asarray(rows)
+    sub = sub.loc[keep]
+
+    scores, n_mut = battery_scores(positions, parent_aa, cand, dirs)
+    df = pd.DataFrame({"pep": pep, "n_mut": n_mut, **scores})
+    df["dist_geo"] = sub["dist_geo"].to_numpy()
+    return df
+
+
 def main():
     # HydrAMP runs on CPU (multithreaded), matching the RQ5 pipeline that produced the
     # d_geo values the tangent space / setup() are built for; avoids cpu/cuda mixing.
@@ -166,20 +227,33 @@ def main():
     hyd.eval()
     print(f"HydrAMP loaded on {dev}")
 
-    peps = [("bench", p) for p in BENCH.values()]
-    if os.environ.get("RQ7_BENCH_ONLY", "0") != "1":
-        pool = pd.read_parquet(CACHE / "parents_hydramp_veltri_positive.parquet")["sequence"]
-        pool = pool.dropna().astype(str)
-        pool = pool[(pool.str.len() <= MAXLEN) & (pool.str.len() > 3)
-                    & pool.apply(lambda s: set(s) <= set("ACDEFGHIKLMNPQRSTVWY"))].drop_duplicates()
-        n = int(os.environ.get("RQ7_LIMIT", N_SAMPLE_PEPS))
-        peps += [("sample", p) for p in pool.sample(n=min(n, len(pool)), random_state=0)]
-
     dfs = []
-    for tag, pep in peps:
-        df = eval_peptide(hyd, pep, 3000 if tag == "bench" else 500)
-        if df is not None and len(df) >= 30:
-            dfs.append(df)
+    if os.environ.get("RQ7_REUSE_DIST", "0") == "1":
+        # Reuse the geodesic distances already computed for RQ5 (same 385-peptide candidate set);
+        # only the cheap per-pair similarity scores are recomputed, so no geodesic is re-run.
+        cache = pd.read_parquet(CACHE / "_thesis_rq5_distances.parquet")
+        cache = cache.reset_index(drop=True)[["pep", "seq", "n_mut", "dist_geo"]]
+        peps = list(dict.fromkeys(cache["pep"].tolist()))
+        print(f"[rq7] REUSE mode: {len(peps)} peptides, {len(cache)} cached candidates")
+        for i, pep in enumerate(peps):
+            df = eval_peptide_reuse(hyd, pep, cache[cache.pep == pep])
+            if df is not None and len(df) >= 30:
+                dfs.append(df)
+            if (i + 1) % 50 == 0:
+                print(f"  ...{i + 1}/{len(peps)} peptides")
+    else:
+        peps = [("bench", p) for p in BENCH.values()]
+        if os.environ.get("RQ7_BENCH_ONLY", "0") != "1":
+            pool = pd.read_parquet(CACHE / "parents_hydramp_veltri_positive.parquet")["sequence"]
+            pool = pool.dropna().astype(str)
+            pool = pool[(pool.str.len() <= MAXLEN) & (pool.str.len() > 3)
+                        & pool.apply(lambda s: set(s) <= set("ACDEFGHIKLMNPQRSTVWY"))].drop_duplicates()
+            n = int(os.environ.get("RQ7_LIMIT", N_SAMPLE_PEPS))
+            peps += [("sample", p) for p in pool.sample(n=min(n, len(pool)), random_state=0)]
+        for tag, pep in peps:
+            df = eval_peptide(hyd, pep, 3000 if tag == "bench" else 500)
+            if df is not None and len(df) >= 30:
+                dfs.append(df)
     print(f"[rq7] {len(dfs)} peptides")
 
     score_cols = ([f"{s}/{t}/{a}" for s in SIMS for t in TRANSFORMS for a in AGGS]
@@ -209,10 +283,13 @@ def main():
         rows.append({"variant": col, **{f"nmut{k}": v for k, v in r.items()}})
         print(f"  {col:22s} | {r[2]:+7.3f} {r[3]:+7.3f} {r[4]:+7.3f}")
     tab = pd.DataFrame(rows)
-    tab.to_csv(CACHE / "_thesis_rq7_scorings.csv", index=False)
-    pd.concat(dfs, keys=range(len(dfs))).to_parquet(CACHE / "_thesis_rq7_scores.parquet")
+    # In distance-reuse mode write to suffixed outputs so the original RQ5/RQ7 artifacts are kept.
+    suf = "_alt" if os.environ.get("RQ7_REUSE_DIST", "0") == "1" else ""
+    tab.to_csv(CACHE / f"_thesis_rq7_scorings{suf}.csv", index=False)
+    pd.concat(dfs, keys=range(len(dfs))).to_parquet(CACHE / f"_thesis_rq7_scores{suf}.parquet")
 
     # ---- Fig 1: transform shapes (where the penalty lives) ----
+    # symlog y so the bounded (linear/hinge) and the unbounded barrier/exp transforms are both legible.
     xs = np.linspace(-1, 1, 400)
     fig, axes = plt.subplots(1, 2, figsize=(13, 4.6))
     for tname, (ftt, ftnt) in TRANSFORMS.items():
@@ -222,22 +299,23 @@ def main():
     axes[1].set_title("one taken: $T_{tnt}(x)$  (penalise consistent, $x\\to+1$)", fontweight="bold")
     for ax in axes:
         ax.axhline(0, color="#999", lw=0.6); ax.set_xlabel("pair similarity $x$")
-        ax.set_ylim(-4, 0.3); ax.legend(fontsize=8)
+        ax.set_yscale("symlog", linthresh=1.0)
+        ax.set_ylim(-1e3, 0.5); ax.legend(fontsize=8, ncol=2)
         for sp in ("top", "right"):
             ax.spines[sp].set_visible(False)
-    axes[0].set_ylabel("per-pair contribution")
+    axes[0].set_ylabel("per-pair contribution (symlog)")
     fig.suptitle("pairwise penalty transforms", fontweight="bold")
-    fig.tight_layout(); save(fig, "rq5_scorefamily_transforms.pdf")
+    fig.tight_layout(); save(fig, f"rq5_scorefamily_transforms{suf}.pdf")
 
     # ---- Fig 2: alignment heatmap (variant x n_mut) ----
     H = tab.set_index("variant")[["nmut2", "nmut3", "nmut4"]]
-    fig, ax = plt.subplots(figsize=(6.5, 9))
+    fig, ax = plt.subplots(figsize=(6.8, 12))
     sns.heatmap(H, annot=True, fmt="+.2f", center=0, cmap="vlag", vmin=-0.4, vmax=0.4,
                 cbar_kws={"label": r"median Spearman(score, $-d_{\mathrm{geo}}$)"}, ax=ax)
     ax.set_title(f"scoring alignment with geodesic feasibility (n={len(dfs)})",
                  fontsize=11, fontweight="bold")
     ax.set_xlabel("within mutation count"); ax.set_ylabel("similarity / transform / aggregation")
-    fig.tight_layout(); save(fig, "rq5_scorefamily_alignment.pdf")
+    fig.tight_layout(); save(fig, f"rq5_scorefamily_alignment{suf}.pdf")
 
 
 if __name__ == "__main__":
