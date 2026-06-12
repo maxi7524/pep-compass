@@ -1,14 +1,12 @@
-"""RQ1 -- Wasserstein-distance clustering of AA->AA substitutions on MIC deltas (DBAASP).
+"""RQ1 -- extended all_in Wasserstein clustering of AA->AA substitutions.
 
-Replicates the 1-Wasserstein clustering of final_wasserstein.ipynb (pooled per-event
-log2 MIC-delta distributions per substitution) from the DBAASP parquet caches and writes
-vector PDFs:
-    rq1_wass_assignment.pdf  -- 20x20 AA->AA cluster-assignment heatmap (k=12)
-    rq1_wass_clusters.pdf    -- per-cluster pooled log2 MIC-ratio distributions
+This companion to ``fig_rq1_wasserstein.py`` keeps the thesis DBAASP result intact
+and reads the broader cached subset built by ``final_wasserstein.ipynb``:
+Veltri-negative + Veltri-positive + DBAASP + MIC-data.
 
-Clusters are renumbered 1..K by ascending mean log2 MIC ratio (most activity-improving
-first) so the cluster id is consistent across the heatmap, the distribution panels and the
-LaTeX table. The cluster summary numbers used in the thesis table are printed to stdout.
+It writes:
+    rq1_wass_ext_assignment.pdf  -- 20x20 AA->AA cluster-assignment heatmap (k=12)
+    rq1_wass_ext_clusters.pdf    -- per-cluster pooled log2 MIC-ratio distributions
 """
 from __future__ import annotations
 
@@ -16,13 +14,13 @@ import sys
 import time
 from collections import defaultdict
 
+import matplotlib.colors as mcolors
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
-import matplotlib.colors as mcolors
 import seaborn as sns
+from scipy.cluster.hierarchy import fcluster, linkage
 from scipy.spatial.distance import squareform
-from scipy.cluster.hierarchy import linkage, fcluster
 
 from _common import (PROJECT_ROOT, CACHE, ALL_AA,
                      _grouped_axis_order, _draw_group_bars, save)
@@ -30,8 +28,8 @@ from _common import (PROJECT_ROOT, CACHE, ALL_AA,
 sys.path.insert(0, str(PROJECT_ROOT / "analysis"))
 from utils.plotting.wasserstein_distance import pairwise_wasserstein  # noqa: E402
 
-DATASET = "hydramp_dbaasp_clean"
-DATASET_NAME = "DBAASP"
+DATASET_NAME = "all_in extended subset"
+CACHE_TAG = "ext_veltri_negative_veltri_positive_dbaasp_clean_mic_data"
 PRIMARY_K = 12
 META = ("sequence", "within_dataset_id", "source_file", "dataset")
 
@@ -87,8 +85,7 @@ def cluster_colors(clusters):
 
 
 def plot_cluster_assignment(pairs, clusters, colors, uniq, title):
-    A = len(ALL_AA)
-    mat = np.full((A, A), np.nan)
+    mat = np.full((len(ALL_AA), len(ALL_AA)), np.nan)
     idx = {aa: i for i, aa in enumerate(ALL_AA)}
     for (a, b), c in zip(pairs, clusters):
         mat[idx[a], idx[b]] = c
@@ -168,10 +165,18 @@ def print_summary(pairs, clusters, arrays, counts, uniq):
 
 
 def main():
-    parents = pd.read_parquet(CACHE / f"parents_{DATASET}.parquet")
+    parent_cache = CACHE / f"parents_{CACHE_TAG}.parquet"
+    mutant_cache = CACHE / f"mutants_{CACHE_TAG}.parquet"
+    if not parent_cache.exists() or not mutant_cache.exists():
+        raise FileNotFoundError(
+            f"Missing extended caches: {parent_cache.name}, {mutant_cache.name}. "
+            "Run the extended section of final_wasserstein.ipynb first."
+        )
+
+    parents = pd.read_parquet(parent_cache)
+    mutants = pd.read_parquet(mutant_cache)
     bact_cols = [c for c in parents.columns if c not in META]
     parent_mic = parents.set_index("sequence")[bact_cols]
-    mutants = pd.read_parquet(CACHE / f"mutants_{DATASET}.parquet")
 
     m = derive_substitutions(mutants)
     m, pairs, arrays, sizes = build_pair_arrays(m, parent_mic, bact_cols)
@@ -188,12 +193,12 @@ def main():
 
     save(plot_cluster_assignment(
         pairs, primary, colors, uniq,
-        f"AA$\\to$AA cluster assignment ($1$-Wasserstein, k={PRIMARY_K}, {DATASET_NAME})"),
-        "rq1_wass_assignment.pdf")
+        f"AA$\\to$AA cluster assignment ($1$-Wasserstein, k={PRIMARY_K}, extended all_in subset)"),
+        "rq1_wass_ext_assignment.pdf")
     save(plot_cluster_distributions(
         arrays, primary, sizes, colors, uniq,
-        f"Per-cluster log2 MIC-ratio distributions (k={PRIMARY_K}, {DATASET_NAME})"),
-        "rq1_wass_clusters.pdf")
+        f"Per-cluster log2 MIC-ratio distributions (k={PRIMARY_K}, extended all_in subset)"),
+        "rq1_wass_ext_clusters.pdf")
 
     print_summary(pairs, primary, arrays, sizes, uniq)
 

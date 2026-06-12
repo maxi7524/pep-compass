@@ -1,0 +1,38 @@
+---
+description: PepCompass project navigation, thesis-writing, and Bury workflow guidance
+alwaysApply: true
+---
+
+# PepCompass Project Guidance
+
+## Workspaces
+
+- Code repository: `C:/Users/Karol/Desktop/PepCompass/pep-compass`.
+- Thesis repository: `C:/Users/Karol/Desktop/Magisterka/magisterka-karola-txt`.
+- Bury repository: `/home/kjurasz/pep-compass` over `ssh kjurasz@bury.mimuw.edu.pl`.
+- Current thesis figures are written to `C:/Users/Karol/Desktop/Magisterka/magisterka-karola-txt/figures` by `analysis/scripts/thesis_figures/_common.py`.
+
+## Pending handoffs
+
+- If `BURY_PENDING.md` exists at the code-repository root, read it before doing other work: it describes a queued or in-flight Bury job (SLURM ID, expected outputs, fetch commands, and the exact thesis edits to apply once the job completes). Resolve the handoff and delete the file when done.
+
+## Branches
+
+- Treat `kjxpp/mutang_analysis_wip` as the main thesis-analysis working branch.
+- Treat `rl_trials` as the RL/optimization comparison branch unless the user explicitly confirms another spelling.
+- Before switching branches, check for dirty files and avoid overwriting notebook or figure-script edits.
+
+## Development
+
+- Use `uv sync` for local dependency setup.
+- Thesis figure scripts live in `analysis/scripts/thesis_figures/`.
+- GPU/SLURM jobs for Bury live in `scripts/*.sh` and assume `/home/kjurasz/pep-compass/.venv/bin/python`.
+- Do not silently fall back to CPU for GPU experiments; existing scripts intentionally refuse CPU fallback.
+
+## Thesis Writing
+
+- Follow the thesis `CLAUDE.md`: use formal scientific language and write sequences one per line.
+- Do not overstate TANDEM. The current result is that pairwise similarity weighting does not improve latent-feasibility alignment after controlling for Hamming distance.
+- The constructive conclusion is that feasibility tracks net latent displacement magnitude better than pairwise tangent-direction coherence.
+- Treat APEX-derived activity claims as predicted MIC, not measured MIC.
+- Preserve LaTeX labels, citations, and cross-references unless explicitly asked to restructure them.

@@ -15,6 +15,7 @@ The ~5000-peptide instability sample is drawn broadly from the whole all_in coll
 """
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
@@ -63,16 +64,33 @@ def sample_from_apex(n, seed=0, max_len=25):
     return valid.sample(n=min(n, len(valid)), random_state=seed).tolist()
 
 
+def code(seq: str) -> str:
+    """Anonymous PepCompass-seed label: first two residues + length (e.g. FLYK... -> FL14)."""
+    return f"{seq[:2]}{len(seq)}"
+
+
 def main():
     model = st.load_model(device="cpu")
     print(f"HydrAMP loaded | latent {model.latent_dim} | ambient {model.ambient_dim}")
     cache = {}
     benchmarks = st.BENCHMARK_PEPTIDES
+    # Label the six PepCompass optimisation seeds by an anonymous code rather than their
+    # internal names (mammuthusin-3, jurand-*, ...): first two residues + sequence length.
+    CODE = {name: code(seq) for name, seq in benchmarks.items()}
+    # The slow cross-peptide CV scan (~5000 peptides) and the eps sweep do not show peptide
+    # names, so by default we only re-render the three benchmark-labelled figures (explosion,
+    # threshold heatmaps, churn) and leave rq2_cv.pdf / rq2_eps_sensitivity.pdf as they are.
+    # Set REGEN_RQ2_SLOW=1 to recompute those too.
+    run_slow = os.environ.get("REGEN_RQ2_SLOW") == "1"
     pos_parquet = CACHE / "parents_hydramp_veltri_positive.parquet"
-    sample_full = sample_from_parquet(pos_parquet, 1000, seed=0)
-    sample_big = sample_from_apex(5000, seed=0)
-    print(f"benchmarks: {len(benchmarks)} | sample_full: {len(sample_full)} | "
-          f"sample_big: {len(sample_big)}")
+    if run_slow:
+        sample_full = sample_from_parquet(pos_parquet, 1000, seed=0)
+        sample_big = sample_from_apex(5000, seed=0)
+        print(f"benchmarks: {len(benchmarks)} | sample_full: {len(sample_full)} | "
+              f"sample_big: {len(sample_big)}")
+    else:
+        print(f"benchmarks: {len(benchmarks)} | slow CV/eps scans skipped "
+              "(set REGEN_RQ2_SLOW=1 to recompute rq2_cv.pdf / rq2_eps_sensitivity.pdf)")
 
     # ---------------- (a) combinatorial explosion ----------------
     # production-centered sweep: theta_mut steps by x10 down to the production 1e-6, at the
@@ -85,7 +103,7 @@ def main():
 
     fig, ax = plt.subplots(figsize=(7.5, 4.8))
     for name, g in expl.groupby("peptide"):
-        ax.plot(range(len(g)), g["joint_count"].values, marker="o", label=name)
+        ax.plot(range(len(g)), g["joint_count"].values, marker="o", label=CODE[name])
     ax.set_yscale("log")
     ax.set_xticks(range(len(explosion_thresholds)))
     ax.set_xticklabels([f"$\\theta_{{mut}}$={t:g}" for _, t in explosion_thresholds], fontsize=8)
@@ -110,7 +128,7 @@ def main():
     for ax, (name, g) in zip(axes.ravel(), bench_scan.groupby("peptide")):
         pivot = g.pivot(index="d_thresh", columns="t_thresh", values="n_mutants")
         ax.imshow(pivot.values, aspect="auto", cmap="viridis")
-        ax.set_title(name, fontsize=9)
+        ax.set_title(CODE[name], fontsize=9)
         ax.set_xticks(range(len(pivot.columns)))
         ax.set_xticklabels([f"{t:g}" for t in pivot.columns], fontsize=7)
         ax.set_yticks(range(len(pivot.index)))
@@ -126,37 +144,38 @@ def main():
     fig.tight_layout()
     save(fig, "rq2_threshold_heatmaps.pdf")
 
-    scan_full = st.threshold_grid_scan(sample_full, model, d_grid, t_grid, mode="approx", eps=PROD_EPS)
-    print(f"running threshold grid on {len(sample_big)} peptides (this is the slow step) ...")
-    scan_big = st.threshold_grid_scan(sample_big, model, d_grid, t_grid, mode="approx", eps=PROD_EPS)
-    frames = {f"Veltri-positive sample (n={len(sample_full)})": st.cross_peptide_instability(scan_full),
-              f"broad all_in sample (n={len(sample_big)})": st.cross_peptide_instability(scan_big)}
-    cvbig = st.cross_peptide_instability(scan_big).sort_values("cv", ascending=False)
-    cvbig.to_csv(CACHE / "_thesis_rq2_cv_big.csv", index=False)
-    print(f"Most unstable cells (n={len(sample_big)} broad sample):")
-    print(cvbig.head(6).to_string(index=False))
-    print(f"CV over broad sample: min/median/max = "
-          f"{cvbig.cv.min():.3f}/{cvbig.cv.median():.3f}/{cvbig.cv.max():.3f}")
+    if run_slow:
+        scan_full = st.threshold_grid_scan(sample_full, model, d_grid, t_grid, mode="approx", eps=PROD_EPS)
+        print(f"running threshold grid on {len(sample_big)} peptides (this is the slow step) ...")
+        scan_big = st.threshold_grid_scan(sample_big, model, d_grid, t_grid, mode="approx", eps=PROD_EPS)
+        frames = {f"Veltri-positive sample (n={len(sample_full)})": st.cross_peptide_instability(scan_full),
+                  f"broad all_in sample (n={len(sample_big)})": st.cross_peptide_instability(scan_big)}
+        cvbig = st.cross_peptide_instability(scan_big).sort_values("cv", ascending=False)
+        cvbig.to_csv(CACHE / "_thesis_rq2_cv_big.csv", index=False)
+        print(f"Most unstable cells (n={len(sample_big)} broad sample):")
+        print(cvbig.head(6).to_string(index=False))
+        print(f"CV over broad sample: min/median/max = "
+              f"{cvbig.cv.min():.3f}/{cvbig.cv.median():.3f}/{cvbig.cv.max():.3f}")
 
-    fig, axes = plt.subplots(1, len(frames), figsize=(6.2 * len(frames), 4.4), squeeze=False)
-    for ax, (label, cv) in zip(axes.ravel(), frames.items()):
-        pivot = cv.pivot(index="d_thresh", columns="t_thresh", values="cv")
-        im = ax.imshow(pivot.values, aspect="auto", cmap="magma")
-        ax.set_title(f"CV of #mutants across peptides -- {label}", fontsize=9)
-        ax.set_xticks(range(len(pivot.columns)))
-        ax.set_xticklabels([f"{t:g}" for t in pivot.columns], fontsize=7)
-        ax.set_yticks(range(len(pivot.index)))
-        ax.set_yticklabels([f"{d:g}" for d in pivot.index], fontsize=7)
-        ax.set_xlabel(TMUT_SYM)
-        ax.set_ylabel(KAPPA_SYM)
-        for i in range(pivot.shape[0]):
-            for j in range(pivot.shape[1]):
-                v = pivot.values[i, j]
-                ax.text(j, i, f"{v:.2f}" if np.isfinite(v) else "-", ha="center",
-                        va="center", color="w", fontsize=7)
-        fig.colorbar(im, ax=ax, fraction=0.046)
-    fig.tight_layout()
-    save(fig, "rq2_cv.pdf")
+        fig, axes = plt.subplots(1, len(frames), figsize=(6.2 * len(frames), 4.4), squeeze=False)
+        for ax, (label, cv) in zip(axes.ravel(), frames.items()):
+            pivot = cv.pivot(index="d_thresh", columns="t_thresh", values="cv")
+            im = ax.imshow(pivot.values, aspect="auto", cmap="magma")
+            ax.set_title(f"CV of #mutants across peptides -- {label}", fontsize=9)
+            ax.set_xticks(range(len(pivot.columns)))
+            ax.set_xticklabels([f"{t:g}" for t in pivot.columns], fontsize=7)
+            ax.set_yticks(range(len(pivot.index)))
+            ax.set_yticklabels([f"{d:g}" for d in pivot.index], fontsize=7)
+            ax.set_xlabel(TMUT_SYM)
+            ax.set_ylabel(KAPPA_SYM)
+            for i in range(pivot.shape[0]):
+                for j in range(pivot.shape[1]):
+                    v = pivot.values[i, j]
+                    ax.text(j, i, f"{v:.2f}" if np.isfinite(v) else "-", ha="center",
+                            va="center", color="w", fontsize=7)
+            fig.colorbar(im, ax=ax, fraction=0.046)
+        fig.tight_layout()
+        save(fig, "rq2_cv.pdf")
 
     # ---- churn: theta_mut-sweep (flat) vs kappa-sweep (churns) ----
     tmut_path = [(PROD_KAPPA, t) for t in [1e-3, 1e-4, 1e-5, 1e-6, 1e-7, 1e-8]]  # x10 steps incl prod 1e-6
@@ -169,8 +188,8 @@ def main():
         c_k = st.set_sensitivity_curve(seq, S, U, kappa_path)
         all_t += c_t
         all_k += c_k
-        axes[0].plot(range(len(c_t)), c_t, marker="o", label=name)
-        axes[1].plot(range(len(c_k)), c_k, marker="o", label=name)
+        axes[0].plot(range(len(c_t)), c_t, marker="o", label=CODE[name])
+        axes[1].plot(range(len(c_k)), c_k, marker="o", label=CODE[name])
     axes[0].set_xticks(range(len(tmut_path) - 1))
     axes[0].set_xticklabels([f"{tmut_path[i][1]:g}$\\to${tmut_path[i+1][1]:g}"
                              for i in range(len(tmut_path) - 1)], fontsize=7, rotation=30)
@@ -193,48 +212,49 @@ def main():
           f"kappa-sweep={np.mean(all_k):.3f}  (lower = more churn)")
 
     # ---------------- (c) Jacobian eps sensitivity ----------------
-    eps_grid = [1e-1, PROD_EPS, 1e-2, 3e-3, 2e-3, 1e-3, 1e-4, 1e-5, 1e-6, 1e-7, 1e-8]
-    D_C, T_C = PROD_KAPPA, PROD_TMUT
-    eps_bench = st.eps_sensitivity_scan(benchmarks, model, eps_grid, D_C, T_C, k=10)
-    eps_sample_peptides = sample_full[:60]  # matches the "60 sampled peptides" reported in the thesis
-    print(f"(c) eps sweep over {len(eps_sample_peptides)} sampled peptides x {len(eps_grid)} eps ...")
-    eps_sample = st.eps_sensitivity_scan(eps_sample_peptides, model, eps_grid, D_C, T_C, k=10)
-    eps_sample.to_csv(CACHE / "_thesis_rq2_eps.csv", index=False)
+    if run_slow:
+        eps_grid = [1e-1, PROD_EPS, 1e-2, 3e-3, 2e-3, 1e-3, 1e-4, 1e-5, 1e-6, 1e-7, 1e-8]
+        D_C, T_C = PROD_KAPPA, PROD_TMUT
+        eps_bench = st.eps_sensitivity_scan(benchmarks, model, eps_grid, D_C, T_C, k=10)
+        eps_sample_peptides = sample_full[:60]  # matches the "60 sampled peptides" reported in the thesis
+        print(f"(c) eps sweep over {len(eps_sample_peptides)} sampled peptides x {len(eps_grid)} eps ...")
+        eps_sample = st.eps_sensitivity_scan(eps_sample_peptides, model, eps_grid, D_C, T_C, k=10)
+        eps_sample.to_csv(CACHE / "_thesis_rq2_eps.csv", index=False)
 
-    metrics = [("jac_rel_error", "Jacobian rel. Frobenius error", True),
-               ("sv_rel_error", "top-10 singular-value rel. error", True),
-               ("subspace_overlap", "top-10 subspace overlap (1 = identical)", False),
-               ("mut_jaccard", "mutation-set Jaccard (approx vs exact)", False)]
-    agg = eps_sample.groupby("eps")[[m[0] for m in metrics]].agg(["mean", "std"])
-    n_samp = eps_sample.peptide.nunique()
-    fig, axes = plt.subplots(2, 2, figsize=(12, 8))
-    for ax, (col, title, logy) in zip(axes.ravel(), metrics):
-        for _, g in eps_bench.groupby("peptide"):
-            ax.plot(g["eps"], g[col], color="0.75", lw=1, alpha=0.7)
-        m, s = agg[col]["mean"], agg[col]["std"]
-        ax.plot(m.index, m.values, color="C3", marker="o", lw=2, label=f"sample mean (n={n_samp})")
-        ax.fill_between(m.index, (m - s).values, (m + s).values, color="C3", alpha=0.2)
-        ax.set_xscale("log")
-        if logy:
-            ax.set_yscale("log")
-        ax.invert_xaxis()
-        # production default finite-difference step (PepCompass paper appendix)
-        ax.axvline(PROD_EPS, color="C0", ls="--", lw=1.2,
-                   label=f"production default $\\varepsilon$={PROD_EPS:g}")
-        ax.axvspan(1e-3, 1e-2, color="0.85", alpha=0.5, zorder=0)  # downstream sweet spot
-        ax.set_xlabel("jacobian_eps")
-        ax.set_title(title, fontsize=9)
-        ax.legend(fontsize=7)
-    fig.suptitle(r"(c) Approx vs exact Jacobian across eps  (gray = 6 benchmarks, "
-                 r"red = sample mean$\pm$std; $\kappa$=" + f"{D_C:g}" + r", $\theta_{mut}$=" + f"{T_C:g})")
-    fig.tight_layout()
-    save(fig, "rq2_eps_sensitivity.pdf")
-    best = eps_sample.groupby("eps")["mut_jaccard"].mean().idxmax()
-    worst = eps_sample.groupby("eps")["jac_rel_error"].mean().idxmax()
-    print(f"eps maximizing mean mutation-set Jaccard vs exact: {best:g}")
-    print(f"eps with worst mean Jacobian error: {worst:g}")
-    print("mean metrics by eps:")
-    print(eps_sample.groupby("eps")[[m[0] for m in metrics]].mean().to_string())
+        metrics = [("jac_rel_error", "Jacobian rel. Frobenius error", True),
+                   ("sv_rel_error", "top-10 singular-value rel. error", True),
+                   ("subspace_overlap", "top-10 subspace overlap (1 = identical)", False),
+                   ("mut_jaccard", "mutation-set Jaccard (approx vs exact)", False)]
+        agg = eps_sample.groupby("eps")[[m[0] for m in metrics]].agg(["mean", "std"])
+        n_samp = eps_sample.peptide.nunique()
+        fig, axes = plt.subplots(2, 2, figsize=(12, 8))
+        for ax, (col, title, logy) in zip(axes.ravel(), metrics):
+            for _, g in eps_bench.groupby("peptide"):
+                ax.plot(g["eps"], g[col], color="0.75", lw=1, alpha=0.7)
+            m, s = agg[col]["mean"], agg[col]["std"]
+            ax.plot(m.index, m.values, color="C3", marker="o", lw=2, label=f"sample mean (n={n_samp})")
+            ax.fill_between(m.index, (m - s).values, (m + s).values, color="C3", alpha=0.2)
+            ax.set_xscale("log")
+            if logy:
+                ax.set_yscale("log")
+            ax.invert_xaxis()
+            # production default finite-difference step (PepCompass paper appendix)
+            ax.axvline(PROD_EPS, color="C0", ls="--", lw=1.2,
+                       label=f"production default $\\varepsilon$={PROD_EPS:g}")
+            ax.axvspan(1e-3, 1e-2, color="0.85", alpha=0.5, zorder=0)  # downstream sweet spot
+            ax.set_xlabel("jacobian_eps")
+            ax.set_title(title, fontsize=9)
+            ax.legend(fontsize=7)
+        fig.suptitle(r"(c) Approx vs exact Jacobian across eps  (gray = 6 benchmarks, "
+                     r"red = sample mean$\pm$std; $\kappa$=" + f"{D_C:g}" + r", $\theta_{mut}$=" + f"{T_C:g})")
+        fig.tight_layout()
+        save(fig, "rq2_eps_sensitivity.pdf")
+        best = eps_sample.groupby("eps")["mut_jaccard"].mean().idxmax()
+        worst = eps_sample.groupby("eps")["jac_rel_error"].mean().idxmax()
+        print(f"eps maximizing mean mutation-set Jaccard vs exact: {best:g}")
+        print(f"eps with worst mean Jacobian error: {worst:g}")
+        print("mean metrics by eps:")
+        print(eps_sample.groupby("eps")[[m[0] for m in metrics]].mean().to_string())
 
 
 if __name__ == "__main__":
