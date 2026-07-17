@@ -128,7 +128,10 @@ def _draw_group_bars(ax, df, gsizes, gnames, group_colors=None):
         group_colors = {g: palette[i] for i, g in enumerate(gnames)}
     bar_t = 0.025
     y_gap, x_gap, lab_gap = 0.045, 0.06, 0.012
-    for mid, gn, gs in zip(mids, gnames, sizes_ax):
+    # Horizontal x-axis class labels, staggered over two rows so neighbouring narrow
+    # groups (e.g. amide/basic/sulfur/imino) do not overlap.
+    stagger = 0.040
+    for i, (mid, gn, gs) in enumerate(zip(mids, gnames, sizes_ax)):
         col = group_colors.get(gn, "lightgray")
         y = 1.0 - mid
         ax.add_patch(plt.Rectangle((-(y_gap + bar_t), y - gs / 2), bar_t, gs,
@@ -137,8 +140,8 @@ def _draw_group_bars(ax, df, gsizes, gnames, group_colors=None):
                 rotation=90, ha="center", va="center", fontsize=9)
         ax.add_patch(plt.Rectangle((mid - gs / 2, -(x_gap + bar_t)), gs, bar_t,
                                    transform=ax.transAxes, clip_on=False, color=col))
-        ax.text(mid, -(x_gap + bar_t) - lab_gap, gn, transform=ax.transAxes,
-                rotation=90, ha="center", va="top", fontsize=9)
+        ax.text(mid, -(x_gap + bar_t) - lab_gap - (i % 2) * stagger, gn,
+                transform=ax.transAxes, rotation=0, ha="center", va="top", fontsize=8)
     ax.yaxis.set_label_coords(-(y_gap + bar_t) - 0.06, 0.5)
 
 

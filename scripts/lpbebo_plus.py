@@ -44,7 +44,7 @@ N_TRAJ = int(os.environ.get("LPBEBO_N_TRAJ", "10"))
 EVALUATION_BUDGET = int(os.environ.get("LPBEBO_BUDGET", "1400"))
 
 SORBES_HORIZONTAL_THRESHOLD = 0.1
-TOP_P = float(os.environ.get("LPBEBO_TOP_P", "0.9"))  # nucleus (cumulative prob-mass) filter
+TOP_P = 0.9          # nucleus filtering for the MUTANG++ (TANDEM) potential
 TEMPERATURE = 1.0
 MAX_CANDIDATES_PER_STEP = 6000
 
@@ -243,12 +243,11 @@ APEX_PROTEINS = {
 
 if __name__ == "__main__":
     if os.environ.get("LPBEBO_APEX", "0") == "1":
-        # N_TRAJ independent trajectories PER peptide (LPBEBO_N_TRAJ), not the per-peptide seed counts.
-        runs = [(name, seq) for name, (seq, _num) in APEX_PROTEINS.items() for _ in range(N_TRAJ)]
+        runs = [(name, seq) for name, (seq, num) in APEX_PROTEINS.items() for _ in range(num)]
     else:
         runs = [("single", PEPTIDE)] * N_TRAJ
     print(f"LPBEBO+ (MUTANG++/TANDEM filter) | {len(runs)} trajectories "
-          f"| top_p(mass)={TOP_P} | budget={EVALUATION_BUDGET} | device={DEVICE} | out={OUTPUT_PATH}")
+          f"| budget={EVALUATION_BUDGET} | device={DEVICE} | out={OUTPUT_PATH}")
     for traj, (name, seq) in enumerate(runs):
         rng_seed = int(time.time()) + traj
         observer.initialize_observer(
