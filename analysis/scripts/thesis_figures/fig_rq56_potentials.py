@@ -48,6 +48,18 @@ from pep_compass.local_enumeration.mutation.mutation_potentials import (
     linear_taken_not_taken_transform,
 )
 from pep_compass.geometry.utils import metric_from_jac
+from _geodesic import geodesic_distance_to_parent
+
+# Which distance feeds the RQ5 feasibility analysis: graph geodesic (default),
+# first-order pullback Mahalanobis, or Euclidean (both kept as baselines).
+_RQ5_FEAS = os.environ.get("RQ5_FEAS", "geo")
+_DIST = {"geo": "dist_geo", "maha": "dist_maha", "eucl": "dist_eucl"}
+_DLAB = {"geo": "geodesic distance", "maha": "pullback distance", "eucl": "Euclidean distance"}
+_DSYM = {"geo": r"-d_{\mathrm{geo}}", "maha": r"-d_G", "eucl": r"-d_{\mathrm{euc}}"}
+DIST_COL = _DIST[_RQ5_FEAS]
+DIST_LABEL = _DLAB[_RQ5_FEAS]
+DIST_SYM = _DSYM[_RQ5_FEAS]
+GEO_K = int(os.environ.get("RQ5_GEO_K", "12"))
 
 BENCHMARK_PEPTIDES = {
     "middle-1": "FLYKWWIRIGRLKL", "jurand-4": "KYCRRFRWLTFRWL",
@@ -169,10 +181,12 @@ def evaluate_peptide(hydramp, pep, n_sample):
         rows.append(row)
     df = pd.DataFrame(rows)
     with torch.no_grad():
-        zz = hydramp.encode_peptides(seqs).detach().cpu().numpy()
+        zz_t = hydramp.encode_peptides(seqs).detach()      # (N, Z) on device
+    zz = zz_t.cpu().numpy()
     df["dist_eucl"] = np.linalg.norm(zz - z_np[None, :], axis=1)
-    df["dist_maha"] = mahalanobis(zz, z_np, G)
-    df["feas"] = -df["dist_maha"]
+    df["dist_maha"] = mahalanobis(zz, z_np, G)             # first-order pullback (baseline)
+    df["dist_geo"] = geodesic_distance_to_parent(hydramp, z, zz_t, k=GEO_K)
+    df["feas"] = -df[DIST_COL]
     return df
 
 
@@ -254,7 +268,8 @@ def main():
     pool = pool.dropna().astype(str)
     pool = pool[(pool.str.len() <= MAXLEN) & (pool.str.len() > 3)
                 & pool.apply(lambda s: set(s) <= set("ACDEFGHIKLMNPQRSTVWY"))].drop_duplicates()
-    sample_peps = pool.sample(n=min(N_SAMPLE_PEPS, len(pool)), random_state=0).tolist()
+    n_sample = int(os.environ.get("RQ5_LIMIT", N_SAMPLE_PEPS))  # cap for gate-checks
+    sample_peps = pool.sample(n=min(n_sample, len(pool)), random_state=0).tolist()
     bench = list(BENCHMARK_PEPTIDES.values())
 
     # ---- Fig 1+2: similarity heatmaps (4 variants) + transform curves ----
@@ -301,10 +316,26 @@ def main():
     dfs, tags = [], []
     for tag, pep in [("bench", p) for p in bench] + [("sample", p) for p in sample_peps]:
         df = evaluate_peptide(hydramp, pep, 3000 if tag == "bench" else 500)
-        if df is None or df["dist_maha"].std() == 0 or len(df) < 30:
+        if df is None or df[DIST_COL].std() == 0 or len(df) < 30:
             continue
         dfs.append(df); tags.append(tag)
     print(f"[aggregate] {len(dfs)} peptides ({tags.count('bench')} bench, {tags.count('sample')} sample)")
+    print(f"[feas] using {DIST_COL} for the RQ5 feasibility analysis (geodesic k={GEO_K})")
+
+    # ---- gate check: is the geodesic materially different from the baselines? ----
+    def _med_spear(a, b):
+        vals = [spearmanr(df[a], df[b]).correlation for df in dfs
+                if df[a].std() > 0 and df[b].std() > 0]
+        return float(np.median(vals)) if vals else float("nan")
+    print("[gate] median per-peptide Spearman between distances:")
+    print(f"   geo vs maha  = {_med_spear('dist_geo', 'dist_maha'):+.3f}")
+    print(f"   geo vs eucl  = {_med_spear('dist_geo', 'dist_eucl'):+.3f}")
+    print(f"   maha vs eucl = {_med_spear('dist_maha', 'dist_eucl'):+.3f}")
+    for c in ("dist_geo", "dist_maha", "dist_eucl"):
+        allv = np.concatenate([df[c].values for df in dfs])
+        sing = np.concatenate([df.loc[df.n_mut == 1, c].values for df in dfs])
+        print(f"   {c:9s} all: median={np.median(allv):.4g} mean={allv.mean():.4g}"
+              f"  | single-mut median={np.median(sing):.4g}")
 
     # ---- Fig 3: 9-series selection figure (raw) ----
     nine_vars = ["A_onehot", "B_onehot"]
@@ -314,9 +345,9 @@ def main():
             ratios = []
             for df in dfs:
                 k = max(1, int(round(p / 100 * len(df))))
-                full = df["dist_maha"].mean()
+                full = df[DIST_COL].mean()
                 if full > 0:
-                    ratios.append(df.nlargest(k, f"score_{v}")["dist_maha"].mean() / full)
+                    ratios.append(df.nlargest(k, f"score_{v}")[DIST_COL].mean() / full)
             agg[f"{v}@{p}"] = float(np.mean(ratios))
     order = ["MUTANG"] + [f"{v}@{p}" for v in nine_vars for p in SEL9]
     colors = ["#9aa0a6"] + ["C0"] * len(SEL9) + ["C1"] * len(SEL9)
@@ -326,7 +357,7 @@ def main():
     ax.set_xticks(range(len(order)))
     ax.set_xticklabels(["MUTANG\n(all)"] + [o.replace("_onehot", "").replace("@", "\n@") + "%"
                                             for o in order[1:]], fontsize=8)
-    ax.set_ylabel("mean pullback distance to parent\n(relative to full candidate set)")
+    ax.set_ylabel(f"mean {DIST_LABEL} to parent\n(relative to full candidate set)")
     ax.set_ylim(0.9, max(1.02, max(agg.values()) + 0.02))
     ax.set_title(f"RQ5: proximity of top-p% selected mutants vs MUTANG (n={len(dfs)} peptides)",
                  fontsize=12, fontweight="bold")
@@ -347,8 +378,8 @@ def main():
             col = "score_mutangplus" if m == "mutangplus" else f"score_{m}"
             for df in dfs:
                 s = df[df["n_mut"] == nm]
-                if len(s) >= 8 and s[col].std() > 0 and s["dist_maha"].std() > 0:
-                    recs.append({"method": PLABEL[m], "rho": spearmanr(s[col], -s["dist_maha"]).correlation})
+                if len(s) >= 8 and s[col].std() > 0 and s[DIST_COL].std() > 0:
+                    recs.append({"method": PLABEL[m], "rho": spearmanr(s[col], -s[DIST_COL]).correlation})
         rdf = pd.DataFrame(recs)
         summary[nm] = rdf.groupby("method")["rho"].median()
         sns.boxplot(data=rdf, x="method", y="rho", ax=ax,
@@ -358,7 +389,7 @@ def main():
         ax.set_xlabel(""); ax.tick_params(axis="x", labelrotation=30, labelsize=8)
         for s in ("top", "right"):
             ax.spines[s].set_visible(False)
-    axes[0].set_ylabel(r"per-peptide Spearman$(\,$potential, $-d_G\,)$")
+    axes[0].set_ylabel(rf"per-peptide Spearman$(\,$potential, ${DIST_SYM}\,)$")
     fig.suptitle("RQ5: Hamming-controlled feasibility alignment (confound removed)",
                  fontsize=12, fontweight="bold")
     fig.tight_layout(); save(fig, "rq5_feasibility_hamming.pdf")
@@ -366,6 +397,34 @@ def main():
     for m in methods:
         l = PLABEL[m]
         print(f"  {l:16s} {summary[1].get(l, np.nan):+.3f} / {summary[2].get(l, np.nan):+.3f}")
+
+    # ---- table: Hamming-controlled medians for ALL THREE distances (geo primary,
+    #      maha/eucl baselines) -- gives tab:rq5 + the baseline comparison in one run ----
+    def _ham_median(dist_col, m, nm):
+        col = "score_mutangplus" if m == "mutangplus" else f"score_{m}"
+        vals = []
+        for df in dfs:
+            s = df[df["n_mut"] == nm]
+            if len(s) >= 8 and s[col].std() > 0 and s[dist_col].std() > 0:
+                vals.append(spearmanr(s[col], -s[dist_col]).correlation)
+        return float(np.median(vals)) if vals else float("nan")
+
+    print(f"\n[tab:rq5] median per-peptide Spearman(potential, -distance), n={len(dfs)} peptides")
+    print(f"  {'potential':16s} | {'geodesic s/d':>16s} | {'pullback s/d':>16s} | {'euclid s/d':>16s}")
+    tab_rows = []
+    for m in methods:
+        cells = {}
+        for dc in ("dist_geo", "dist_maha", "dist_eucl"):
+            cells[dc] = (_ham_median(dc, m, 1), _ham_median(dc, m, 2))
+        g, ma, eu = cells["dist_geo"], cells["dist_maha"], cells["dist_eucl"]
+        print(f"  {PLABEL[m]:16s} | {g[0]:+.3f}/{g[1]:+.3f} | "
+              f"{ma[0]:+.3f}/{ma[1]:+.3f} | {eu[0]:+.3f}/{eu[1]:+.3f}")
+        tab_rows.append({"potential": PLABEL[m],
+                         "geo_single": g[0], "geo_double": g[1],
+                         "maha_single": ma[0], "maha_double": ma[1],
+                         "eucl_single": eu[0], "eucl_double": eu[1]})
+    pd.DataFrame(tab_rows).to_csv(CACHE / "_thesis_rq5_distance_table.csv", index=False)
+    pd.concat(dfs, keys=range(len(dfs))).to_parquet(CACHE / "_thesis_rq5_distances.parquet")
 
     # ---- Fig 4: threshold-distance curves (many peptides; log vs linear transform) ----
     curve_vars = ["A_onehot", "B_onehot", "A_onehot_lin", "B_onehot_lin"]
@@ -379,9 +438,9 @@ def main():
                 rr = []
                 for df in group:
                     k = max(1, int(round(p / 100 * len(df))))
-                    full = df["dist_maha"].mean()
+                    full = df[DIST_COL].mean()
                     if full > 0:
-                        rr.append(df.nlargest(k, f"score_{v}")["dist_maha"].mean() / full)
+                        rr.append(df.nlargest(k, f"score_{v}")[DIST_COL].mean() / full)
                 ys.append(np.mean(rr))
             out[v] = ys
         return out
@@ -398,7 +457,7 @@ def main():
         ax.set_title(ttl, fontsize=11, fontweight="bold")
         for s in ("top", "right"):
             ax.spines[s].set_visible(False)
-    axes[0].set_ylabel("mean pullback distance to parent\n(relative to full candidate set)")
+    axes[0].set_ylabel(f"mean {DIST_LABEL} to parent\n(relative to full candidate set)")
     axes[1].legend(fontsize=8)
     fig.suptitle("RQ5/RQ6: does keeping high-potential candidates select more proximal mutants?",
                  fontsize=12, fontweight="bold")
