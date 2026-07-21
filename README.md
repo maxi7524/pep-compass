@@ -36,6 +36,30 @@ uv sync --extra cu128
 python scripts/run_lebo_optimization_apex.py
 ```
 
+# Random mutation with ESM PLL filtering
+
+Install dependencies:
+
+```bash
+uv sync
+```
+
+The random mutation runner supports ESM2 filtering where mutation candidates are rejected if
+`PLL < -0.5` (default threshold). The default model is the lightest ESM2 variant:
+`esm2_t6_8M_UR50D`.
+
+Example (KY14, 1400 steps, dry setup command):
+
+```bash
+python scripts/run_random_mutation_optimization.py --protein-key KY14 --evaluation-budget 1400 --esm-model-name esm2_t6_8M_UR50D --esm-ppl-threshold -0.5 --device cpu --esm-device cpu
+```
+
+To disable ESM filtering:
+
+```bash
+python scripts/run_random_mutation_optimization.py --disable-esm-filter
+```
+
 # Baselines and BlackBoxes
 
 Different baselines and black-boxes needs different packages.

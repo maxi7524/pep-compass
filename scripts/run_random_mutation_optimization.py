@@ -1,91 +1,184 @@
-from datetime import datetime
-import time
-import sys
-import os
-import warnings
+from __future__ import annotations
+
+import argparse
+import io
 import logging
+import os
+import sys
+import time
+import warnings
+from contextlib import redirect_stderr
+from datetime import datetime
 
 # Comprehensive warning suppression
-warnings.filterwarnings('ignore')
-os.environ['RDKIT_QUIET'] = '1'
-os.environ['PYTHONWARNINGS'] = 'ignore'
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # TensorFlow warnings
-os.environ['CUDA_LAUNCH_BLOCKING'] = '0'
+warnings.filterwarnings("ignore")
+os.environ["RDKIT_QUIET"] = "1"
+os.environ["PYTHONWARNINGS"] = "ignore"
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
+os.environ["CUDA_LAUNCH_BLOCKING"] = "0"
 
-# Suppress all logging
 logging.getLogger().setLevel(logging.ERROR)
-for logger_name in ['rdkit', 'tensorflow', 'torch', 'transformers', 'pytorch']:
+for logger_name in ["rdkit", "tensorflow", "torch", "transformers", "pytorch"]:
     logging.getLogger(logger_name).setLevel(logging.ERROR)
 
-# Also set RDKit logger to suppress messages
 try:
     from rdkit import RDLogger
-    RDLogger.DisableLog('rdApp.*')
+
+    RDLogger.DisableLog("rdApp.*")
 except ImportError:
     pass
 
-# Redirect stderr to suppress various C++ warnings (like NNPACK)
-import io
-from contextlib import redirect_stderr
-
-# Add the src directory to the Python path
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'src'))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "src"))
 
 from pep_compass.optimization.baselines.random_mutation import RandomMutationOptimizer
-from pep_compass.optimization.black_box.battleamp_black_box import BattleAMPBlackBox
+from pep_compass.optimization.black_box.apex_black_box import APEXBlackBox
 from pep_compass.optimization.black_box.csv_observer import CSVObserver
-from pep_compass.optimization.black_box.toxipep_black_box import ToxiPepBlackBox
 
-DEVICE = "cuda"
-DEVICE = "cpu"
-# black_box = APEXBlackBox(
-#     mic_aggregate="mean",
-#     mic_bacteria=[1, 2, 3],
-#     device=DEVICE,
-# )
-
-# black_box = BattleAMPBlackBox(device=DEVICE)
-
-black_box = ToxiPepBlackBox(device=DEVICE)
-
-observer = CSVObserver(maximize = True)
-black_box.set_observer(observer)
-
-optimizer = RandomMutationOptimizer(
-    black_box=black_box,
-)
-
-proteins = {
-    "middle-1": ("FLYKWWIRIGRLKL", 5),
-    "jurand-4": ("KYCRRFRWLTFRWL", 5),
-    "jurand-2": ("KFRNRHRWKFKLIFRN", 5),
-    "jurand-7": ("KKYWLIRKWIRLWFLT", 5),
-    "mammuthusin-3": ("KTLKIIRLLF", 5),
-    "hydrodamin-2": ("RMARNLVRYVQGLKKKKVI", 5),
+DEFAULT_PROTEINS = {
+    "KY14": "KYCRRFRWLTFRWL",
+    "middle-1": "FLYKWWIRIGRLKL",
+    "jurand-4": "KYCRRFRWLTFRWL",
+    "jurand-2": "KFRNRHRWKFKLIFRN",
+    "jurand-7": "KKYWLIRKWIRLWFLT",
+    "mammuthusin-3": "KTLKIIRLLF",
+    "hydrodamin-2": "RMARNLVRYVQGLKKKKVI",
 }
 
-for i in range(5):
-    for name, (sequence, _) in proteins.items():
-        print(f"Starting optimization for {name}, iteration {i+1}")
-        rng_seed = int(time.time())  # Create a unique rng_seed for each iteration
+
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Run APEX random mutation optimization with optional ESM2 PLL filtering."
+    )
+    parser.add_argument(
+        "--device",
+        default="cuda:0",
+        help="Device for APEX black-box model.",
+    )
+    parser.add_argument(
+        "--mic-aggregate",
+        default="mean",
+        choices=["mean", "min", "max"],
+        help="How to aggregate APEX pathogen MIC predictions.",
+    )
+    parser.add_argument(
+        "--mic-bacteria",
+        nargs="+",
+        type=int,
+        default=[1, 2, 3],
+        help="Bacteria IDs used by APEX black box.",
+    )
+    parser.add_argument(
+        "--esm-device",
+        default="cpu",
+        help="Device for ESM scoring model.",
+    )
+    parser.add_argument(
+        "--esm-model-name",
+        default="esm2_t6_8M_UR50D",
+        help="ESM2 model name for PLL filtering.",
+    )
+    parser.add_argument(
+        "--esm-ppl-threshold",
+        type=float,
+        default=-0.5,
+        help="Reject mutation candidates with PLL below this threshold.",
+    )
+    parser.add_argument(
+        "--disable-esm-filter",
+        action="store_true",
+        help="Disable ESM PLL filtering.",
+    )
+    parser.add_argument(
+        "--esm-max-resampling-attempts",
+        type=int,
+        default=200,
+        help="Max mutation retries per step to satisfy ESM threshold.",
+    )
+    parser.add_argument(
+        "--evaluation-budget",
+        type=int,
+        default=1400,
+        help="Number of random mutation steps.",
+    )
+    parser.add_argument(
+        "--protein-key",
+        default="KY14",
+        help="Protein name for experiment metadata.",
+    )
+    parser.add_argument(
+        "--starting-sequence",
+        default=None,
+        help="Starting peptide sequence. Required for unknown protein keys.",
+    )
+    parser.add_argument(
+        "--repeats",
+        type=int,
+        default=1,
+        help="Number of repeated runs.",
+    )
+    parser.add_argument(
+        "--output-path",
+        default="./results/random_mutation",
+        help="Base path for CSV observer output.",
+    )
+    return parser.parse_args()
+
+
+def main() -> None:
+    args = _parse_args()
+
+    black_box = APEXBlackBox(
+        mic_aggregate=args.mic_aggregate,
+        mic_bacteria=args.mic_bacteria,
+        device=args.device,
+    )
+    observer = CSVObserver(maximize=black_box.maximize)
+    black_box.set_observer(observer)
+
+    default_sequence = DEFAULT_PROTEINS.get(args.protein_key)
+    sequence = args.starting_sequence or default_sequence
+    if not sequence:
+        available = ", ".join(sorted(DEFAULT_PROTEINS))
+        raise ValueError(
+            f"No sequence configured for protein '{args.protein_key}'. "
+            f"Provide --starting-sequence. Available preset keys: {available}"
+        )
+
+    optimizer = RandomMutationOptimizer(
+        black_box=black_box,
+        esm_model_name=None if args.disable_esm_filter else args.esm_model_name,
+        esm_ppl_threshold=args.esm_ppl_threshold,
+        esm_device=args.esm_device,
+        esm_max_resampling_attempts=args.esm_max_resampling_attempts,
+    )
+
+    for repeat_idx in range(args.repeats):
+        print(f"Starting optimization for {args.protein_key}, iteration {repeat_idx + 1}")
+        rng_seed = int(time.time())
+
         observer.initialize_observer(
             black_box.get_black_box_info(),
             {
-                "experiment_id": f"{sequence}_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
-                "experiment_path": "./results/random_mutation",
+                "experiment_id": f"{args.protein_key}_{rng_seed}_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
+                "experiment_path": args.output_path,
             },
             rng_seed,
-            
         )
-        # Suppress stderr during optimization to hide RDKit and NNPACK warnings
+
         devnull = io.StringIO()
         old_stderr = sys.stderr
         try:
             sys.stderr = devnull
             with redirect_stderr(devnull):
                 optimizer.optimize(
-                    evaluation_budget=1400, starting_point=sequence, rng_seed=rng_seed
+                    evaluation_budget=args.evaluation_budget,
+                    starting_point=sequence,
+                    rng_seed=rng_seed,
                 )
         finally:
             sys.stderr = old_stderr
+
+
+if __name__ == "__main__":
+    main()
 
