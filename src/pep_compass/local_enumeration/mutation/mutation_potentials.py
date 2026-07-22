@@ -25,7 +25,7 @@ class MutantDistribution(NamedTuple):
     """Scored peptide candidates ordered from the highest potential."""
 
     sequences: list[str]
-    log_potentials: np.ndarray
+    log_potentials: np.ndarray # 1-D float64, sorted descending
 
 
 class MutationPotential(ABC):
