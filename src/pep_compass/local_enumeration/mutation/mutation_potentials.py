@@ -42,7 +42,16 @@ class MutationPotential(ABC):
         parent_peptide: str,
         mutations: dict[int, list[int]],
     ) -> dict[int, dict[int, float]] | dict[tuple[int, ...], float]:
-        """Compute potentials for candidate mutations."""
+        """Return per-position, per-amino-acid log-potentials.
+
+        Args:
+            parent_peptide: The parent peptide sequence.
+            mutations: Mapping from position index to candidate amino acid
+                indices (same format as ``get_mutations_from_s_u_standard``).
+
+        Returns:
+            Nested dict ``{position: {aa_index: potential_value}}``.
+        """```
 
 
 class DecoderLogProbabilityPotential(MutationPotential):
