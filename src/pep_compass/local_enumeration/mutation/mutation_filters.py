@@ -1,4 +1,11 @@
-"""Candidate filters for LPBEBO, LAMS, TANDEM, MOVE and random controls."""
+"""Candidate filters for LPBEBO, LAMS, TANDEM, MOVE, and random controls.
+
+The historical ``rl_trials`` scripts embedded a potential builder, Cartesian
+product limiting, selection logic, and a complete SORBES loop in every file.
+Here those responsibilities are split: potentials only score choices, filters
+turn a MUTANG mutation map into selected peptide strings, and local enumerators
+own the optional SORBES trajectory.
+"""
 
 from __future__ import annotations
 
@@ -28,6 +35,7 @@ def _nucleus_indices(
     top_p: float,
     temperature: float,
 ) -> np.ndarray:
+    """Select the smallest descending-score prefix with probability mass ``top_p``."""
     if not 0.0 < top_p <= 1.0:
         raise ValueError("top_p must be in (0, 1]")
     if temperature <= 0.0:
@@ -51,6 +59,12 @@ def _bounded_mutations(
     alphabet: list[str],
     maximum_candidates: int,
 ) -> dict[int, list[int]]:
+    """Randomly reduce a mutation product until it fits the candidate budget.
+
+    Parent residues are retained so combinations with a subset of positions
+    mutated remain possible. This replaces the per-script ``_cap_mutations``
+    implementations from ``lebo_plus.py``, ``lpbebo_plus.py``, and ``move.py``.
+    """
     padded_parent = parent_peptide.ljust(25)
     choices = {
         position: sorted(set(amino_acids) | {alphabet.index(padded_parent[position])})
@@ -113,7 +127,12 @@ class MutationCandidateFilter(ABC):
 
 
 class LpbeboFilter(MutationCandidateFilter):
-    """LPBEBO filter based on decoder log-probability and nucleus selection."""
+    """LPBEBO: decoder log-probability followed by nucleus selection.
+
+    MUTANG supplies allowed residues. Their decoder log-probabilities at the
+    parent latent point are added for each Cartesian-product candidate, then
+    temperature-scaled top-p selection retains the most probable mass.
+    """
 
     def __init__(
         self,
@@ -151,6 +170,13 @@ class LpbeboFilter(MutationCandidateFilter):
 
 
 class _GeometryFilter(MutationCandidateFilter):
+    """Build a fresh tangent-space potential at the current parent peptide.
+
+    This replaces ``DynamicSORBESPairwiseSimilarityPotential`` and
+    ``DynamicSORBESMutangPlusPotential`` from the historical scripts. The
+    decoder Jacobian is decomposed once per filter call; its SVD initializes the
+    canonical ``SubRiemannianTangentSpace`` used by both LAMS and TANDEM.
+    """
     def __init__(
         self,
         encoder_decoder: HydrAMPEncoderDecoder,
@@ -184,7 +210,13 @@ class _GeometryFilter(MutationCandidateFilter):
 
 
 class LamsFilter(_GeometryFilter):
-    """LAMS hard filter over the minimum pairwise projected cosine."""
+    """LAMS hard filter over the product viability score.
+
+    The parent residue is included at each mutable position, every non-parent
+    combination is scored by ``LamsAnchorSimilarityPotential``, and only scores
+    greater than or equal to ``similarity_threshold`` survive. No decoder
+    probability or nucleus selection is applied.
+    """
 
     def __init__(self, *args, similarity_threshold: float = 0.15, **kwargs):
         super().__init__(*args, **kwargs)
@@ -219,7 +251,13 @@ class LamsFilter(_GeometryFilter):
 
 
 class TandemFilter(_GeometryFilter):
-    """TANDEM pairwise potential followed by nucleus selection."""
+    """TANDEM pairwise potential followed by nucleus selection.
+
+    This is the reusable replacement for ``SamplingWithMutangPlusPlusLocalEnumerator``.
+    It includes parent residues, scores the complete product with projected
+    pairwise direction similarities, and retains a temperature-scaled top-p
+    probability mass.
+    """
 
     def __init__(
         self,
@@ -255,7 +293,14 @@ class TandemFilter(_GeometryFilter):
 
 
 class MoveFilter(MutationCandidateFilter):
-    """MOVE filter based on net latent displacement of a mutation combination."""
+    """MOVE filter based on net latent displacement of a mutation combination.
+
+    Every distinct single substitution is encoded once. Its displacement from
+    the parent embedding is cached, and displacements are added for each
+    multi-mutant as a first-order superposition. The score is the negative norm
+    of that sum, so nucleus selection favours candidates predicted to remain
+    locally close to the parent. This replaces ``SamplingWithMoveLocalEnumerator``.
+    """
 
     def __init__(
         self,
@@ -330,7 +375,14 @@ class MoveFilter(MutationCandidateFilter):
 
 
 class RandomLeBoFilter(MutationCandidateFilter):
-    """Random proposal and random-selection controls for geometry-aware filters."""
+    """Random proposal and random-selection controls for geometry-aware filters.
+
+    ``walker`` discards MUTANG choices and samples positions and target residues
+    uniformly. ``mutang_random`` preserves the MUTANG candidate product, assigns
+    random probability mass, and keeps a random top-p nucleus, isolating the
+    value of the LAMS/TANDEM/MOVE scoring rule. This replaces
+    ``RandomLocalEnumerator`` from ``rl_trials/scripts/random_lebo.py``.
+    """
 
     def __init__(
         self,
@@ -375,6 +427,12 @@ class RandomLeBoFilter(MutationCandidateFilter):
             parent_peptide, mutations, self.alphabet, self.maximum_candidates
         )
         if self.mode == "mutang_random" and sequences:
-            count = max(1, math.ceil(len(sequences) * self.selection_fraction))
-            sequences = random.sample(sequences, min(count, len(sequences)))
+            random_mass = np.random.random(len(sequences))
+            random_mass /= random_mass.sum()
+            order = np.argsort(random_mass)[::-1]
+            cumulative = np.cumsum(random_mass[order])
+            keep = np.empty(len(sequences), dtype=bool)
+            keep[0] = True
+            keep[1:] = cumulative[:-1] < self.selection_fraction
+            sequences = [sequences[index] for index in order[keep]]
         return sequences

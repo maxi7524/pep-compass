@@ -1,4 +1,10 @@
-"""Potentials used to score combinations of MUTANG mutations."""
+"""Potentials used to score combinations of MUTANG mutations.
+
+This module consolidates the reusable parts of the historical
+``mutation/mutation_potentials.py`` modules and the experiment-local potential
+classes from ``rl_trials``. Experiment orchestration is intentionally kept in
+the runner and filters; this module only represents and scores mutation choices.
+"""
 
 from __future__ import annotations
 
@@ -26,11 +32,16 @@ class MutantDistribution(NamedTuple):
     """Scored peptide candidates ordered from the highest potential."""
 
     sequences: list[str]
-    log_potentials: np.ndarray
+    log_potentials: np.ndarray  # 1-D float64, sorted descending
 
 
 class MutationPotential(ABC):
-    """Base interface for mutation potentials."""
+    """Base class for mutation potential functions.
+
+    Subclasses implement ``compute``, which maps a parent peptide and a set of
+    candidate single-position mutations either to independent residue scores or
+    to scores for complete Cartesian-product combinations.
+    """
 
     @abstractmethod
     def compute(
@@ -38,11 +49,22 @@ class MutationPotential(ABC):
         parent_peptide: str,
         mutations: dict[int, list[int]],
     ) -> dict[int, dict[int, float]] | dict[tuple[int, ...], float]:
-        """Compute potentials for candidate mutations."""
+        """Return scores for candidate mutation choices.
+
+        Args:
+            parent_peptide: Parent peptide sequence.
+            mutations: Position indices mapped to candidate amino-acid indices,
+                in the format returned by ``get_mutations_from_s_u``.
+
+        Returns:
+            Either per-position scores ``{position: {aa_index: score}}`` or
+            combination scores ``{aa_index_tuple: score}``. Tuple elements
+            follow ``sorted(mutations)``.
+        """
 
 
 class DecoderLogProbabilityPotential(MutationPotential):
-    """Score residues with decoder log-probability at the parent latent point."""
+    """Log-probability of each mutant residue under the parent distribution."""
 
     def __init__(
         self,
@@ -64,7 +86,7 @@ class DecoderLogProbabilityPotential(MutationPotential):
             softmax=False,
             log_softmax=True,
             flatten=False,
-        )[0]
+        )[0]  # (max_len, alphabet_size)
         return {
             position: {
                 amino_acid: log_probabilities[position, amino_acid].item()
@@ -75,7 +97,21 @@ class DecoderLogProbabilityPotential(MutationPotential):
 
 
 class ProjectedDirectionPairwiseSimilarityPotential(MutationPotential):
-    """TANDEM potential based on pairwise projected mutation directions."""
+    r"""TANDEM potential based on pairwise projected mutation directions.
+
+    For every complete combination, mutation directions are compared pairwise.
+    Mutated-mutated pairs contribute ``log((1 + cos) / 2)`` and pairs in which
+    exactly one residue is mutated contribute ``log((1 - cos) / 2)``. The
+    contributions are averaged over all pairs involving at least one mutation.
+    A single-position mutation has score zero because it has no pair.
+
+    The returned key is a tuple of amino-acid indices ordered according to
+    ``sorted(mutations)``. The all-parent combination is excluded.
+
+    ``onehot`` represents a change at position :math:`l` to residue :math:`a`
+    by :math:`e_{l,a}`. ``diff`` represents the actual displacement from the
+    parent, :math:`e_{l,a} - e_{l,p_l}`.
+    """
 
     def __init__(
         self,
@@ -89,6 +125,9 @@ class ProjectedDirectionPairwiseSimilarityPotential(MutationPotential):
             raise ValueError("direction_mode must be 'onehot' or 'diff'")
         self.tangent_space = tangent_space
         self.alphabet = alphabet or DEFAULT_ALPHABET
+        # "onehot": the direction is the ambient one-hot e_(position, target).
+        # "diff": it is e_(position, target) - e_(position, parent), which
+        # represents movement from the current residue to the target residue.
         self.direction_mode = direction_mode
         self.taken_taken_transform = taken_taken_transform or self._log_taken_taken
         self.taken_not_taken_transform = (
@@ -104,6 +143,7 @@ class ProjectedDirectionPairwiseSimilarityPotential(MutationPotential):
         return torch.log(torch.clamp((1.0 - values) / 2.0, min=1e-12, max=1.0))
 
     def _projection_matrix(self) -> torch.Tensor:
+        """Return the cached horizontal ambient-to-latent projection matrix."""
         if self.tangent_space.projection_matrix is None:
             ambient_dimension = DEFAULT_MAX_LEN * len(self.alphabet)
             self.tangent_space.project_ambient_vector_to_horizontal_space(
@@ -116,6 +156,13 @@ class ProjectedDirectionPairwiseSimilarityPotential(MutationPotential):
         return self.tangent_space.projection_matrix
 
     def _raw_directions(self, flat_indices: torch.Tensor) -> torch.Tensor:
+        r"""Represent ambient one-hot directions by latent pull-backs.
+
+        This is Variant A from ``rl_trials``: ``J_h^+ e`` is read from columns
+        of the horizontal projection matrix. Euclidean cosine between these
+        vectors is therefore a whitened, inverse-singular-value-weighted
+        similarity.
+        """
         return self._projection_matrix()[:, flat_indices].T
 
     def position_vectors(
@@ -124,6 +171,12 @@ class ProjectedDirectionPairwiseSimilarityPotential(MutationPotential):
         amino_acids: torch.Tensor,
         parent_amino_acid: int,
     ) -> torch.Tensor:
+        """Return normalized candidate directions for one sequence position.
+
+        In ``onehot`` mode this returns representations of ``e_(position, aa)``.
+        In ``diff`` mode the parent representation is subtracted before
+        normalization; the identity choice consequently becomes a zero vector.
+        """
         flat_indices = position * len(self.alphabet) + amino_acids
         vectors = self._raw_directions(flat_indices)
         if self.direction_mode == "diff":
@@ -131,7 +184,7 @@ class ProjectedDirectionPairwiseSimilarityPotential(MutationPotential):
                 [position * len(self.alphabet) + parent_amino_acid],
                 device=amino_acids.device,
             )
-            vectors = vectors - self._raw_directions(parent_index)
+            vectors = vectors - self._raw_directions(parent_index)  # Broadcast (1, d).
         return vectors / (torch.linalg.norm(vectors, dim=1, keepdim=True) + 1e-12)
 
     @torch.no_grad()
@@ -144,6 +197,7 @@ class ProjectedDirectionPairwiseSimilarityPotential(MutationPotential):
         if not positions:
             return {}
 
+        # Parent indices identify identity choices in the Cartesian product.
         padded_parent = parent_peptide.ljust(DEFAULT_MAX_LEN)
         device = self.tangent_space.device
         parent_amino_acids = torch.tensor(
@@ -203,7 +257,15 @@ class ProjectedDirectionPairwiseSimilarityPotential(MutationPotential):
 
 
 class LamsAnchorSimilarityPotential(MutationPotential):
-    """LAMS product score for the best viable anchor in each candidate."""
+    """LAMS hard-viability score for a complete mutation combination.
+
+    This is the product variant from ``rl_trials/scripts/lebo_plus.py``. For
+    every pair of mutated residues, the whitened cosine is computed. The
+    candidate score is the minimum across those pairs, so every mutation in a
+    multi-mutant must remain compatible with every other mutation.
+    A candidate with one mutation has score ``+inf`` and therefore always passes
+    a finite downstream threshold. The all-parent candidate is excluded.
+    """
 
     def __init__(self, base_potential: ProjectedDirectionPairwiseSimilarityPotential):
         self.base_potential = base_potential
@@ -251,23 +313,21 @@ class LamsAnchorSimilarityPotential(MutationPotential):
                 [vectors[i][indices[:, i]] for i in range(len(positions))], dim=1
             )
             similarities = selected @ selected.transpose(1, 2)
-            partner_mask = mutation_mask.unsqueeze(1).expand_as(similarities)
-            diagonal = torch.eye(
-                len(positions), device=device, dtype=torch.bool
-            ).unsqueeze(0)
-            partner_mask = partner_mask & ~diagonal
-            anchor_minimum = torch.where(
-                partner_mask,
-                similarities,
-                torch.full_like(similarities, float("inf")),
+            left, right = torch.triu_indices(
+                len(positions), len(positions), offset=1, device=device
             )
-            anchor_minimum = anchor_minimum.min(dim=2).values
-            anchor_minimum = torch.where(
-                mutation_mask,
-                anchor_minimum,
-                torch.full_like(anchor_minimum, float("-inf")),
+            pair_similarities = similarities[:, left, right]
+            both_mutated = mutation_mask[:, left] & mutation_mask[:, right]
+            masked_similarities = torch.where(
+                both_mutated,
+                pair_similarities,
+                torch.full_like(pair_similarities, float("inf")),
             )
-            scores = anchor_minimum.max(dim=1).values
+            has_pair = both_mutated.any(dim=1)
+            scores = masked_similarities.min(dim=1).values
+            scores = torch.where(
+                has_pair, scores, torch.full_like(scores, float("inf"))
+            )
         return {
             tuple(amino_acids): float(score)
             for amino_acids, score in zip(
@@ -285,7 +345,14 @@ def compose_mutant_distribution(
     include_parent_residue: bool = False,
     maximum_candidates: int | None = None,
 ) -> MutantDistribution:
-    """Compose, score and sort the Cartesian product of mutation choices."""
+    """Compose, score, and sort the Cartesian product of mutation choices.
+
+    Per-position potentials are added across positions. Tuple-keyed potentials
+    already describe complete combinations and are materialized directly. When
+    requested, the parent's residue is added at each position so the product
+    includes candidates mutating only a subset of the available positions.
+    ``maximum_candidates`` limits the returned highest-scoring rows.
+    """
     alphabet = alphabet or DEFAULT_ALPHABET
     padded_parent = parent_peptide.ljust(max_len)
     augmented = {

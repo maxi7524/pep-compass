@@ -117,7 +117,19 @@ class SamplingMutationLocalEnumerator(LocalEnumerator):
 
 
 class SamplingFilteredMutationLocalEnumerator(SamplingMutationLocalEnumerator):
-    """SORBES/MUTANG local enumeration with a configurable candidate filter."""
+    """SORBES/MUTANG local enumeration with a configurable candidate filter.
+
+    This class contains the trajectory loop duplicated by the historical
+    ``SamplingWithMutangPlusLocalEnumerator``,
+    ``SamplingWithMutangPlusPlusLocalEnumerator``,
+    ``SamplingWithMoveLocalEnumerator``, and ``RandomLocalEnumerator`` classes.
+    Their method-specific candidate logic now lives in ``mutation_filters.py``.
+
+    Each step advances canonical SORBES, extracts ``U`` and ``S`` from the step,
+    asks canonical MUTANG for candidate residue indices, delegates scoring and
+    selection to ``candidate_filter``, and finally applies the Levenshtein radius
+    relative to the original trajectory center.
+    """
 
     def __init__(
         self,
@@ -422,7 +434,13 @@ class MutationLocalEnumerator(LocalEnumerator):
 
 
 class FilteredMutationLocalEnumerator(MutationLocalEnumerator):
-    """Single-point MUTANG enumeration with a configurable candidate filter."""
+    """Single-point MUTANG enumeration with a configurable candidate filter.
+
+    Unlike ``SamplingFilteredMutationLocalEnumerator``, this path does not walk
+    with SORBES. It computes the decoder Jacobian at the optimization center,
+    obtains MUTANG choices from its SVD, applies the configured filter once, and
+    enforces the Levenshtein radius. The runner uses it for LPBEBO.
+    """
 
     def __init__(
         self,
