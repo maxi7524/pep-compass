@@ -16,6 +16,7 @@ from pep_compass.optimization.black_box.toxipep_black_box import AbstractBlackBo
 from pep_compass.optimization.lebo.fingerprints import Map4Fingerprint
 from pep_compass.optimization.lebo.kernel import TanimotoSimilarityKernel
 from pep_compass.optimization.optimizer import AbstractOptimizer
+from pep_compass.utils.blosum_utils import blosum_score, load_blosum
 from pep_compass.utils.utils import Timer, set_seed
 
 logger = logging.getLogger(__name__)
@@ -40,6 +41,8 @@ class LocalEnumerationBayesianOptimizer(AbstractOptimizer):
         acquisition_batch_size: int = 64,
         standardize: bool = False,
         best_as_center: bool = False,
+        blosum_diversity_matrix: int | None = None,
+        blosum_diversity_max_score: float | None = None,
     ):
         super().__init__(black_box)
 
@@ -48,6 +51,19 @@ class LocalEnumerationBayesianOptimizer(AbstractOptimizer):
         self.map4 = Map4Fingerprint(input_type="fasta", chiral=False)
         self.evaluations_per_iteration = evaluations_per_iteration
         self.levenstain_diversity_threshold = levenstain_diversity_threshold
+        self.blosum_diversity_matrix = (
+            load_blosum(blosum_diversity_matrix)
+            if blosum_diversity_matrix is not None
+            else None
+        )
+        self.blosum_diversity_max_score = blosum_diversity_max_score
+        if (
+            self.blosum_diversity_matrix is not None
+            and self.blosum_diversity_max_score is None
+        ):
+            raise ValueError(
+                "blosum_diversity_max_score is required when BLOSUM diversity is enabled"
+            )
         self.initial_peptides_number = initial_peptides_number
         self.acquisition_batch_size = acquisition_batch_size
 
@@ -212,10 +228,23 @@ class LocalEnumerationBayesianOptimizer(AbstractOptimizer):
 
                 remaining_inices = []
                 for i, peptide in enumerate(test_peptides):
-                    if (
-                        Levenshtein.distance(peptide, best_improvement_peptide)
-                        > self.levenstain_diversity_threshold
-                    ):
+                    if self.blosum_diversity_matrix is not None:
+                        is_diverse = (
+                            blosum_score(
+                                peptide,
+                                best_improvement_peptide,
+                                self.blosum_diversity_matrix,
+                            )
+                            < self.blosum_diversity_max_score
+                        )
+                    else:
+                        is_diverse = (
+                            Levenshtein.distance(
+                                peptide, best_improvement_peptide
+                            )
+                            > self.levenstain_diversity_threshold
+                        )
+                    if is_diverse:
                         remaining_inices.append(i)
 
                 test_peptides = [test_peptides[i] for i in remaining_inices]

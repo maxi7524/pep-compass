@@ -101,24 +101,31 @@ class MutationEnumerationInTangentSpace(MutationEnumerator):
         )
         assert s.ndim == 1, ValueError(f"s should be 1D, got {s.ndim}D instead.")
         assert u.ndim == 2, ValueError(f"u should be 2D, got {u.ndim}D instead.")
-        number_of_directions = max(
-            (s > self.direction_significance_threshold).sum(),
-            self.min_number_of_directions,
+        number_of_directions = min(
+            max(
+                int((s > self.direction_significance_threshold).sum()),
+                self.min_number_of_directions,
+            ),
+            u.shape[1],
         )
         mutations = defaultdict(list)
         for direction_nb in range(number_of_directions):
             current_table = np.abs(
                 u[:, direction_nb].reshape((self.max_len, len(self.alphabet)))
             )
-            change_position = current_table.sum(
-                axis=1
-            ).argmax()  # NOTE: this looks like an assumption that a single direction in the latent corresponds to change on a single position. wouldnt it make sense to compute SVD over positions separately (even smaller sample size tho)?
 
-            for j in range(1, current_table.shape[1]):
-                if current_table[change_position, j] > self.token_threshold:
-                    mutations[change_position].append(j)
+            # Max: wcześniej wybieraliśmy tylko jedną pozycję z kierunku i gubiliśmy
+            # mutacje; algorytm MUTANG progował wszystkie pozycje i tokeny.
+            positions, amino_acids = np.nonzero(
+                current_table[:, 1:] >= self.token_threshold
+            )
+            for position, amino_acid in zip(positions, amino_acids + 1):
+                mutations[int(position)].append(int(amino_acid))
 
-        return mutations
+        return {
+            position: sorted(set(amino_acids))
+            for position, amino_acids in mutations.items()
+        }
 
     def aux_mutate(
         self,

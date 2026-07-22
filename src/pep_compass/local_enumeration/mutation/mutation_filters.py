@@ -1,0 +1,380 @@
+"""Candidate filters for LPBEBO, LAMS, TANDEM, MOVE and random controls."""
+
+from __future__ import annotations
+
+import itertools
+import math
+import random
+from abc import ABC, abstractmethod
+
+import numpy as np
+import torch
+
+from pep_compass.local_enumeration.mutation.mutation_potentials import (
+    DEFAULT_ALPHABET,
+    DecoderLogProbabilityPotential,
+    LamsAnchorSimilarityPotential,
+    ProjectedDirectionPairwiseSimilarityPotential,
+    compose_mutant_distribution,
+)
+from pep_compass.local_enumeration.sampling_walker import SubRiemannianTangentSpace
+from pep_compass.models.encoder_decoder.hydramp_encoder_decoder import (
+    HydrAMPEncoderDecoder,
+)
+
+
+def _nucleus_indices(
+    scores: np.ndarray,
+    top_p: float,
+    temperature: float,
+) -> np.ndarray:
+    if not 0.0 < top_p <= 1.0:
+        raise ValueError("top_p must be in (0, 1]")
+    if temperature <= 0.0:
+        raise ValueError("temperature must be positive")
+    if len(scores) == 0 or top_p == 1.0:
+        return np.arange(len(scores))
+    order = np.argsort(scores)[::-1]
+    scaled = scores[order] / temperature
+    probabilities = np.exp(scaled - scaled.max())
+    probabilities /= probabilities.sum()
+    cumulative = np.cumsum(probabilities)
+    keep = np.empty(len(scores), dtype=bool)
+    keep[0] = True
+    keep[1:] = cumulative[:-1] < top_p
+    return order[keep]
+
+
+def _bounded_mutations(
+    parent_peptide: str,
+    mutations: dict[int, list[int]],
+    alphabet: list[str],
+    maximum_candidates: int,
+) -> dict[int, list[int]]:
+    padded_parent = parent_peptide.ljust(25)
+    choices = {
+        position: sorted(set(amino_acids) | {alphabet.index(padded_parent[position])})
+        for position, amino_acids in mutations.items()
+    }
+    if not choices:
+        return {}
+
+    while math.prod(map(len, choices.values())) > maximum_candidates:
+        position = max(choices, key=lambda key: len(choices[key]))
+        parent_amino_acid = alphabet.index(padded_parent[position])
+        alternatives = [
+            amino_acid
+            for amino_acid in choices[position]
+            if amino_acid != parent_amino_acid
+        ]
+        if alternatives:
+            choices[position].remove(random.choice(alternatives))
+        elif len(choices) > 1:
+            del choices[position]
+        else:
+            break
+    return choices
+
+
+def _enumerate_sequences(
+    parent_peptide: str,
+    mutations: dict[int, list[int]],
+    alphabet: list[str],
+    maximum_candidates: int,
+) -> list[str]:
+    choices = _bounded_mutations(
+        parent_peptide, mutations, alphabet, maximum_candidates
+    )
+    positions = sorted(choices)
+    sequences = []
+    for amino_acids in itertools.product(
+        *(choices[position] for position in positions)
+    ):
+        sequence = list(parent_peptide)
+        for position, amino_acid in zip(positions, amino_acids):
+            if position < len(sequence):
+                sequence[position] = alphabet[amino_acid]
+        candidate = "".join(sequence)
+        if candidate != parent_peptide:
+            sequences.append(candidate)
+    return sequences
+
+
+class MutationCandidateFilter(ABC):
+    """Filter a MUTANG mutation pool into peptide candidates."""
+
+    @abstractmethod
+    def filter_candidates(
+        self,
+        parent_peptide: str,
+        mutations: dict[int, list[int]],
+    ) -> list[str]:
+        """Return selected peptide candidates."""
+
+
+class LpbeboFilter(MutationCandidateFilter):
+    """LPBEBO filter based on decoder log-probability and nucleus selection."""
+
+    def __init__(
+        self,
+        encoder_decoder: HydrAMPEncoderDecoder,
+        top_p: float = 0.9,
+        temperature: float = 1.0,
+        maximum_candidates: int = 6000,
+        alphabet: list[str] | None = None,
+    ):
+        self.alphabet = alphabet or DEFAULT_ALPHABET
+        self.potential = DecoderLogProbabilityPotential(encoder_decoder, self.alphabet)
+        self.top_p = top_p
+        self.temperature = temperature
+        self.maximum_candidates = maximum_candidates
+
+    def filter_candidates(
+        self,
+        parent_peptide: str,
+        mutations: dict[int, list[int]],
+    ) -> list[str]:
+        bounded = _bounded_mutations(
+            parent_peptide, mutations, self.alphabet, self.maximum_candidates
+        )
+        distribution = compose_mutant_distribution(
+            parent_peptide,
+            bounded,
+            self.potential,
+            alphabet=self.alphabet,
+            maximum_candidates=self.maximum_candidates,
+        )
+        selected = _nucleus_indices(
+            distribution.log_potentials, self.top_p, self.temperature
+        )
+        return [distribution.sequences[index] for index in selected]
+
+
+class _GeometryFilter(MutationCandidateFilter):
+    def __init__(
+        self,
+        encoder_decoder: HydrAMPEncoderDecoder,
+        horizontal_threshold: float = 0.1,
+        maximum_candidates: int = 6000,
+        alphabet: list[str] | None = None,
+    ):
+        self.encoder_decoder = encoder_decoder
+        self.horizontal_threshold = horizontal_threshold
+        self.maximum_candidates = maximum_candidates
+        self.alphabet = alphabet or DEFAULT_ALPHABET
+
+    @torch.no_grad()
+    def _pairwise_potential(
+        self, parent_peptide: str
+    ) -> ProjectedDirectionPairwiseSimilarityPotential:
+        latent_batch = self.encoder_decoder.encode_peptides([parent_peptide])
+        latent = latent_batch[0]
+        jacobian = self.encoder_decoder.decoder_jacobian(latent_batch)[0]
+        left, singular_values, right = torch.linalg.svd(jacobian, full_matrices=False)
+        tangent_space = SubRiemannianTangentSpace(
+            U=left,
+            S=singular_values,
+            V=right,
+            horizontal_threshold=self.horizontal_threshold,
+            device=str(latent.device),
+        )
+        return ProjectedDirectionPairwiseSimilarityPotential(
+            tangent_space, self.alphabet
+        )
+
+
+class LamsFilter(_GeometryFilter):
+    """LAMS hard filter over the minimum pairwise projected cosine."""
+
+    def __init__(self, *args, similarity_threshold: float = 0.15, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.similarity_threshold = similarity_threshold
+
+    def filter_candidates(
+        self,
+        parent_peptide: str,
+        mutations: dict[int, list[int]],
+    ) -> list[str]:
+        bounded = _bounded_mutations(
+            parent_peptide, mutations, self.alphabet, self.maximum_candidates
+        )
+        potential = LamsAnchorSimilarityPotential(
+            self._pairwise_potential(parent_peptide)
+        )
+        distribution = compose_mutant_distribution(
+            parent_peptide,
+            bounded,
+            potential,
+            alphabet=self.alphabet,
+            include_parent_residue=True,
+            maximum_candidates=self.maximum_candidates,
+        )
+        return [
+            sequence
+            for sequence, score in zip(
+                distribution.sequences, distribution.log_potentials
+            )
+            if score >= self.similarity_threshold
+        ]
+
+
+class TandemFilter(_GeometryFilter):
+    """TANDEM pairwise potential followed by nucleus selection."""
+
+    def __init__(
+        self,
+        *args,
+        top_p: float = 0.9,
+        temperature: float = 1.0,
+        **kwargs,
+    ):
+        super().__init__(*args, **kwargs)
+        self.top_p = top_p
+        self.temperature = temperature
+
+    def filter_candidates(
+        self,
+        parent_peptide: str,
+        mutations: dict[int, list[int]],
+    ) -> list[str]:
+        bounded = _bounded_mutations(
+            parent_peptide, mutations, self.alphabet, self.maximum_candidates
+        )
+        distribution = compose_mutant_distribution(
+            parent_peptide,
+            bounded,
+            self._pairwise_potential(parent_peptide),
+            alphabet=self.alphabet,
+            include_parent_residue=True,
+            maximum_candidates=self.maximum_candidates,
+        )
+        selected = _nucleus_indices(
+            distribution.log_potentials, self.top_p, self.temperature
+        )
+        return [distribution.sequences[index] for index in selected]
+
+
+class MoveFilter(MutationCandidateFilter):
+    """MOVE filter based on net latent displacement of a mutation combination."""
+
+    def __init__(
+        self,
+        encoder_decoder: HydrAMPEncoderDecoder,
+        top_p: float = 0.6,
+        temperature: float = 1.0,
+        maximum_candidates: int = 6000,
+        alphabet: list[str] | None = None,
+    ):
+        self.encoder_decoder = encoder_decoder
+        self.top_p = top_p
+        self.temperature = temperature
+        self.maximum_candidates = maximum_candidates
+        self.alphabet = alphabet or DEFAULT_ALPHABET
+
+    @torch.no_grad()
+    def filter_candidates(
+        self,
+        parent_peptide: str,
+        mutations: dict[int, list[int]],
+    ) -> list[str]:
+        sequences = _enumerate_sequences(
+            parent_peptide, mutations, self.alphabet, self.maximum_candidates
+        )
+        if not sequences:
+            return []
+        parent_latent = (
+            self.encoder_decoder.encode_peptides([parent_peptide])[0]
+            .detach()
+            .cpu()
+            .numpy()
+        )
+        single_mutations = {
+            (position, sequence[position])
+            for sequence in sequences
+            for position in range(len(parent_peptide))
+            if sequence[position] != parent_peptide[position]
+        }
+        single_keys = sorted(single_mutations)
+        single_sequences = []
+        for position, amino_acid in single_keys:
+            sequence = list(parent_peptide)
+            sequence[position] = amino_acid
+            single_sequences.append("".join(sequence))
+        single_latents = (
+            self.encoder_decoder.encode_peptides(single_sequences)
+            .detach()
+            .cpu()
+            .numpy()
+        )
+        displacements = {
+            key: single_latents[index] - parent_latent
+            for index, key in enumerate(single_keys)
+        }
+        scores = np.asarray(
+            [
+                -np.linalg.norm(
+                    sum(
+                        (
+                            displacements[(position, sequence[position])]
+                            for position in range(len(parent_peptide))
+                            if sequence[position] != parent_peptide[position]
+                        ),
+                        np.zeros_like(parent_latent),
+                    )
+                )
+                for sequence in sequences
+            ]
+        )
+        selected = _nucleus_indices(scores, self.top_p, self.temperature)
+        return [sequences[index] for index in selected]
+
+
+class RandomLeBoFilter(MutationCandidateFilter):
+    """Random proposal and random-selection controls for geometry-aware filters."""
+
+    def __init__(
+        self,
+        mode: str = "walker",
+        selection_fraction: float = 0.6,
+        maximum_positions: int = 5,
+        residues_per_position: int = 4,
+        maximum_candidates: int = 6000,
+        alphabet: list[str] | None = None,
+    ):
+        if mode not in {"walker", "mutang_random"}:
+            raise ValueError("mode must be 'walker' or 'mutang_random'")
+        self.mode = mode
+        self.selection_fraction = selection_fraction
+        self.maximum_positions = maximum_positions
+        self.residues_per_position = residues_per_position
+        self.maximum_candidates = maximum_candidates
+        self.alphabet = alphabet or DEFAULT_ALPHABET
+
+    def filter_candidates(
+        self,
+        parent_peptide: str,
+        mutations: dict[int, list[int]],
+    ) -> list[str]:
+        if self.mode == "walker":
+            positions = random.sample(
+                range(len(parent_peptide)),
+                min(len(parent_peptide), self.maximum_positions),
+            )
+            mutations = {
+                position: random.sample(
+                    [
+                        index
+                        for index, amino_acid in enumerate(self.alphabet[1:], start=1)
+                        if amino_acid != parent_peptide[position]
+                    ],
+                    self.residues_per_position,
+                )
+                for position in positions
+            }
+        sequences = _enumerate_sequences(
+            parent_peptide, mutations, self.alphabet, self.maximum_candidates
+        )
+        if self.mode == "mutang_random" and sequences:
+            count = max(1, math.ceil(len(sequences) * self.selection_fraction))
+            sequences = random.sample(sequences, min(count, len(sequences)))
+        return sequences
