@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 import logging
 import time
 from copy import deepcopy
 from datetime import datetime
+from itertools import product
 from pathlib import Path
 from typing import Any
 
@@ -42,6 +44,16 @@ from pep_compass.optimization.lebo.local_enumeration_bayesian_optimizer import (
 
 logger = logging.getLogger(__name__)
 
+SUPPORTED_METHODS = {
+    "lebo",
+    "lpbebo",
+    "lams",
+    "tandem",
+    "move",
+    "random_walker",
+    "random_mutang",
+}
+
 
 def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
     result = deepcopy(base)
@@ -65,11 +77,71 @@ def _load_config(path: Path, visited: set[Path] | None = None) -> dict[str, Any]
     if parent is not None:
         parent_config = _load_config(path.parent / parent, visited)
         config = _deep_merge(parent_config, config)
-    benchmark_path = config.pop("benchmark", None)
-    if benchmark_path is not None:
-        with (path.parent / benchmark_path).open(encoding="utf-8") as benchmark_file:
-            config["proteins"] = json.load(benchmark_file)["proteins"]
+    input_csv = config.get("input_csv")
+    if input_csv is not None:
+        config["input_csv"] = str((path.parent / input_csv).resolve())
     return config
+
+
+def _load_sequences(path: Path) -> list[dict[str, Any]]:
+    with path.open(encoding="utf-8", newline="") as input_file:
+        reader = csv.DictReader(input_file)
+        required_columns = {"name", "sequence"}
+        if reader.fieldnames is None or not required_columns.issubset(reader.fieldnames):
+            raise ValueError("Input CSV must contain name and sequence columns")
+        sequences = []
+        names = set()
+        for row_number, row in enumerate(reader, start=2):
+            name = row["name"].strip()
+            sequence = row["sequence"].strip().upper()
+            repetitions_text = (row.get("repetitions") or "1").strip()
+            if not name or not sequence:
+                raise ValueError(f"Empty name or sequence in CSV row {row_number}")
+            if name in names:
+                raise ValueError(f"Duplicate sequence name in input CSV: {name}")
+            repetitions = int(repetitions_text)
+            if repetitions < 1:
+                raise ValueError(
+                    f"Repetitions must be positive in CSV row {row_number}"
+                )
+            names.add(name)
+            sequences.append(
+                {"name": name, "sequence": sequence, "repetitions": repetitions}
+            )
+    if not sequences:
+        raise ValueError("Input CSV must contain at least one sequence")
+    return sequences
+
+
+def _set_nested_value(config: dict[str, Any], path: str, value: Any) -> None:
+    keys = path.split(".")
+    target = config
+    for key in keys[:-1]:
+        child = target.get(key)
+        if not isinstance(child, dict):
+            raise ValueError(f"Grid path does not reference a config object: {path}")
+        target = child
+    target[keys[-1]] = value
+
+
+def _expand_grid(config: dict[str, Any]) -> list[tuple[dict[str, Any], dict[str, Any]]]:
+    grid = config.pop("grid", {})
+    if not isinstance(grid, dict):
+        raise ValueError("grid must be an object mapping config paths to value lists")
+    if not grid:
+        return [({}, config)]
+    for path, values in grid.items():
+        if not isinstance(values, list) or not values:
+            raise ValueError(f"Grid values for {path} must be a non-empty list")
+    expanded = []
+    paths = list(grid)
+    for values in product(*(grid[path] for path in paths)):
+        parameters = dict(zip(paths, values))
+        variant = deepcopy(config)
+        for path, value in parameters.items():
+            _set_nested_value(variant, path, value)
+        expanded.append((parameters, variant))
+    return expanded
 
 
 def _parse_args() -> argparse.Namespace:
@@ -81,20 +153,32 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--output", type=Path, help="Override the output directory.")
     parser.add_argument("--budget", type=int, help="Override evaluations per run.")
     parser.add_argument("--seed", type=int, help="Base seed for reproducible runs.")
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Resolve the CSV and grid without loading models or running optimization.",
+    )
     return parser.parse_args()
 
 
 def _apply_overrides(
     config: dict[str, Any], args: argparse.Namespace
 ) -> dict[str, Any]:
+    grid = config.get("grid", {})
+
+    def override(path: str, value: Any) -> None:
+        config[path] = value
+        if isinstance(grid, dict):
+            grid.pop(path, None)
+
     if args.device is not None:
-        config["device"] = args.device
+        override("device", args.device)
     if args.output is not None:
-        config["output_path"] = str(args.output)
+        override("output_path", str(args.output))
     if args.budget is not None:
-        config["evaluation_budget"] = args.budget
+        override("evaluation_budget", args.budget)
     if args.seed is not None:
-        config["seed"] = args.seed
+        override("seed", args.seed)
     return config
 
 
@@ -242,14 +326,9 @@ def _build_optimizer(
     )
 
 
-def main() -> None:
-    args = _parse_args()
-    config = _apply_overrides(_load_config(args.config), args)
-    output_path = Path(config["output_path"])
-    output_path.mkdir(parents=True, exist_ok=True)
-    with (output_path / "resolved_config.json").open("w", encoding="utf-8") as file:
-        json.dump(config, file, indent=2)
-
+def _run_variant(
+    config: dict[str, Any], sequences: list[dict[str, Any]], output_path: Path
+) -> None:
     black_box = APEXBlackBox(
         mic_aggregate=config["apex"]["mic_aggregate"],
         mic_bacteria=config["apex"]["mic_bacteria"],
@@ -266,12 +345,13 @@ def main() -> None:
 
     run_index = 0
     base_seed = config.get("seed")
-    for name, protein in config["proteins"].items():
+    for protein in sequences:
         for _ in range(protein["repetitions"]):
             seed = (base_seed if base_seed is not None else int(time.time())) + run_index
             run_index += 1
             experiment_id = (
-                f"{config['method']}_{name}_{seed}_{datetime.now():%Y%m%d_%H%M%S}"
+                f"{config['method']}_{protein['name']}_{seed}_"
+                f"{datetime.now():%Y%m%d_%H%M%S}"
             )
             logger.info("Starting %s", experiment_id)
             observer.initialize_observer(
@@ -288,6 +368,45 @@ def main() -> None:
                 starting_point=protein["sequence"],
                 rng_seed=seed,
             )
+
+
+def main() -> None:
+    args = _parse_args()
+    config = _apply_overrides(_load_config(args.config), args)
+    if config.get("seed") is None:
+        config["seed"] = int(time.time())
+    sequences = _load_sequences(Path(config["input_csv"]))
+    output_root = Path(config["output_path"])
+    output_root.mkdir(parents=True, exist_ok=True)
+    variants = _expand_grid(config)
+    manifest_path = output_root / "grid_manifest.csv"
+    with manifest_path.open("w", encoding="utf-8", newline="") as manifest_file:
+        writer = csv.DictWriter(
+            manifest_file,
+            fieldnames=["grid_id", "output_path", "parameters"],
+        )
+        writer.writeheader()
+        for index, (parameters, variant) in enumerate(variants):
+            if variant.get("method") not in SUPPORTED_METHODS:
+                raise ValueError(f"Unsupported method: {variant.get('method')!r}")
+            grid_id = f"grid_{index:04d}"
+            variant_path = output_root / grid_id
+            variant_path.mkdir(parents=True, exist_ok=True)
+            variant["output_path"] = str(variant_path)
+            with (variant_path / "resolved_config.json").open(
+                "w", encoding="utf-8"
+            ) as config_file:
+                json.dump(variant, config_file, indent=2)
+            writer.writerow(
+                {
+                    "grid_id": grid_id,
+                    "output_path": str(variant_path),
+                    "parameters": json.dumps(parameters, sort_keys=True),
+                }
+            )
+            logger.info("Prepared %s with parameters %s", grid_id, parameters)
+            if not args.dry_run:
+                _run_variant(variant, sequences, variant_path)
 
 
 if __name__ == "__main__":

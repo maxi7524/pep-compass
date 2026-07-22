@@ -1,5 +1,5 @@
 {
-  "benchmark": "benchmark.json",
+  "input_csv": "peptides.csv",
   "device": "cuda:0",
   "evaluation_budget": 1400,
   "seed": null,

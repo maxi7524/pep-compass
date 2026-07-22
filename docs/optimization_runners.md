@@ -1,136 +1,204 @@
 # Optimization runners
 
-## LE-BO and APEX
+## Environment setup
 
-`scripts/run_lebo_apex.py`
-
-- Runs the APEX benchmark through one configurable LE-BO-family entry point.
-- Builds the HydrAMP encoder, tangent-space mutation enumerator, optional SORBES
-  walker and method-specific candidate filter, LE-BO optimizer, APEX black box,
-  and CSV observer.
-- Supports `lebo`, `lpbebo`, `lams`, `tandem`, `move`, `random_walker`, and
-  `random_mutang` through `configs/lebo_apex/*.json`.
-- Replaces five separate scripts introduced with LAMS, LPBEBO, MOVE, TANDEM,
-  and random LE-BO. The configurations hold the actual experimental variants.
-- Saves the resolved JSON configuration and the existing observer's CSV
-  trajectory under the configured output directory.
-
-Example:
+Run commands from the repository root. Create the project environment and
+install the APEX weights once:
 
 ```bash
-python scripts/run_lebo_apex.py --config configs/lebo_apex/tandem.json
+uv sync --extra cpu
+scripts/initialization/download_apex_models.sh
 ```
 
-`configs/lebo_apex/base.json`
+Use the project environment either through `uv run` or by activating it:
 
-- Defines shared APEX, encoder, mutation, walker, optimizer, and output settings.
-- Is inherited by each method configuration, avoiding script-level duplication.
+```bash
+source .venv/bin/activate
+```
 
-`configs/lebo_apex/benchmark.json`
+The default configuration uses `cuda:0`. For a CPU run, pass `--device cpu`.
+CPU support depends on the underlying HydrAMP and APEX model stack; a dry run
+does not load either model and can be used to validate input files and grids.
 
-- Defines starting peptides and repetition counts shared by all methods.
+## LE-BO APEX runner
 
-`configs/lebo_apex/{lebo,lpbebo,lams,tandem,move,random_walker,random_mutang}.json`
+The supported entry point is `scripts/run_lebo_apex.py`. It constructs, in
+order:
 
-- Select the candidate-generation method and override only its parameters.
-- They are experiment definitions, not independent runners.
+1. the HydrAMP encoder-decoder;
+2. MUTANG and, for applicable methods, the SORBES walker;
+3. the selected candidate filter;
+4. the LE-BO optimizer;
+5. the APEX black box and CSV trajectory observer.
 
-## Existing optimization scripts
+Run one predefined experiment:
 
-`scripts/run_lebo_optimization_{apex,battle,hydro,toxi}.py`
+```bash
+uv run python scripts/run_lebo_apex.py \
+  --config configs/lebo_apex/tandem.json
+```
 
-- Run baseline LE-BO against different black boxes.
-- Duplicate the experiment setup and differ mainly in oracle and benchmark data.
-- The APEX variant overlaps with `run_lebo_apex.py`; the others are not yet
-  represented by the unified configuration schema.
+Available method configurations are `lebo.json`, `lpbebo.json`, `lams.json`,
+`tandem.json`, `move.json`, `random_walker.json`, and `random_mutang.json`.
 
-`scripts/run_lebo_kappa_optimization_{battle,hydro,toxi}.py`
+Useful command-line overrides:
 
-- Run LE-BO sensitivity experiments for the walker threshold (`kappa`).
-- Duplicate the baseline scripts with a parameter sweep and different oracles.
+```bash
+uv run python scripts/run_lebo_apex.py \
+  --config configs/lebo_apex/lams.json \
+  --device cuda:0 \
+  --output results/lams_trial \
+  --budget 200 \
+  --seed 1234
+```
 
-`scripts/run_lebo_cond_0_0_optimization_{battle,hydro}.py`
+Use `--dry-run` before a large experiment. It validates the CSV, expands the
+grid, and writes resolved configurations without loading the models:
 
-- Run the HydrAMP condition `[0, 0]` ablation.
-- Duplicate the baseline setup with a changed encoder condition.
+```bash
+uv run python scripts/run_lebo_apex.py \
+  --config configs/lebo_apex/template.json \
+  --output /tmp/lebo_grid_check \
+  --dry-run
+```
 
-`scripts/run_random_mutation_optimization.py` and
-`scripts/run_random_mutation_optimization_{apex,battleamp,hydro}.py`
+## Input sequences
 
-- Run random-mutation baselines with oracle-specific setup.
-- They are variants of the same baseline but have diverged CLI and defaults.
-- `scripts/random_mutation_apex_gpu.sh` is a SLURM wrapper for the APEX variant.
+`input_csv` in `base.json` points to `peptides.csv`. The CSV has three columns:
 
-`scripts/run_cmaes_optimization_{battleamp,hydro,toxi}.py`
+```csv
+name,sequence,repetitions
+middle-1,FLYKWWIRIGRLKL,4
+new-peptide,ACDEFGHIK,3
+```
 
-- Run the CMA-ES baseline against three black boxes.
-- Duplicate most orchestration and differ mainly in oracle construction.
+- `name` is a unique label used in output filenames.
+- `sequence` is the starting peptide passed to `optimizer.optimize` as
+  `starting_point`. Optimization generates and evaluates candidates around this
+  sequence.
+- `repetitions` is optional and defaults to `1`. It controls how many
+  independent runs are made for that starting sequence. Repetitions receive
+  different seeds; the same seed schedule is reused across grid variants so
+  their results can be compared.
 
-`scripts/run_lambo_optimization_{apex,battle,hydro,toxi}.py`
+To add sequences, append rows to a CSV. To use another dataset, copy the file
+and override the path in a configuration located next to `base.json`:
 
-- Run LaMBO against different black boxes.
-- These are large, substantially duplicated standalone implementations; some
-  also embed their own CSV observer rather than using the shared observer.
+```json
+{
+  "extends": "base.json",
+  "input_csv": "my_peptides.csv",
+  "method": "lebo",
+  "output_path": "./results/my_lebo_run"
+}
+```
 
-`scripts/run_saasbo_optimization.py`
+Paths inherited from `base.json` are resolved relative to that configuration
+directory.
 
-- Runs the SAASBO baseline.
-- It is a distinct optimizer, not a wrapper around LE-BO.
+## Configuration and parameter grids
 
-`scripts/run_random_esm_apex.py`
+`base.json` contains one complete set of defaults. A method configuration uses
+`extends` and overrides only values that differ:
 
-- Runs an ESM-based random baseline against APEX.
-- It is distinct from both random mutation and the random LE-BO controls.
+```json
+{
+  "extends": "base.json",
+  "method": "tandem",
+  "output_path": "./results/tandem",
+  "filter": {
+    "top_p": 0.9,
+    "temperature": 1.0
+  }
+}
+```
 
-`scripts/mic_trial_one.py`
+Copy `configs/lebo_apex/template.json` to define a grid. The `grid` object maps
+dotted configuration paths to non-empty lists:
 
-- Performs a MIC prediction trial.
-- It is an evaluation utility, not an optimization runner.
+```json
+{
+  "extends": "base.json",
+  "output_path": "./results/tandem_grid",
+  "grid": {
+    "method": ["tandem"],
+    "filter.top_p": [0.6, 0.8, 0.9],
+    "filter.temperature": [0.5, 1.0],
+    "mutation.token_threshold": [0.05, 0.1],
+    "walker.horizontal_threshold": [0.05, 0.1]
+  }
+}
+```
 
-## RL and cluster wrappers
+Every value in `grid` must be a list, including a parameter with only one
+choice. The runner creates the Cartesian product, so the example produces
+`3 × 2 × 2 × 2 = 24` variants. Each variant runs every CSV row according to its
+`repetitions` value. Therefore the total number of optimizer runs is:
 
-`scripts/a2c_job_<peptide>.sh` and `scripts/a2c_ext_job_<peptide>.sh`
+```text
+number of grid variants × sum(repetitions in the input CSV)
+```
 
-- Submit per-peptide A2C experiments; the `ext` group uses the extended action
-  variant.
-- Every file repeats the same SLURM template with a different peptide name.
-- They target `scripts/rl_actor_critic_optimizer.py`, which is not present on
-  current `dev`, so the wrappers cannot currently run from this branch.
+Parameters that are themselves vectors use a list of complete values:
 
-`scripts/a2c_ext_{combo1,combo2,single3,single4}.sh`
+```json
+"encoder.default_condition": [[1.0, 1.0], [0.0, 0.0]],
+"apex.mic_bacteria": [[1, 2, 3], [1]]
+```
 
-- Batch selected extended A2C peptide experiments into individual SLURM jobs.
-- They are scheduling wrappers over the same missing A2C runner.
+Do not convert normal vector parameters in `base.json` into grids. Only values
+inside the explicit `grid` object are expanded.
 
-`scripts/rl_job_<peptide>.sh`, `scripts/rl_slurm_array.sh`, and
-`scripts/rl_slurm_job.sh`
+## Output and aggregation
 
-- Submit per-peptide, array, or single RL experiments.
-- They duplicate cluster and optimizer arguments at different scheduling
-  granularities.
-- They target `scripts/rl_peptide_optimizer.py`, which is not present on current
-  `dev`, so these wrappers cannot currently run from this branch.
+The output root contains:
 
-## Adam's experiment tracking
+```text
+results/tandem_grid/
+├── grid_manifest.csv
+├── grid_0000/
+│   ├── resolved_config.json
+│   └── <APEX black-box name>/*.csv
+└── grid_0001/
+    ├── resolved_config.json
+    └── <APEX black-box name>/*.csv
+```
 
-The history attributed to Adam added separate LE-BO, kappa, condition-ablation,
-random-mutation, CMA-ES, and SAASBO scripts and used `CSVObserver` for trajectory
-logging. No shared runner, SQLite schema, TensorBoard writer, or Weights & Biases
-integration is present in that history or on current `dev`. `sqlalchemy` and
-`wandb` are dependencies, but they are not used by these runners.
+- `grid_manifest.csv` maps every `grid_id` to its parameter combination and
+  output directory.
+- `resolved_config.json` records the complete configuration used by a variant.
+- Each observer CSV is one trajectory and contains timestamp, peptide sequence,
+  APEX score, and latent point.
 
-## Recommended follow-up architecture
+Combine every trajectory into one CSV with:
 
-Keep one runner with a registry of optimizer, local-enumerator, and black-box
-builders. Extend the versioned JSON configuration with oracle and benchmark
-selection before replacing the existing non-APEX scripts. Use TensorBoard for
-live scalar and distribution views, but keep SQLite as the durable source for
-runs, resolved parameters, parent-to-candidate relations, filtering decisions,
-and evaluations. CSV should remain an export format. Grid and SLURM launchers
-should generate configurations and invoke the same runner rather than duplicate
-experiment logic.
+```bash
+uv run python scripts/aggregate_lebo_results.py results/tandem_grid \
+  --output results/tandem_grid.csv
+```
 
-The next consolidation should move launchers into `scripts/cluster`, reusable
-experiment definitions into `configs`, and one-off analysis utilities into
-`scripts/analysis`. Existing scripts should only be removed after parity checks
-against the unified runner.
+The combined file adds `grid_id`, `method`, and `source_file`, allowing it to be
+joined with `grid_manifest.csv` and grouped in pandas, R, or another analysis
+tool. The original per-run files remain unchanged.
+
+## Existing standalone runners
+
+The following scripts predate the unified runner and still duplicate setup:
+
+- `run_lebo_optimization_{apex,battle,hydro,toxi}.py`: baseline LE-BO by oracle;
+- `run_lebo_kappa_optimization_{battle,hydro,toxi}.py`: walker-threshold sweep;
+- `run_lebo_cond_0_0_optimization_{battle,hydro}.py`: encoder-condition ablation;
+- `run_random_mutation_optimization*.py`: random-mutation baselines;
+- `run_cmaes_optimization_*.py`: CMA-ES baselines;
+- `run_lambo_optimization_*.py`: standalone LaMBO implementations;
+- `run_saasbo_optimization.py`: SAASBO baseline;
+- `run_random_esm_apex.py`: ESM random baseline.
+
+They are not configuration files for `run_lebo_apex.py`. They should be moved
+to the shared runner only after their oracle-specific behavior is represented
+and compared against the original scripts.
+
+The `a2c_*.sh` wrappers reference `scripts/rl_actor_critic_optimizer.py`, and the
+`rl_*.sh` wrappers reference `scripts/rl_peptide_optimizer.py`. Neither Python
+runner is present on current `dev`, so those wrappers cannot currently run from
+this branch.
