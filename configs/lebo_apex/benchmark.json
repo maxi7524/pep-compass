@@ -1,0 +1,10 @@
+{
+  "proteins": {
+    "middle-1": {"sequence": "FLYKWWIRIGRLKL", "repetitions": 4},
+    "jurand-4": {"sequence": "KYCRRFRWLTFRWL", "repetitions": 5},
+    "jurand-2": {"sequence": "KFRNRHRWKFKLIFRN", "repetitions": 5},
+    "jurand-7": {"sequence": "KKYWLIRKWIRLWFLT", "repetitions": 5},
+    "mammuthusin-3": {"sequence": "KTLKIIRLLF", "repetitions": 5},
+    "hydrodamin-2": {"sequence": "RMARNLVRYVQGLKKKKVI", "repetitions": 5}
+  }
+}

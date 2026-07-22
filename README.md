@@ -80,14 +80,14 @@ TBA
 ### Getting APEX model weights
 APEX weights are required for APEX-based evaluation/optimization.
 
-1. Clone the APEXGo repository:
-```bash
-git clone https://github.com/Yimeng-Zeng/APEXGo.git
-```
-2. Within that repository, locate the directory:
-   `optimization/apex_oracle/APEX_pathogen_models`
-3. Copy that directory into this project at:
-   `src/pep_compass/models/apex/APEX_pathogen_models`
+Run the initialization script from the repository root:
 
-After copying, you should have:
-`src/pep_compass/models/apex/APEX_pathogen_models/<model_files>`
+```bash
+scripts/initialization/download_apex_models.sh
+```
+
+The script downloads only
+`optimization/apex_oracle/APEX_pathogen_models` from
+[APEXGo](https://github.com/Yimeng-Zeng/APEXGo) and installs it in
+`src/pep_compass/models/apex/APEX_pathogen_models`. Existing weights are never
+overwritten.

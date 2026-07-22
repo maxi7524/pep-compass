@@ -1,0 +1,6 @@
+{
+  "extends": "base.json",
+  "method": "lams",
+  "output_path": "./results/lams",
+  "filter": {"similarity_threshold": 0.15}
+}

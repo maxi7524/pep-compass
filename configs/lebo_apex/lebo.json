@@ -1,0 +1,5 @@
+{
+  "extends": "base.json",
+  "method": "lebo",
+  "output_path": "./results/lebo"
+}

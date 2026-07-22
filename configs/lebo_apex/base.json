@@ -1,0 +1,58 @@
+{
+  "benchmark": "benchmark.json",
+  "device": "cuda:0",
+  "evaluation_budget": 1400,
+  "seed": null,
+  "apex": {
+    "mic_aggregate": "mean",
+    "mic_bacteria": [1, 2, 3]
+  },
+  "encoder": {
+    "jacobian_mode": "approx",
+    "default_condition": [1.0, 1.0],
+    "temperature": 1.0,
+    "jacobian_eps": 0.05,
+    "field_eps": 0.05
+  },
+  "mutation": {
+    "max_len": 25,
+    "direction_significance_threshold": 0.001,
+    "min_number_of_directions": 5,
+    "token_threshold": 0.1
+  },
+  "walker": {
+    "horizontal_threshold": 0.1,
+    "time_step": 0.01,
+    "max_horizontal_update_norm": 0.5,
+    "vertical_movement": true
+  },
+  "local_enumeration": {
+    "walker_trajectories": 10,
+    "walk_time_budget": 0.1,
+    "max_neighbour_levenshtein": 4
+  },
+  "filter": {
+    "maximum_candidates": 6000,
+    "top_p": 0.9,
+    "temperature": 1.0,
+    "similarity_threshold": 0.15,
+    "selection_fraction": 0.6,
+    "maximum_positions": 5,
+    "residues_per_position": 4
+  },
+  "optimizer": {
+    "initial_peptides": 1,
+    "best_as_center": false,
+    "acquisition_batch_size": 32,
+    "standardize": false,
+    "levenshtein_diversity_threshold": 2,
+    "evaluations_per_iteration": 3,
+    "turbo_success_tolerance": 100,
+    "turbo_failure_tolerance": 1,
+    "turbo_length_init": 2,
+    "turbo_length_min": 2,
+    "turbo_length_max": 2,
+    "blosum_diversity_matrix": null,
+    "blosum_diversity_max_score": null
+  }
+}

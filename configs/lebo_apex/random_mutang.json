@@ -1,0 +1,5 @@
+{
+  "extends": "base.json",
+  "method": "random_mutang",
+  "output_path": "./results/random_lebo_mutang"
+}
