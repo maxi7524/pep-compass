@@ -76,7 +76,7 @@ class DecoderLogProbabilityPotential(MutationPotential):
             softmax=False,
             log_softmax=True,
             flatten=False,
-        )[0]
+        )[0]  # (max_len, alphabet_size)
         return {
             position: {
                 amino_acid: log_probabilities[position, amino_acid].item()
