@@ -30,7 +30,11 @@ class MutantDistribution(NamedTuple):
 
 
 class MutationPotential(ABC):
-    """Base interface for mutation potentials."""
+    """Base class for mutation potential functions.
+
+    Subclasses must implement ``compute``, which maps a parent peptide and a
+    set of candidate single-position mutations to scalar potentials.
+    """
 
     @abstractmethod
     def compute(
