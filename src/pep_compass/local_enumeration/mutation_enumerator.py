@@ -115,7 +115,8 @@ class MutationEnumerationInTangentSpace(MutationEnumerator):
             )
 
             # Max: wcześniej wybieraliśmy tylko jedną pozycję z kierunku i gubiliśmy
-            # mutacje; algorytm MUTANG progował wszystkie pozycje i tokeny.
+            # resztę, zmieniłem implementację, żeby brało wszystkie propozycje i było
+            # zgodne z artykułem.
             positions, amino_acids = np.nonzero(
                 current_table[:, 1:] >= self.token_threshold
             )
