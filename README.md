@@ -30,34 +30,21 @@ or
 uv sync --extra cu128
 ```
 
-# Example script
-
-```
-python scripts/run_lebo_optimization_apex.py
-```
-
-# Random mutation with ESM PLL filtering
-
-Install dependencies:
+# Optimization runner
 
 ```bash
-uv sync
+uv run python scripts/run_optimization.py \
+  --config configs/optimization/lebo.json
 ```
 
-The random mutation runner supports ESM2 filtering where mutation candidates are rejected if
-`PLL < -0.5` (default threshold). The default model is the lightest ESM2 variant:
-`esm2_t6_8M_UR50D`.
-
-Example (KY14, 1400 steps, dry setup command):
-
-```bash
-python scripts/run_random_mutation_optimization.py --protein-key KY14 --evaluation-budget 1400 --esm-model-name esm2_t6_8M_UR50D --esm-ppl-threshold -0.5 --device cpu --esm-device cpu
-```
-
-To disable ESM filtering:
+The same runner supports parameter grids, multiple starting sequences, Slurm
+`srun`, all LE-BO variants, random mutation, CMA-ES, SAASBO, and LaMBO2. See
+[`docs/optimization_runners.md`](docs/optimization_runners.md) for the complete
+configuration reference. For example, run random mutation with ESM filtering:
 
 ```bash
-python scripts/run_random_mutation_optimization.py --disable-esm-filter
+uv run python scripts/run_optimization.py \
+  --config configs/optimization/random_mutation_esm.json
 ```
 
 # Baselines and BlackBoxes
@@ -80,14 +67,14 @@ TBA
 ### Getting APEX model weights
 APEX weights are required for APEX-based evaluation/optimization.
 
-1. Clone the APEXGo repository:
-```bash
-git clone https://github.com/Yimeng-Zeng/APEXGo.git
-```
-2. Within that repository, locate the directory:
-   `optimization/apex_oracle/APEX_pathogen_models`
-3. Copy that directory into this project at:
-   `src/pep_compass/models/apex/APEX_pathogen_models`
+Run the initialization script from the repository root:
 
-After copying, you should have:
-`src/pep_compass/models/apex/APEX_pathogen_models/<model_files>`
+```bash
+scripts/initialization/download_apex_models.sh
+```
+
+The script downloads only
+`optimization/apex_oracle/APEX_pathogen_models` from
+[APEXGo](https://github.com/Yimeng-Zeng/APEXGo) and installs it in
+`src/pep_compass/models/apex/APEX_pathogen_models`. Existing weights are never
+overwritten.
