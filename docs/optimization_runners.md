@@ -1,10 +1,22 @@
 # Optimization runner
 
-`scripts/run_optimization.py` is the common entry point for optimization
+`scripts/runner/run_optimization.py` is the common entry point for optimization
 experiments. A JSON configuration selects the optimizer, black box, LE-BO
 variant, input peptides, parameter grid, and execution backend. The runner
 materializes every run before loading a model, which makes a dry run sufficient
 to validate the complete grid and Slurm commands.
+
+The entry point only parses CLI overrides and starts prepared tasks. Supporting
+modules in the same directory separate responsibilities:
+
+- `configuration.py` loads inherited JSON, validates it, expands grids, reads
+  peptide CSV files, and materializes task manifests;
+- `builders.py` constructs black boxes, encoders, local enumerators, and
+  optimizers;
+- `execution.py` executes one task and provides the local-process and Slurm
+  backends;
+- `aggregate_optimization_results.py` combines legacy observer CSV files and
+  accepts both the historical `method` field and `candidate_strategy`.
 
 ## Quick start
 
@@ -13,11 +25,11 @@ Run commands from the repository root:
 ```bash
 uv sync --extra cu126
 bash scripts/initialization/download_apex_models.sh
-uv run python scripts/run_optimization.py \
-  --config configs/optimization/lebo.json \
+uv run python scripts/runner/run_optimization.py \
+  --config configs/optimization/experiments/lebo/lebo.json \
   --dry-run
-uv run python scripts/run_optimization.py \
-  --config configs/optimization/lebo.json
+uv run python scripts/runner/run_optimization.py \
+  --config configs/optimization/experiments/lebo/lebo.json
 ```
 
 > Use `--extra cpu`, `--extra cu126`, or `--extra cu128` to select the Torch
@@ -70,8 +82,8 @@ configuration at the new file:
 
 ```json
 {
-  "extends": "base.json",
-  "input_csv": "my_peptides.csv",
+  "extends": "../../base.json",
+  "input_csv": "../../peptides/my_peptides.csv",
   "output_path": "./results/my_experiment"
 }
 ```
@@ -85,9 +97,11 @@ Copy a small child configuration for a single experiment, or copy
 
 ```json
 {
-  "extends": "base.json",
+  "extends": "../../base.json",
   "output_path": "./results/tandem_grid",
-  "method": "tandem",
+  "optimizer": {
+    "lebo": {"candidate_strategy": "tandem"}
+  },
   "grid": {
     "filter.top_p": [0.6, 0.8, 0.9],
     "filter.temperature": [0.5, 1.0],
@@ -115,7 +129,7 @@ CLI overrides the corresponding top-level value from a grid so a single
 value is used:
 
 ```bash
-uv run python scripts/run_optimization.py \
+uv run python scripts/runner/run_optimization.py \
   --config configs/optimization/template.json \
   --device cuda:0 \
   --budget 200 \
@@ -132,7 +146,40 @@ uv run python scripts/run_optimization.py \
 - `device`: Torch device passed to compatible models and optimizers.
 - `evaluation_budget`: budget passed to `optimizer.optimize`.
 - `seed`: base task seed; `null` selects the current Unix time once.
-- `method`: LE-BO local-enumeration method. It is ignored by other optimizers.
+- `optimizer.lebo.candidate_strategy`: LE-BO candidate strategy. Available
+  values are `lebo`, `lpbebo`, `lams`, `tandem`, `move`, `random_walker`, and
+  `random_mutang`.
+
+### Tracking
+
+The `tracking.level` setting controls how much LE-BO provenance is persisted:
+
+- `short` writes iteration summaries and peptides evaluated by the black box;
+- `normal` additionally writes the generating trajectories of evaluated
+  peptides;
+- `full` additionally writes every locally accepted candidate that could enter
+  optimizer selection.
+
+Rejected peptide strings and duplicate generation events are not stored. Their
+effect is visible through the aggregate `generated_count`, `accepted_count`,
+and `rejected_count` columns. `tracking.store_latents` controls latent encoding
+for candidate rows; disable it when only sequence provenance is needed.
+
+Each LE-BO task writes a directory below
+`<output_path>/<grid_id>/tracking/<experiment_id>/` containing:
+
+- `tracking_metadata.json`: objective name, mathematical meaning, direction,
+  black-box parameters, candidate strategy, and tracking settings;
+- `iteration_statistics.csv`: one row per optimizer iteration;
+- `evaluations.csv`: raw black-box objective values with their meaning and
+  optimization direction;
+- `candidates.csv`: trajectory provenance for `normal` and `full` tracking.
+
+`trajectory_path` is a JSON list stored inside one CSV field. It contains the
+decoded sequence path from the iteration centre to the candidate. A candidate
+sequence is written once; repeated generation of the same sequence is ignored.
+`run_id`, `iteration_id`, `trajectory_id`, `step_id`, and `candidate_id` remain
+available after concatenating results from multiple tasks.
 
 ### Execution
 
@@ -146,7 +193,7 @@ uv run python scripts/run_optimization.py \
 The equivalent CLI invocation is:
 
 ```bash
-uv run python scripts/run_optimization.py \
+uv run python scripts/runner/run_optimization.py \
   --config configs/optimization/template.json \
   --execution srun \
   --max-parallel-runs 4 \
@@ -220,7 +267,7 @@ Random mutation and LaMBO2 operate on discrete peptide strings.
 - `walker.max_horizontal_update_norm`: horizontal step norm cap.
 - `walker.vertical_movement`: enable the vertical component.
 
-### Local enumeration and method filters
+### Local enumeration and candidate strategies
 
 - `local_enumeration.walker_trajectories`: SORBES trajectories per center.
 - `local_enumeration.walk_time_budget`: simulated time per trajectory.
@@ -233,10 +280,11 @@ Random mutation and LaMBO2 operate on discrete peptide strings.
 - `filter.maximum_positions` and `filter.residues_per_position`: random-walker
   proposal size.
 
-`method` selects `lebo`, `lpbebo`, `lams`, `tandem`, `move`, `random_walker`, or
-`random_mutang`. The runner builds canonical SORBES and MUTANG, then inserts the
-selected filter between MUTANG and the local enumerator. LPBEBO is the only
-single-Jacobian path; the other methods use the SORBES trajectory loop.
+`optimizer.lebo.candidate_strategy` selects `lebo`, `lpbebo`, `lams`, `tandem`,
+`move`, `random_walker`, or `random_mutang`. The runner builds canonical SORBES
+and MUTANG, then inserts the selected filter between MUTANG and the local
+enumerator. LPBEBO is the only single-Jacobian path; the other strategies use
+the SORBES trajectory loop.
 
 ## Configurations replacing standalone scripts
 
@@ -280,10 +328,10 @@ results/example/
 Aggregate trajectories without modifying the original files:
 
 ```bash
-uv run python scripts/aggregate_optimization_results.py results/example \
+uv run python scripts/runner/aggregate_optimization_results.py results/example \
   --output results/example.csv
 ```
 
-The aggregate adds `grid_id`, `optimizer`, `black_box`, `method`, and
+The aggregate adds `grid_id`, `optimizer`, `black_box`, `candidate_strategy`, and
 `source_file`. Join it with `grid_manifest.csv` for parameter-level analysis or
 with `run_manifest.csv` for starting sequence, repetition, and seed metadata.

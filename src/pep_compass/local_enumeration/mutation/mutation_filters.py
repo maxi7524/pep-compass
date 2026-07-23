@@ -136,6 +136,8 @@ def _enumerate_sequences(
 class MutationCandidateFilter(ABC):
     """Filter a MUTANG mutation pool into peptide candidates."""
 
+    last_generated_count: int = 0
+
     @abstractmethod
     def filter_candidates(
         self,
@@ -202,6 +204,7 @@ class LpbeboFilter(MutationCandidateFilter):
             alphabet=self.alphabet,
             maximum_candidates=self.maximum_candidates,
         )
+        self.last_generated_count = len(distribution.sequences)
         selected = _nucleus_indices(
             distribution.log_potentials, self.top_p, self.temperature
         )
@@ -306,6 +309,7 @@ class LamsFilter(_GeometryFilter):
             include_parent_residue=True,
             maximum_candidates=self.maximum_candidates,
         )
+        self.last_generated_count = len(distribution.sequences)
         return [
             sequence
             for sequence, score in zip(
@@ -364,6 +368,7 @@ class TandemFilter(_GeometryFilter):
             include_parent_residue=True,
             maximum_candidates=self.maximum_candidates,
         )
+        self.last_generated_count = len(distribution.sequences)
         selected = _nucleus_indices(
             distribution.log_potentials, self.top_p, self.temperature
         )
@@ -418,6 +423,7 @@ class MoveFilter(MutationCandidateFilter):
         sequences = _enumerate_sequences(
             parent_peptide, mutations, self.alphabet, self.maximum_candidates
         )
+        self.last_generated_count = len(sequences)
         if not sequences:
             return []
         parent_latent = (
@@ -536,6 +542,7 @@ class RandomLeBoFilter(MutationCandidateFilter):
         sequences = _enumerate_sequences(
             parent_peptide, mutations, self.alphabet, self.maximum_candidates
         )
+        self.last_generated_count = len(sequences)
         if self.mode == "mutang_random" and sequences:
             random_mass = np.random.random(len(sequences))
             random_mass /= random_mass.sum()

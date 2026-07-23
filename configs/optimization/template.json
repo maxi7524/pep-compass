@@ -4,7 +4,9 @@
   "grid": {
     "optimizer.name": ["lebo"],
     "black_box.name": ["apex"],
-    "method": ["lebo", "lpbebo", "lams", "tandem", "move", "random_walker", "random_mutang"],
+    "optimizer.lebo.candidate_strategy": ["lebo", "lpbebo", "lams", "tandem", "move", "random_walker", "random_mutang"],
+    "tracking.level": ["normal"],
+    "tracking.store_latents": [true],
     "evaluation_budget": [1400],
     "black_box.common.batch_size": [null],
     "black_box.common.parallelize": [false],

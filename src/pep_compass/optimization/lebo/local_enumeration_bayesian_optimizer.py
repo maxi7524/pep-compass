@@ -1,4 +1,5 @@
 import logging
+from typing import TYPE_CHECKING
 
 import Levenshtein
 import numpy as np
@@ -18,6 +19,9 @@ from pep_compass.optimization.lebo.kernel import TanimotoSimilarityKernel
 from pep_compass.optimization.optimizer import AbstractOptimizer
 from pep_compass.utils.blosum_utils import blosum_score, load_blosum
 from pep_compass.utils.utils import Timer, set_seed
+
+if TYPE_CHECKING:
+    from pep_compass.optimization.lebo.trajectory_tracking import LeboCSVTracker
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +47,7 @@ class LocalEnumerationBayesianOptimizer(AbstractOptimizer):
         best_as_center: bool = False,
         blosum_diversity_matrix: int | None = None,
         blosum_diversity_max_score: float | None = None,
+        tracker: "LeboCSVTracker | None" = None,
     ):
         super().__init__(black_box)
 
@@ -76,6 +81,9 @@ class LocalEnumerationBayesianOptimizer(AbstractOptimizer):
         self.turbo_decrease_step = turbo_decrease_step
         self.standardize = standardize
         self.best_as_center = best_as_center
+        self.tracker = tracker
+        self.candidate_provenance = {}
+        self.iteration_evaluations = []
 
         self.scored_peptides = {}
         self.not_scored_peptides_bktree = pybktree.BKTree(Levenshtein.distance)
@@ -111,6 +119,7 @@ class LocalEnumerationBayesianOptimizer(AbstractOptimizer):
         ]
 
     def _bayesian_optimization(self, max_scorer_calls) -> str:
+        self.iteration_evaluations = []
         # At the beggining of the search, score few random peptides to initialize the surrogate model
         if len(self.scored_peptides) == 1:
             self._initialize_scored_peptides()
@@ -264,6 +273,7 @@ class LocalEnumerationBayesianOptimizer(AbstractOptimizer):
 
                 # Add the peptides to evaluate to the scored peptides
                 self.scored_peptides[peptide] = score
+                self.iteration_evaluations.append((peptide, float(score)))
 
                 logger.info(f"Evaluated peptide {peptide} with score {score}")
 
@@ -358,6 +368,7 @@ class LocalEnumerationBayesianOptimizer(AbstractOptimizer):
         for peptide, score in zip(initial_peptides, initial_scores):
             self.scored_peptides[peptide] = score
             self.not_scored_peptides_set.remove(peptide)
+            self.iteration_evaluations.append((peptide, float(score)))
             if score < self.the_best_score:
                 self.the_best_peptide = peptide
                 self.the_best_score = score
@@ -377,6 +388,7 @@ class LocalEnumerationBayesianOptimizer(AbstractOptimizer):
         self.not_scored_peptides_bktree = pybktree.BKTree(Levenshtein.distance)
         self.not_scored_peptides_set = set()
         self.peptide_features.clear()
+        self.candidate_provenance = {}
         self._extract_features([starting_point])
 
         self.black_box_calls = 0
@@ -384,6 +396,31 @@ class LocalEnumerationBayesianOptimizer(AbstractOptimizer):
         self.the_best_score = self.scored_peptides[starting_point]
 
         self.timer.reset()
+
+        if self.tracker is not None:
+            from pep_compass.optimization.lebo.trajectory_tracking import (
+                EnumerationTrace,
+            )
+
+            self.tracker.record_iteration(
+                iteration_id=0,
+                center_sequence=starting_point,
+                trace=EnumerationTrace(),
+                evaluations=[
+                    (starting_point, self._raw_objective(starting_peptide_score))
+                ],
+                candidate_pool_size=0,
+                best_sequence=starting_point,
+                best_objective_value=self._raw_objective(starting_peptide_score),
+            )
+
+    def _raw_objective(self, optimizer_score: float) -> float:
+        """Convert the minimized internal score back to the black-box value."""
+        return (
+            -float(optimizer_score)
+            if self.black_box.maximize
+            else float(optimizer_score)
+        )
 
     def optimize(
         self,
@@ -395,10 +432,12 @@ class LocalEnumerationBayesianOptimizer(AbstractOptimizer):
         self._initialize_optimization(starting_point, rng_seed)
 
         current_center_peptide = starting_point
+        iteration_id = 1
 
         while self.black_box_calls < evaluation_budget:
             if self.best_as_center:
                 current_center_peptide = self.the_best_peptide
+            iteration_center_peptide = current_center_peptide
 
             with self.timer("Local Search"):
                 local_candidate_set = self.local_enumerator.local_enumeration(
@@ -415,12 +454,43 @@ class LocalEnumerationBayesianOptimizer(AbstractOptimizer):
                     if peptide not in self.not_scored_peptides_set:
                         self.not_scored_peptides_bktree.add(peptide)
                 self.not_scored_peptides_set.update(peptides_to_add)
+                trace = self.local_enumerator.last_trace
+                for sequence, provenance in trace.candidates.items():
+                    self.candidate_provenance.setdefault(sequence, provenance)
 
                 logger.info(
                     f"Added {len(self.not_scored_peptides_set) - len_before} new peptides to not scored peptides."
                 )
 
             current_center_peptide = self._bayesian_optimization(evaluation_budget)
+
+            if self.tracker is not None:
+                provenance_to_record = {
+                    sequence: provenance
+                    for sequence, provenance in trace.candidates.items()
+                    if sequence in peptides_to_add
+                }
+                if self.tracker.level == "normal":
+                    provenance_to_record = {
+                        sequence: self.candidate_provenance[sequence]
+                        for sequence, _ in self.iteration_evaluations
+                        if sequence in self.candidate_provenance
+                    }
+                # Max: Persist after GP selection | normal mode keeps only evaluated paths.
+                self.tracker.record_iteration(
+                    iteration_id=iteration_id,
+                    center_sequence=iteration_center_peptide,
+                    trace=trace,
+                    evaluations=[
+                        (sequence, self._raw_objective(score))
+                        for sequence, score in self.iteration_evaluations
+                    ],
+                    candidate_pool_size=len(self.not_scored_peptides_set),
+                    best_sequence=self.the_best_peptide,
+                    best_objective_value=self._raw_objective(self.the_best_score),
+                    candidate_provenance=provenance_to_record,
+                )
+            iteration_id += 1
 
             logger.info(
                 f"Best peptide: {self.the_best_peptide} with score {self.the_best_score}"

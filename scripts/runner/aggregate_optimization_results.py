@@ -21,17 +21,29 @@ def _parse_args() -> argparse.Namespace:
 
 
 def _read_config(result_file: Path, root: Path) -> tuple[str, str, str, str]:
+    """Resolve experiment identity from the nearest variant configuration.
+
+    :param result_file: Observer trajectory being aggregated.
+    :param root: Grid output root.
+    :return: Grid ID, optimizer, black box, and LE-BO candidate strategy.
+    :raises ValueError: If no parent contains ``resolved_config.json``.
+    """
     for parent in result_file.parents:
         config_path = parent / "resolved_config.json"
         if config_path.exists():
             with config_path.open(encoding="utf-8") as config_file:
                 config = json.load(config_file)
             optimizer = config["optimizer"]["name"]
+            candidate_strategy = config.get("method", "")
+            if optimizer == "lebo":
+                candidate_strategy = config["optimizer"]["lebo"].get(
+                    "candidate_strategy", candidate_strategy
+                )
             return (
                 parent.relative_to(root).as_posix(),
                 optimizer,
                 config["black_box"]["name"],
-                config.get("method", "") if optimizer == "lebo" else "",
+                candidate_strategy if optimizer == "lebo" else "",
             )
         if parent == root:
             break
@@ -46,13 +58,14 @@ def main() -> None:
         path
         for path in root.rglob("*.csv")
         if path.name not in {"grid_manifest.csv", "run_manifest.csv"}
+        and "tracking" not in path.parts
         and path.resolve() != output
     )
     fieldnames = [
         "grid_id",
         "optimizer",
         "black_box",
-        "method",
+        "candidate_strategy",
         "source_file",
         "time",
         "sequence",
@@ -63,7 +76,9 @@ def main() -> None:
         writer = csv.DictWriter(output_file, fieldnames=fieldnames)
         writer.writeheader()
         for result_file in result_files:
-            grid_id, optimizer, black_box, method = _read_config(result_file, root)
+            grid_id, optimizer, black_box, candidate_strategy = _read_config(
+                result_file, root
+            )
             with result_file.open(encoding="utf-8", newline="") as input_file:
                 reader = csv.reader(input_file)
                 next(reader, None)
@@ -75,7 +90,7 @@ def main() -> None:
                             "grid_id": grid_id,
                             "optimizer": optimizer,
                             "black_box": black_box,
-                            "method": method,
+                            "candidate_strategy": candidate_strategy,
                             "source_file": result_file.relative_to(root),
                             "time": row[0],
                             "sequence": row[1],
