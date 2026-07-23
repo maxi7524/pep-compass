@@ -94,11 +94,14 @@ Copy a small child configuration for a single experiment, or copy
     "mutation.token_threshold": [0.05, 0.1]
   }
 }
+
+
+# This produces `3 × 2 × 2 = 12` variants. 
 ```
 
-This produces `3 × 2 × 2 = 12` variants. Vector-valued parameters use a list of
-complete vectors:
 
+Vector-valued parameters use a list of
+complete vectors:
 ```json
 {
   "grid": {
@@ -108,7 +111,7 @@ complete vectors:
 }
 ```
 
-CLI overrides remove the corresponding top-level value from a grid so a single
+CLI overrides the corresponding top-level value from a grid so a single
 value is used:
 
 ```bash
