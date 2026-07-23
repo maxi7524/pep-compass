@@ -1,0 +1,5 @@
+{
+  "extends": "base.json",
+  "output_path": "./results/random_mutation",
+  "optimizer": {"name": "random_mutation"}
+}
