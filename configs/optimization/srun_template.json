@@ -4,6 +4,7 @@
   "execution": {
     "backend": "srun",
     "max_parallel_runs": 4,
+    "devices": ["cuda:0"],
     "srun": {
       "command": "srun",
       "arguments": ["--exclusive", "--gres=gpu:1"]
