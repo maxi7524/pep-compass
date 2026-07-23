@@ -20,8 +20,10 @@ uv run python scripts/run_optimization.py \
   --config configs/optimization/lebo.json
 ```
 
-Use `--extra cpu`, `--extra cu126`, or `--extra cu128` to select the Torch
-build. The configured `device` must match that environment. A dry run does not
+> Use `--extra cpu`, `--extra cu126`, or `--extra cu128` to select the Torch
+build. The configured `device` must match that environment.
+
+> A dry run does not
 load HydrAMP, APEX, or another predictor.
 
 ## Execution workflow
