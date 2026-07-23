@@ -2,6 +2,7 @@ import logging
 from abc import ABC
 from collections import defaultdict
 from copy import deepcopy
+from typing import TYPE_CHECKING
 
 import Levenshtein
 import numpy as np
@@ -15,6 +16,11 @@ from pep_compass.local_enumeration.sampling_walker import \
 from pep_compass.models.encoder_decoder.hydramp_encoder_decoder import \
     HydrAMPEncoderDecoder
 from pep_compass.utils.sequence_utils import translate_generated_peptide
+
+if TYPE_CHECKING:
+    from pep_compass.local_enumeration.mutation.mutation_filters import (
+        MutationCandidateFilter,
+    )
 
 logger = logging.getLogger(__name__)
 
@@ -107,6 +113,83 @@ class SamplingMutationLocalEnumerator(LocalEnumerator):
                     )
                     break
 
+        return neighbor_peptides
+
+
+class SamplingFilteredMutationLocalEnumerator(SamplingMutationLocalEnumerator):
+    """SORBES/MUTANG local enumeration with a configurable candidate filter.
+
+    This class contains the trajectory loop duplicated by the historical
+    ``SamplingWithMutangPlusLocalEnumerator``,
+    ``SamplingWithMutangPlusPlusLocalEnumerator``,
+    ``SamplingWithMoveLocalEnumerator``, and ``RandomLocalEnumerator`` classes.
+    Their method-specific candidate logic now lives in ``mutation_filters.py``.
+
+    Each step advances canonical SORBES, extracts ``U`` and ``S`` from the step,
+    asks canonical MUTANG for candidate residue indices, delegates scoring and
+    selection to ``candidate_filter``, and finally applies the Levenshtein radius
+    relative to the original trajectory center.
+    """
+
+    def __init__(
+        self,
+        *args,
+        candidate_filter: "MutationCandidateFilter",
+        **kwargs,
+    ):
+        super().__init__(*args, **kwargs)
+        self.candidate_filter = candidate_filter
+
+    def local_enumeration(self, center_peptide: str) -> set[str]:
+        neighbor_peptides: set[str] = set()
+        with torch.no_grad():
+            initial_latent_position = self.encoder_decoder.encode_peptides(
+                [center_peptide]
+            )[0]
+
+        for trajectory_iter in range(self.walker_trajectories_number):
+            current_latent_position = initial_latent_position
+            current_peptide = center_peptide
+            time_walk = 0.0
+            walker_step = 0
+            while time_walk < self.time_walk_budget:
+                new_latent_position, step_info = self.sampling_walker.step(
+                    current_latent_position
+                )
+                mutations = self.mutation_enumerator.get_mutations_from_s_u(
+                    step_info["S"].cpu().detach().numpy(),
+                    step_info["U"].cpu().detach().numpy(),
+                )
+                candidates = self.candidate_filter.filter_candidates(
+                    current_peptide, mutations
+                )
+                neighbor_peptides.update(
+                    peptide
+                    for peptide in candidates
+                    if Levenshtein.distance(peptide, center_peptide)
+                    <= self.max_neighbour_levenstein
+                )
+
+                with torch.no_grad():
+                    current_peptide = self.encoder_decoder.decode_peptides(
+                        new_latent_position
+                    )[0]
+                current_latent_position = new_latent_position
+                time_walk += step_info["adjusted_time_step"]
+                walker_step += 1
+                logger.info(
+                    "Trajectory %s Step %s Time %s / %s: Found %s peptides.",
+                    trajectory_iter,
+                    walker_step,
+                    time_walk,
+                    self.time_walk_budget,
+                    len(neighbor_peptides),
+                )
+                if (
+                    Levenshtein.distance(current_peptide, center_peptide)
+                    > self.max_neighbour_levenstein
+                ):
+                    break
         return neighbor_peptides
 
 
@@ -346,6 +429,44 @@ class MutationLocalEnumerator(LocalEnumerator):
         }
 
         return neighbor_peptides
+
+
+class FilteredMutationLocalEnumerator(MutationLocalEnumerator):
+    """Single-point MUTANG enumeration with a configurable candidate filter.
+
+    Unlike ``SamplingFilteredMutationLocalEnumerator``, this path does not walk
+    with SORBES. It computes the decoder Jacobian at the optimization center,
+    obtains MUTANG choices from its SVD, applies the configured filter once, and
+    enforces the Levenshtein radius. The runner uses it for LPBEBO.
+    """
+
+    def __init__(
+        self,
+        *args,
+        candidate_filter: "MutationCandidateFilter",
+        **kwargs,
+    ):
+        super().__init__(*args, **kwargs)
+        self.candidate_filter = candidate_filter
+
+    def local_enumeration(self, center_peptide: str, **kwargs) -> set[str]:
+        with torch.no_grad():
+            center_latent_point = self.encoder_decoder.encode_peptides([center_peptide])
+            jacobian = self.encoder_decoder.decoder_jacobian(center_latent_point)[0]
+            left, singular_values, _ = torch.linalg.svd(
+                jacobian, full_matrices=False
+            )
+        mutations = self.mutation_generator.get_mutations_from_s_u(
+            singular_values.cpu().numpy(), left.cpu().numpy()
+        )
+        return {
+            peptide
+            for peptide in self.candidate_filter.filter_candidates(
+                center_peptide, mutations
+            )
+            if Levenshtein.distance(peptide, center_peptide)
+            <= self.max_neighbour_levenstein
+        }
 
 
 # TODO: It was an attempt to parallelize the walker trajectories. Probably it can be useful in the future.
