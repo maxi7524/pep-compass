@@ -163,7 +163,7 @@ class LpbeboFilter(MutationCandidateFilter):
         encoder_decoder: HydrAMPEncoderDecoder,
         top_p: float = 0.9,
         temperature: float = 1.0,
-        maximum_candidates: int = 6000,
+        maximum_candidates: int = 30_000,
         alphabet: list[str] | None = None,
     ):
         """Initialize decoder-probability filtering.
@@ -221,7 +221,7 @@ class _GeometryFilter(MutationCandidateFilter):
         self,
         encoder_decoder: HydrAMPEncoderDecoder,
         horizontal_threshold: float = 0.1,
-        maximum_candidates: int = 6000,
+        maximum_candidates: int = 30_000,
         alphabet: list[str] | None = None,
     ):
         """Initialize the shared tangent-geometry filter state.
@@ -385,7 +385,7 @@ class MoveFilter(MutationCandidateFilter):
         encoder_decoder: HydrAMPEncoderDecoder,
         top_p: float = 0.6,
         temperature: float = 1.0,
-        maximum_candidates: int = 6000,
+        maximum_candidates: int = 30_000,
         alphabet: list[str] | None = None,
     ):
         """Initialize MOVE displacement filtering.
@@ -483,7 +483,7 @@ class RandomLeBoFilter(MutationCandidateFilter):
         selection_fraction: float = 0.6,
         maximum_positions: int = 5,
         residues_per_position: int = 4,
-        maximum_candidates: int = 6000,
+        maximum_candidates: int = 30_000,
         alphabet: list[str] | None = None,
     ):
         """Initialize a random proposal or random-selection control.

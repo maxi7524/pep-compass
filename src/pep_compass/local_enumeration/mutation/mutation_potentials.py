@@ -4,7 +4,8 @@ This module consolidates reusable historical implementations without retaining
 their obsolete import path or script-local copies:
 
 * ``DecoderLogProbPotential``, ``ProjectedDirectionPairwiseSimilarityPotential``,
-  and ``compose_mutant_distribution`` come from
+  ``AmbientMetricPairwiseSimilarityPotential``, and
+  ``compose_mutant_distribution`` come from
   ``upstream/kjxpp/main:src/pep_compass/local_enumeration/mutation/``
   ``mutation_potentials.py`` and their extended ``upstream/rl_trials`` version;
 * ``LamsAnchorSimilarityPotential`` replaces ``_MutangPlusProductPotential``
@@ -298,6 +299,64 @@ class ProjectedDirectionPairwiseSimilarityPotential(MutationPotential):
                 combinations[valid].cpu().tolist(), scores[valid].cpu().tolist()
             )
         }
+
+
+class AmbientMetricPairwiseSimilarityPotential(
+    ProjectedDirectionPairwiseSimilarityPotential
+):
+    r"""TANDEM variant B using the stable decoder pullback projector.
+
+    Let :math:`U_\kappa` contain the decoder Jacobian's left singular vectors
+    retained by the horizontal threshold. An ambient mutation direction
+    :math:`d_i` is represented by :math:`U_\kappa^T d_i`, so the cosine used by
+    TANDEM is equivalent to the normalized bilinear form induced by
+    :math:`G_\kappa = U_\kappa U_\kappa^T`.
+
+    Variant A, :class:`ProjectedDirectionPairwiseSimilarityPotential`, remains
+    the recommended default because its inverse-singular-value whitening keeps
+    useful latent-proximity information. Variant B is retained for thesis
+    reproduction and comparisons of the two similarity definitions.
+    """
+
+    def __init__(
+        self,
+        tangent_space: SubRiemannianTangentSpace,
+        alphabet: list[str] | None = None,
+        taken_taken_transform: Callable[[torch.Tensor], torch.Tensor] | None = None,
+        taken_not_taken_transform: Callable[[torch.Tensor], torch.Tensor] | None = None,
+        direction_mode: str = "onehot",
+    ):
+        """Initialize TANDEM with stable ambient pullback geometry.
+
+        :param tangent_space: Local decoder SVD defining the stable subspace.
+        :param alphabet: Optional index-to-token mapping.
+        :param taken_taken_transform: Score transform for two selected
+            mutations. The logarithmic TANDEM transform is used by default.
+        :param taken_not_taken_transform: Score transform for exactly one
+            selected mutation. The logarithmic TANDEM transform is used by
+            default.
+        :param direction_mode: ``onehot`` for target directions or ``diff`` for
+            target-minus-parent directions.
+        :raises ValueError: If ``direction_mode`` is unsupported.
+        """
+        super().__init__(
+            tangent_space=tangent_space,
+            alphabet=alphabet,
+            taken_taken_transform=taken_taken_transform,
+            taken_not_taken_transform=taken_not_taken_transform,
+            direction_mode=direction_mode,
+        )
+        horizontal = torch.abs(tangent_space.S) > tangent_space.horizontal_threshold
+        self.horizontal_basis = tangent_space.U[:, horizontal].contiguous()
+
+    def _raw_directions(self, flat_indices: torch.Tensor) -> torch.Tensor:
+        r"""Return :math:`U_\kappa^T e_i` representations for ambient indices.
+
+        :param flat_indices: Flattened position-residue indices.
+        :return: Rows of the stable ambient basis corresponding to the supplied
+            mutation directions.
+        """
+        return self.horizontal_basis[flat_indices]
 
 
 class LamsAnchorSimilarityPotential(MutationPotential):
