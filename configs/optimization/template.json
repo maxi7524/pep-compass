@@ -29,7 +29,7 @@
     "local_enumeration.walker_trajectories": [10],
     "local_enumeration.walk_time_budget": [0.1],
     "local_enumeration.max_neighbour_levenshtein": [4],
-    "filter.maximum_candidates": [6000],
+    "filter.maximum_candidates": [30000],
     "filter.top_p": [0.9],
     "filter.temperature": [1.0],
     "filter.similarity_threshold": [0.15],

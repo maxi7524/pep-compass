@@ -54,7 +54,7 @@
     "max_neighbour_levenshtein": 4
   },
   "filter": {
-    "maximum_candidates": 6000,
+    "maximum_candidates": 30000,
     "top_p": 0.9,
     "temperature": 1.0,
     "similarity_threshold": 0.15,
