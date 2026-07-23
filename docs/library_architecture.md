@@ -15,7 +15,7 @@ The configured experiment path is:
 
 ```text
 JSON configuration + peptide CSV
-  -> scripts/run_optimization.py
+  -> scripts/runner/run_optimization.py
   -> black-box factory + optimizer factory
   -> optional HydrAMP encoder-decoder
   -> optional SORBES -> MUTANG -> candidate filter
@@ -263,9 +263,9 @@ the biological black box and is independent of LAMS/TANDEM/MOVE potentials.
 
 ## Scripts and configurations
 
-`scripts/run_optimization.py` is the supported common entry point. It loads
+`scripts/runner/run_optimization.py` is the supported common entry point. It loads
 configurations lazily so `--dry-run` does not import optional model stacks.
-`scripts/aggregate_optimization_results.py` combines observer trajectories while
+`scripts/runner/aggregate_optimization_results.py` combines observer trajectories while
 retaining source identity. Initialization scripts install external assets.
 
 The older `run_*_optimization_*.py` files remain as comparison references until

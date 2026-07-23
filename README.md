@@ -15,7 +15,12 @@ Create environment
 # CPU only enironment
 uv sync
 ```
+or
 
+```bash
+# CUDA 11.8
+uv sync --extra cu118
+```
 or
 
 ```bash
@@ -33,8 +38,8 @@ uv sync --extra cu128
 # Optimization runner
 
 ```bash
-uv run python scripts/run_optimization.py \
-  --config configs/optimization/lebo.json
+uv run python scripts/runner/run_optimization.py \
+  --config configs/optimization/experiments/lebo/lebo.json
 ```
 
 The same runner supports parameter grids, multiple starting sequences, Slurm
@@ -43,8 +48,8 @@ The same runner supports parameter grids, multiple starting sequences, Slurm
 configuration reference. For example, run random mutation with ESM filtering:
 
 ```bash
-uv run python scripts/run_optimization.py \
-  --config configs/optimization/random_mutation_esm.json
+uv run python scripts/runner/run_optimization.py \
+  --config configs/optimization/experiments/optimizers/random_mutation_esm.json
 ```
 
 ## Documentation
