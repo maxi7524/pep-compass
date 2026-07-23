@@ -156,25 +156,38 @@ of `U`.
 The `local_enumeration/mutation/` subpackage does not contain another MUTANG
 class. It contains scoring and selection only.
 
-### Mutation potentials
+### Mutation strategies
 
-`mutation/mutation_potentials.py` separates scoring from orchestration:
+`mutation/strategies/` separates methods and shared operations into navigable
+modules. Its `__init__.py` exports the complete public API:
 
-- `DecoderLogProbabilityPotential` scores residue choices under the decoder;
-- `ProjectedDirectionPairwiseSimilarityPotential` scores complete combinations
-  from pairwise projected tangent directions;
-- `AmbientMetricPairwiseSimilarityPotential` provides thesis variant B using
-  the stable ambient pullback projector; projected variant A remains the
-  recommended default;
-- `LamsAnchorSimilarityPotential` applies the LAMS minimum-pair viability rule;
-- `compose_mutant_distribution()` materializes and sorts scored combinations.
+- `lpbebo.py`: decoder probability potential and LPBEBO filter;
+- `geometry.py`: recommended TANDEM variant A, thesis variant B, and shared
+  Jacobian/SVD construction;
+- `lams.py`, `tandem.py`, `move.py`, and `random.py`: method-specific filters;
+- `composition.py`: identity choices, bounded Cartesian products, sequence
+  materialization, and nucleus selection;
+- `base.py`: shared interfaces and defaults.
+
+`mutation_potentials.py` and `mutation_filters.py` re-export the same objects so
+existing integrations continue to work. New code should import from
+`pep_compass.local_enumeration.mutation.strategies`.
+
+```python
+from pep_compass.local_enumeration.mutation.strategies import (
+    LamsFilter,
+    LpbeboFilter,
+    MoveFilter,
+    TandemFilter,
+)
+```
 
 A potential receives a parent peptide and a MUTANG map. It does not run SORBES,
 enforce a local radius, call a black box, or control an optimization budget.
 
 ### Mutation filters
 
-`mutation/mutation_filters.py` converts a MUTANG map into selected strings:
+Method modules convert a MUTANG map into selected strings:
 
 - `LpbeboFilter`: decoder probability plus temperature-scaled top-p;
 - `LamsFilter`: hard minimum pairwise similarity threshold;
@@ -182,7 +195,7 @@ enforce a local radius, call a black box, or control an optimization budget.
 - `MoveFilter`: norm of the summed single-mutation latent displacements;
 - `RandomLeBoFilter`: random walker proposals or randomized MUTANG selection.
 
-`_bounded_mutations()` limits the Cartesian product before materialization. It
+`bounded_mutations()` limits the Cartesian product before materialization. It
 keeps parent residues available, then removes alternatives from the largest
 choice lists until the requested bound is met. This stochastic reduction uses
 the run seed.
@@ -331,8 +344,8 @@ duplicate black-box evaluation, and consistent tensor devices.
 | --- | --- |
 | new latent movement rule | `local_enumeration/sampling_walker.py` |
 | new extraction from `U`/`S` | `local_enumeration/mutation_enumerator.py` |
-| new mutation score | `mutation/mutation_potentials.py` |
-| new candidate selection policy | `mutation/mutation_filters.py` |
+| new mutation score | matching module under `mutation/strategies/` |
+| new candidate selection policy | matching module under `mutation/strategies/` |
 | new neighbourhood composition | `local_enumeration/local_enumerator.py` |
 | new biological objective | predictor under `models/`, adapter under `optimization/black_box/`, runner registry |
 | new optimization algorithm | `optimization/` or `optimization/baselines/`, runner registry |

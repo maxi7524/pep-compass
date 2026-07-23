@@ -14,11 +14,23 @@ or selection rule.
 The integrated design gives each responsibility one location:
 
 ```text
-mutation_potentials.py  score residues or complete combinations
-mutation_filters.py     bound a product and select peptide strings
+mutation/strategies/    public API grouped by scoring and selection strategy
+  lpbebo.py             decoder-probability scoring and filtering
+  geometry.py           TANDEM similarities and shared Jacobian/SVD geometry
+  lams.py               LAMS product potential and hard filter
+  tandem.py             TANDEM nucleus filter
+  move.py               net latent-displacement filter
+  random.py             random experimental controls
+  composition.py        product bounds, composition, and nucleus selection
 local_enumerator.py     run SORBES or a one-point Jacobian and enforce radius
 run_optimization.py     instantiate components and execute tasks
 ```
+
+`mutation_potentials.py` and `mutation_filters.py` are compatibility import
+layers. New integrations can import every public object from
+`pep_compass.local_enumeration.mutation.strategies`. Moving the runner to that
+entry point is optional and should be handled as a separate configuration/API
+update.
 
 This split is why an old class may not have one new class with the same name.
 For example, a historical local enumerator that contained both a copied SORBES
@@ -34,15 +46,15 @@ filter.
 | `upstream/rl_trials:src/pep_compass/local_enumeration/mutation/mutation_potentials.py` | `AmbientMetricPairwiseSimilarityPotential` | same class name | Retains thesis variant B based on the stable ambient pullback projector; whitened variant A remains the recommended default. |
 | same files | `compose_mutant_distribution` | same function name | Retains per-position and tuple-keyed potential composition; common candidate bound is handled before it. |
 | `upstream/rl_trials:scripts/lebo_plus.py` | `_MutangPlusProductPotential` | `LamsAnchorSimilarityPotential` | Moved from script; implements the global minimum over every mutated-mutated pair. |
-| same script | `DynamicSORBESMutangPlusPotential` | `_GeometryFilter._pairwise_potential()` plus `LamsAnchorSimilarityPotential` | Shared Jacobian/SVD builder replaces dynamic wrapper. |
+| same script | `DynamicSORBESMutangPlusPotential` | `GeometryFilter.pairwise_potential()` plus `LamsAnchorSimilarityPotential` | Shared Jacobian/SVD builder replaces dynamic wrapper. |
 | same script | `SamplingWithMutangPlusLocalEnumerator` | `SamplingFilteredMutationLocalEnumerator` + `LamsFilter` | Shared trajectory and LAMS policy are separated. |
-| `upstream/rl_trials:scripts/lpbebo_plus.py` | `DynamicSORBESPairwiseSimilarityPotential` | `_GeometryFilter._pairwise_potential()` | Shared with LAMS and TANDEM. |
+| `upstream/rl_trials:scripts/lpbebo_plus.py` | `DynamicSORBESPairwiseSimilarityPotential` | `GeometryFilter.pairwise_potential()` | Shared with LAMS and TANDEM. |
 | same script | `SamplingWithMutangPlusPlusLocalEnumerator` | `SamplingFilteredMutationLocalEnumerator` + `TandemFilter` | Historical MUTANG++ label is exposed as TANDEM. |
 | `upstream/rl_trials:scripts/run_lpbebo_optimization_apex.py` | one-Jacobian LPBEBO local enumerator | `FilteredMutationLocalEnumerator` + `LpbeboFilter` | Does not run a SORBES trajectory. |
 | `upstream/rl_trials:scripts/move.py` | `SamplingWithMoveLocalEnumerator` | `SamplingFilteredMutationLocalEnumerator` + `MoveFilter` | First-order latent displacement policy is isolated. |
 | `upstream/rl_trials:scripts/random_lebo.py` | `RandomLocalEnumerator` | `SamplingFilteredMutationLocalEnumerator` + `RandomLeBoFilter` | One filter exposes both random controls by mode. |
-| `lebo_plus.py`, `lpbebo_plus.py`, `move.py`, `random_lebo.py` | repeated `_cap_mutations` | `_bounded_mutations` | One seeded candidate-product guard. |
-| `lpbebo_plus.py`, `move.py` and related scripts | repeated `_top_p_filter` | `_nucleus_indices` | One descending, temperature-scaled nucleus selector. |
+| `lebo_plus.py`, `lpbebo_plus.py`, `move.py`, `random_lebo.py` | repeated `_cap_mutations` | `bounded_mutations` | One seeded candidate-product guard. |
+| `lpbebo_plus.py`, `move.py` and related scripts | repeated `_top_p_filter` | `nucleus_indices` | One descending, temperature-scaled nucleus selector. |
 | `upstream/rl_trials:src/pep_compass/optimization/lebo/local_enumeration_bayesian_optimizer.py` | BLOSUM batch diversity | current LE-BO optimizer + `utils/blosum_utils.py` | Optional; original Levenshtein behavior remains the default. |
 
 ## Components not migrated
