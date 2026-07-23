@@ -1,9 +1,21 @@
 """Potentials used to score combinations of MUTANG mutations.
 
-This module consolidates the reusable parts of the historical
-``mutation/mutation_potentials.py`` modules and the experiment-local potential
-classes from ``rl_trials``. Experiment orchestration is intentionally kept in
-the runner and filters; this module only represents and scores mutation choices.
+This module consolidates reusable historical implementations without retaining
+their obsolete import path or script-local copies:
+
+* ``DecoderLogProbPotential``, ``ProjectedDirectionPairwiseSimilarityPotential``,
+  and ``compose_mutant_distribution`` come from
+  ``upstream/kjxpp/main:src/pep_compass/local_enumeration/mutation/``
+  ``mutation_potentials.py`` and their extended ``upstream/rl_trials`` version;
+* ``LamsAnchorSimilarityPotential`` replaces ``_MutangPlusProductPotential``
+  embedded in ``upstream/rl_trials:scripts/lebo_plus.py``;
+* ``SubRiemannianTangentSpace`` is imported from the canonical
+  ``sampling_walker.py`` on ``dev`` instead of copying historical
+  ``sampling/sorbes.py``.
+
+Experiment orchestration belongs to filters and local enumerators. Potentials
+only represent and score mutation choices, which lets the same implementation
+be reused by runners instead of being duplicated in each experiment script.
 """
 
 from __future__ import annotations
@@ -196,7 +208,7 @@ class ProjectedDirectionPairwiseSimilarityPotential(MutationPotential):
         if not positions:
             return {}
 
-        # Parent indices identify identity choices in the Cartesian product.
+        # Parent amino-acid indices identify identity choices in the product.
         padded_parent = parent_peptide.ljust(DEFAULT_MAX_LEN)
         device = self.tangent_space.device
         parent_amino_acids = torch.tensor(

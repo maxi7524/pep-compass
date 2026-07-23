@@ -2,9 +2,20 @@
 
 The historical ``rl_trials`` scripts embedded a potential builder, Cartesian
 product limiting, selection logic, and a complete SORBES loop in every file.
-Here those responsibilities are split: potentials only score choices, filters
-turn a MUTANG mutation map into selected peptide strings, and local enumerators
-own the optional SORBES trajectory.
+The migration maps their script-local objects as follows:
+
+* ``scripts/run_lpbebo_optimization_apex.py`` and ``scripts/lpbebo_plus.py``
+  become ``LpbeboFilter``;
+* ``scripts/lebo_plus.py`` becomes ``LamsFilter``;
+* ``scripts/lpbebo_plus.py`` also provides the TANDEM experiment now represented
+  explicitly by ``TandemFilter``;
+* ``scripts/move.py`` becomes ``MoveFilter``;
+* ``scripts/random_lebo.py`` becomes ``RandomLeBoFilter``.
+
+Repeated ``_cap_mutations`` and ``_top_p_filter`` functions become the shared
+``_bounded_mutations`` and ``_nucleus_indices`` helpers. Potentials only score
+choices, filters turn a MUTANG mutation map into selected peptide strings, and
+local enumerators own the optional SORBES trajectory.
 """
 
 from __future__ import annotations

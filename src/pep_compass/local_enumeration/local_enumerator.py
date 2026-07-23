@@ -1,3 +1,19 @@
+"""Local candidate enumeration strategies.
+
+The canonical enumerators from ``dev`` remain unchanged. Two composition
+classes replace complete trajectory loops copied across historical scripts:
+
+* ``SamplingFilteredMutationLocalEnumerator`` contains the common loop from
+  ``upstream/rl_trials:scripts/lebo_plus.py``, ``lpbebo_plus.py``, ``move.py``,
+  and ``random_lebo.py``;
+* ``FilteredMutationLocalEnumerator`` contains the single-Jacobian LPBEBO path
+  from ``upstream/rl_trials:scripts/run_lpbebo_optimization_apex.py``.
+
+Both delegate method-specific candidate selection to ``mutation_filters.py``.
+They reuse canonical SORBES from ``sampling_walker.py`` and canonical MUTANG
+from ``mutation_enumerator.py`` rather than copying historical implementations.
+"""
+
 import logging
 from abc import ABC
 from collections import defaultdict
