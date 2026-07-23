@@ -47,6 +47,12 @@ uv run python scripts/run_optimization.py \
   --config configs/optimization/random_mutation_esm.json
 ```
 
+## Documentation
+
+- [Library architecture](docs/library_architecture.md)
+- [LE-BO implementation](docs/lebo_implementation.md)
+- [Optimization runner and configuration](docs/optimization_runners.md)
+
 # Baselines and BlackBoxes
 
 Different baselines and black-boxes needs different packages.
