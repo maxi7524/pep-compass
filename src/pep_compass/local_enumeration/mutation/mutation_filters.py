@@ -107,6 +107,14 @@ def _enumerate_sequences(
     alphabet: list[str],
     maximum_candidates: int,
 ) -> list[str]:
+    """Materialize the bounded Cartesian product as peptide strings.
+
+    :param parent_peptide: Sequence whose residues are replaced.
+    :param mutations: Candidate amino-acid indices grouped by position.
+    :param alphabet: Index-to-token mapping, including the padding token.
+    :param maximum_candidates: Maximum size of the bounded product.
+    :return: Candidate strings excluding the unchanged parent.
+    """
     choices = _bounded_mutations(
         parent_peptide, mutations, alphabet, maximum_candidates
     )
@@ -134,7 +142,12 @@ class MutationCandidateFilter(ABC):
         parent_peptide: str,
         mutations: dict[int, list[int]],
     ) -> list[str]:
-        """Return selected peptide candidates."""
+        """Return selected peptide candidates.
+
+        :param parent_peptide: Sequence from which candidates are generated.
+        :param mutations: MUTANG mapping from positions to amino-acid indices.
+        :return: Candidate strings accepted by the filtering policy.
+        """
 
 
 class LpbeboFilter(MutationCandidateFilter):
@@ -153,6 +166,15 @@ class LpbeboFilter(MutationCandidateFilter):
         maximum_candidates: int = 6000,
         alphabet: list[str] | None = None,
     ):
+        """Initialize decoder-probability filtering.
+
+        :param encoder_decoder: Model used to evaluate the parent-conditioned
+            decoder distribution.
+        :param top_p: Cumulative probability mass retained by nucleus selection.
+        :param temperature: Positive score-scaling temperature.
+        :param maximum_candidates: Maximum product size before scoring.
+        :param alphabet: Optional index-to-token mapping.
+        """
         self.alphabet = alphabet or DEFAULT_ALPHABET
         self.potential = DecoderLogProbabilityPotential(encoder_decoder, self.alphabet)
         self.top_p = top_p
@@ -164,6 +186,12 @@ class LpbeboFilter(MutationCandidateFilter):
         parent_peptide: str,
         mutations: dict[int, list[int]],
     ) -> list[str]:
+        """Score the bounded MUTANG product and retain its top-p nucleus.
+
+        :param parent_peptide: Sequence defining the decoder distribution.
+        :param mutations: MUTANG residue choices.
+        :return: Candidates selected by decoder log-probability.
+        """
         bounded = _bounded_mutations(
             parent_peptide, mutations, self.alphabet, self.maximum_candidates
         )
@@ -196,6 +224,14 @@ class _GeometryFilter(MutationCandidateFilter):
         maximum_candidates: int = 6000,
         alphabet: list[str] | None = None,
     ):
+        """Initialize the shared tangent-geometry filter state.
+
+        :param encoder_decoder: Model providing the decoder Jacobian.
+        :param horizontal_threshold: Singular-value threshold defining the
+            horizontal tangent subspace.
+        :param maximum_candidates: Maximum product size before scoring.
+        :param alphabet: Optional index-to-token mapping.
+        """
         self.encoder_decoder = encoder_decoder
         self.horizontal_threshold = horizontal_threshold
         self.maximum_candidates = maximum_candidates
@@ -205,6 +241,11 @@ class _GeometryFilter(MutationCandidateFilter):
     def _pairwise_potential(
         self, parent_peptide: str
     ) -> ProjectedDirectionPairwiseSimilarityPotential:
+        """Build a projected-direction potential at the current parent.
+
+        :param parent_peptide: Sequence at which the Jacobian is evaluated.
+        :return: Pairwise potential backed by the current tangent space.
+        """
         latent_batch = self.encoder_decoder.encode_peptides([parent_peptide])
         latent = latent_batch[0]
         jacobian = self.encoder_decoder.decoder_jacobian(latent_batch)[0]
@@ -231,6 +272,12 @@ class LamsFilter(_GeometryFilter):
     """
 
     def __init__(self, *args, similarity_threshold: float = 0.15, **kwargs):
+        """Initialize LAMS hard-threshold filtering.
+
+        :param args: Positional arguments forwarded to :class:`_GeometryFilter`.
+        :param similarity_threshold: Minimum global pairwise cosine accepted.
+        :param kwargs: Keyword arguments forwarded to :class:`_GeometryFilter`.
+        """
         super().__init__(*args, **kwargs)
         self.similarity_threshold = similarity_threshold
 
@@ -239,6 +286,12 @@ class LamsFilter(_GeometryFilter):
         parent_peptide: str,
         mutations: dict[int, list[int]],
     ) -> list[str]:
+        """Return combinations whose worst mutated pair passes the threshold.
+
+        :param parent_peptide: Sequence defining identity residue choices.
+        :param mutations: MUTANG residue choices.
+        :return: LAMS-compatible candidate strings.
+        """
         bounded = _bounded_mutations(
             parent_peptide, mutations, self.alphabet, self.maximum_candidates
         )
@@ -278,6 +331,13 @@ class TandemFilter(_GeometryFilter):
         temperature: float = 1.0,
         **kwargs,
     ):
+        """Initialize TANDEM nucleus filtering.
+
+        :param args: Positional arguments forwarded to :class:`_GeometryFilter`.
+        :param top_p: Cumulative probability mass retained after scoring.
+        :param temperature: Positive score-scaling temperature.
+        :param kwargs: Keyword arguments forwarded to :class:`_GeometryFilter`.
+        """
         super().__init__(*args, **kwargs)
         self.top_p = top_p
         self.temperature = temperature
@@ -287,6 +347,12 @@ class TandemFilter(_GeometryFilter):
         parent_peptide: str,
         mutations: dict[int, list[int]],
     ) -> list[str]:
+        """Score the bounded product with TANDEM and apply top-p selection.
+
+        :param parent_peptide: Sequence defining identity residue choices.
+        :param mutations: MUTANG residue choices.
+        :return: TANDEM-selected candidate strings.
+        """
         bounded = _bounded_mutations(
             parent_peptide, mutations, self.alphabet, self.maximum_candidates
         )
@@ -322,6 +388,15 @@ class MoveFilter(MutationCandidateFilter):
         maximum_candidates: int = 6000,
         alphabet: list[str] | None = None,
     ):
+        """Initialize MOVE displacement filtering.
+
+        :param encoder_decoder: Model used to encode the parent and each unique
+            single substitution.
+        :param top_p: Cumulative probability mass retained after scoring.
+        :param temperature: Positive score-scaling temperature.
+        :param maximum_candidates: Maximum product size before scoring.
+        :param alphabet: Optional index-to-token mapping.
+        """
         self.encoder_decoder = encoder_decoder
         self.top_p = top_p
         self.temperature = temperature
@@ -334,6 +409,12 @@ class MoveFilter(MutationCandidateFilter):
         parent_peptide: str,
         mutations: dict[int, list[int]],
     ) -> list[str]:
+        """Rank candidates by approximate net latent displacement.
+
+        :param parent_peptide: Sequence used as the latent displacement origin.
+        :param mutations: MUTANG residue choices.
+        :return: MOVE-selected candidate strings.
+        """
         sequences = _enumerate_sequences(
             parent_peptide, mutations, self.alphabet, self.maximum_candidates
         )
@@ -405,6 +486,17 @@ class RandomLeBoFilter(MutationCandidateFilter):
         maximum_candidates: int = 6000,
         alphabet: list[str] | None = None,
     ):
+        """Initialize a random proposal or random-selection control.
+
+        :param mode: ``walker`` discards MUTANG choices; ``mutang_random``
+            randomizes selection over the real MUTANG product.
+        :param selection_fraction: Random probability mass retained in
+            ``mutang_random`` mode.
+        :param maximum_positions: Maximum positions sampled in ``walker`` mode.
+        :param residues_per_position: Residue choices sampled per position.
+        :param maximum_candidates: Maximum product size.
+        :param alphabet: Optional index-to-token mapping.
+        """
         if mode not in {"walker", "mutang_random"}:
             raise ValueError("mode must be 'walker' or 'mutang_random'")
         self.mode = mode
@@ -419,6 +511,12 @@ class RandomLeBoFilter(MutationCandidateFilter):
         parent_peptide: str,
         mutations: dict[int, list[int]],
     ) -> list[str]:
+        """Return candidates produced by the configured random control.
+
+        :param parent_peptide: Sequence used to construct mutations.
+        :param mutations: Real MUTANG choices, used only by ``mutang_random``.
+        :return: Randomly proposed or randomly retained candidate strings.
+        """
         if self.mode == "walker":
             positions = random.sample(
                 range(len(parent_peptide)),

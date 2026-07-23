@@ -82,6 +82,12 @@ class DecoderLogProbabilityPotential(MutationPotential):
         encoder_decoder: HydrAMPEncoderDecoder,
         alphabet: list[str] | None = None,
     ):
+        """Initialize parent-conditioned decoder scoring.
+
+        :param encoder_decoder: Model used to encode the parent and evaluate its
+            decoder distribution.
+        :param alphabet: Optional index-to-token mapping.
+        """
         self.encoder_decoder = encoder_decoder
         self.alphabet = alphabet or DEFAULT_ALPHABET
 
@@ -91,6 +97,12 @@ class DecoderLogProbabilityPotential(MutationPotential):
         parent_peptide: str,
         mutations: dict[int, list[int]],
     ) -> dict[int, dict[int, float]]:
+        """Return decoder log-probability for every proposed residue.
+
+        :param parent_peptide: Sequence defining the latent decoder condition.
+        :param mutations: Candidate amino-acid indices grouped by position.
+        :return: Nested position and amino-acid log-probabilities.
+        """
         latent = self.encoder_decoder.encode_peptides([parent_peptide])
         log_probabilities = self.encoder_decoder.decoder_forward(
             latent,
@@ -132,6 +144,19 @@ class ProjectedDirectionPairwiseSimilarityPotential(MutationPotential):
         taken_not_taken_transform: Callable[[torch.Tensor], torch.Tensor] | None = None,
         direction_mode: str = "onehot",
     ):
+        """Initialize TANDEM projected-direction scoring.
+
+        :param tangent_space: Local SVD geometry used to pull ambient residue
+            directions into horizontal latent space.
+        :param alphabet: Optional index-to-token mapping.
+        :param taken_taken_transform: Score transform for pairs in which both
+            residue choices mutate.
+        :param taken_not_taken_transform: Score transform for pairs in which
+            exactly one residue choice mutates.
+        :param direction_mode: ``onehot`` for target directions or ``diff`` for
+            target-minus-parent directions.
+        :raises ValueError: If ``direction_mode`` is unsupported.
+        """
         if direction_mode not in {"onehot", "diff"}:
             raise ValueError("direction_mode must be 'onehot' or 'diff'")
         self.tangent_space = tangent_space
@@ -147,10 +172,12 @@ class ProjectedDirectionPairwiseSimilarityPotential(MutationPotential):
 
     @staticmethod
     def _log_taken_taken(values: torch.Tensor) -> torch.Tensor:
+        """Map aligned jointly selected directions to higher log-potentials."""
         return torch.log(torch.clamp((1.0 + values) / 2.0, min=1e-12, max=1.0))
 
     @staticmethod
     def _log_taken_not_taken(values: torch.Tensor) -> torch.Tensor:
+        """Penalize selecting only one member of an aligned direction pair."""
         return torch.log(torch.clamp((1.0 - values) / 2.0, min=1e-12, max=1.0))
 
     def _projection_matrix(self) -> torch.Tensor:
@@ -204,6 +231,12 @@ class ProjectedDirectionPairwiseSimilarityPotential(MutationPotential):
         parent_peptide: str,
         mutations: dict[int, list[int]],
     ) -> dict[tuple[int, ...], float]:
+        """Score every non-parent combination with the TANDEM pair rule.
+
+        :param parent_peptide: Sequence defining identity residue choices.
+        :param mutations: Candidate amino-acid indices grouped by position.
+        :return: Complete amino-acid tuples mapped to mean pair potentials.
+        """
         positions = sorted(mutations)
         if not positions:
             return {}
@@ -279,6 +312,11 @@ class LamsAnchorSimilarityPotential(MutationPotential):
     """
 
     def __init__(self, base_potential: ProjectedDirectionPairwiseSimilarityPotential):
+        """Initialize LAMS from a projected-direction representation.
+
+        :param base_potential: Potential providing normalized position vectors
+            and the associated tangent space.
+        """
         self.base_potential = base_potential
         self.alphabet = base_potential.alphabet
 
@@ -288,6 +326,13 @@ class LamsAnchorSimilarityPotential(MutationPotential):
         parent_peptide: str,
         mutations: dict[int, list[int]],
     ) -> dict[tuple[int, ...], float]:
+        """Return the worst mutated-mutated cosine for each combination.
+
+        :param parent_peptide: Sequence defining identity residue choices.
+        :param mutations: Candidate amino-acid indices grouped by position.
+        :return: Non-parent combinations mapped to global minimum cosine; a
+            single mutation receives positive infinity.
+        """
         positions = sorted(mutations)
         if not positions:
             return {}

@@ -153,10 +153,26 @@ class SamplingFilteredMutationLocalEnumerator(SamplingMutationLocalEnumerator):
         candidate_filter: "MutationCandidateFilter",
         **kwargs,
     ):
+        """Initialize a filtered SORBES/MUTANG enumerator.
+
+        :param args: Positional arguments forwarded to
+            :class:`SamplingMutationLocalEnumerator`.
+        :param candidate_filter: Policy used to score or select MUTANG
+            candidates at every SORBES step.
+        :param kwargs: Keyword arguments forwarded to
+            :class:`SamplingMutationLocalEnumerator`.
+        """
         super().__init__(*args, **kwargs)
         self.candidate_filter = candidate_filter
 
     def local_enumeration(self, center_peptide: str) -> set[str]:
+        """Enumerate filtered candidates along SORBES trajectories.
+
+        :param center_peptide: Peptide used as the trajectory origin and the
+            centre of the Levenshtein-radius constraint.
+        :return: Unique candidate peptide sequences accepted by the filter and
+            radius constraint.
+        """
         neighbor_peptides: set[str] = set()
         with torch.no_grad():
             initial_latent_position = self.encoder_decoder.encode_peptides(
@@ -462,10 +478,27 @@ class FilteredMutationLocalEnumerator(MutationLocalEnumerator):
         candidate_filter: "MutationCandidateFilter",
         **kwargs,
     ):
+        """Initialize a filtered single-Jacobian MUTANG enumerator.
+
+        :param args: Positional arguments forwarded to
+            :class:`MutationLocalEnumerator`.
+        :param candidate_filter: Policy used to select candidates from the
+            MUTANG mutation map.
+        :param kwargs: Keyword arguments forwarded to
+            :class:`MutationLocalEnumerator`.
+        """
         super().__init__(*args, **kwargs)
         self.candidate_filter = candidate_filter
 
     def local_enumeration(self, center_peptide: str, **kwargs) -> set[str]:
+        """Enumerate candidates from one decoder Jacobian at the centre.
+
+        :param center_peptide: Peptide at which the Jacobian and SVD are
+            evaluated.
+        :param kwargs: Reserved for compatibility with the local-enumerator
+            protocol.
+        :return: Unique filtered candidates inside the configured radius.
+        """
         with torch.no_grad():
             center_latent_point = self.encoder_decoder.encode_peptides([center_peptide])
             jacobian = self.encoder_decoder.decoder_jacobian(center_latent_point)[0]

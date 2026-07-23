@@ -226,8 +226,7 @@ class LocalEnumerationBayesianOptimizer(AbstractOptimizer):
                     f"Expected Improvement ({best_improvement_peptide}): {test_logEI[best_improvement_index].item()}"
                 )
 
-                # Max: Dodałem możliwość wybrania macierzy BLOSUM zamiast
-                # `levenstain_diversity_threshold`.
+                # Max: Added optional BLOSUM batch diversity | Levenshtein remains the default.
                 remaining_inices = []
                 for i, peptide in enumerate(test_peptides):
                     if self.blosum_diversity_matrix is not None:
