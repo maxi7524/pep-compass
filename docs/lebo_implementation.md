@@ -31,6 +31,7 @@ filter.
 | --- | --- | --- | --- |
 | `upstream/kjxpp/main:src/pep_compass/local_enumeration/mutation/mutation_potentials.py` | `DecoderLogProbPotential` | `DecoderLogProbabilityPotential` | Renamed; per-position decoder log-probability contract retained. |
 | same file and its extended `upstream/rl_trials` version | `ProjectedDirectionPairwiseSimilarityPotential` | same class name | Adapted to canonical `sampling_walker.SubRiemannianTangentSpace`; original `onehot`/`diff` meaning retained. |
+| `upstream/rl_trials:src/pep_compass/local_enumeration/mutation/mutation_potentials.py` | `AmbientMetricPairwiseSimilarityPotential` | same class name | Retains thesis variant B based on the stable ambient pullback projector; whitened variant A remains the recommended default. |
 | same files | `compose_mutant_distribution` | same function name | Retains per-position and tuple-keyed potential composition; common candidate bound is handled before it. |
 | `upstream/rl_trials:scripts/lebo_plus.py` | `_MutangPlusProductPotential` | `LamsAnchorSimilarityPotential` | Moved from script; implements the global minimum over every mutated-mutated pair. |
 | same script | `DynamicSORBESMutangPlusPotential` | `_GeometryFilter._pairwise_potential()` plus `LamsAnchorSimilarityPotential` | Shared Jacobian/SVD builder replaces dynamic wrapper. |
@@ -51,10 +52,9 @@ filter.
 - `upstream/rl_trials:src/pep_compass/local_enumeration/mutation/mutation_enumerator.py`
   duplicates canonical `local_enumeration/mutation_enumerator.py` and was not
   copied. The new `mutation/` package contains potentials and filters only.
-- `AmbientMetricPairwiseSimilarityPotential`, linear pair transforms, and
-  similarity-matrix helpers were used by thesis figure/analysis scripts rather
-  than the optimization entry points integrated here. They remain outside the
-  runtime package.
+- Linear pair transforms and similarity-matrix helpers were used by thesis
+  figure/analysis scripts rather than the optimization entry points integrated
+  here. They remain outside the runtime package.
 - Per-script environment parsing, benchmark dictionaries, observer setup,
   explicit CUDA cache clearing, output loops, and figure/debug code were replaced
   by JSON, CSV, task manifests, and the common runner.

@@ -163,6 +163,9 @@ class. It contains scoring and selection only.
 - `DecoderLogProbabilityPotential` scores residue choices under the decoder;
 - `ProjectedDirectionPairwiseSimilarityPotential` scores complete combinations
   from pairwise projected tangent directions;
+- `AmbientMetricPairwiseSimilarityPotential` provides thesis variant B using
+  the stable ambient pullback projector; projected variant A remains the
+  recommended default;
 - `LamsAnchorSimilarityPotential` applies the LAMS minimum-pair viability rule;
 - `compose_mutant_distribution()` materializes and sorts scored combinations.
 
