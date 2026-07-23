@@ -72,8 +72,7 @@ class SubRiemannianTangentSpace:
     def project_ambient_vector_to_horizontal_space(self, ambient_vector):
         if self.projection_matrix is None:
             # Compute jacobian taking to account only horizontal directions
-            # Max: `torch.Tensor(self.S)` przenosiło wartości na CPU; zachowujemy
-            # urządzenie i dtype z SVD.
+            # Max: Preserved the SVD device and dtype | torch.Tensor(self.S) copied values to CPU.
             S_horizontal_with_vertical_zeroed = self.S.clone()
             S_horizontal_with_vertical_zeroed[
                 torch.abs(self.S) <= self.horizontal_threshold
@@ -339,8 +338,7 @@ class SecondOrderRiemannianBrownianEfficientSampling(SamplingWalker):
         return new_latent_position, step_info
 
 class SORBESWithoutManifoldAcceleration(SecondOrderRiemannianBrownianEfficientSampling):
-    # TODO Max: Konstruktor nie pasuje do klasy bazowej; trzeba ustalić stare API
-    # przed przywróceniem tego nieużywanego wariantu.
+    # Max: Left the unused ablation unchanged | its constructor no longer matches the active SORBES API.
     def __init__(
         self,
         manifold: SubRiemannianManifold,

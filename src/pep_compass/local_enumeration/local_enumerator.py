@@ -596,8 +596,7 @@ class FilteredMutationLocalEnumerator(MutationLocalEnumerator):
         return accepted
 
 
-# TODO Max: Optymalizacja - `loky` kopiuje model i tensory między procesami;
-# trzeba generować trajektorie osobno, a dekodowanie wykonać jednym batchem.
+# Max: Kept the legacy multi-walker disabled | loky copies model state and tensors between processes.
 # class MultiWalkerLocalEnumerator(LocalEnumerator):
 #     def __init__(
 #         self,

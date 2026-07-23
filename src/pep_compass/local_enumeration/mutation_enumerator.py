@@ -136,8 +136,7 @@ class MutationEnumerationInTangentSpace(MutationEnumerator):
                 else np.abs(current_table)
             )
 
-            # Max: Wcześniej wybieraliśmy tylko jedną pozycję z kierunku i
-            # gubiliśmy resztę; teraz bierzemy wszystkie propozycje ponad próg.
+            # Max: Checked every position above the threshold | argmax discarded valid MUTANG proposals.
             selected = current_table[:, 1:] > self.token_threshold
             if isinstance(selected, torch.Tensor):
                 selected_indices = selected.nonzero(as_tuple=False).cpu().tolist()
