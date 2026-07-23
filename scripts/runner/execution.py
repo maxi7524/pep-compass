@@ -30,7 +30,6 @@ def run_task(task: dict[str, Any]) -> None:
     """
     import numpy as np
 
-    from pep_compass.optimization.black_box.csv_observer import CSVObserver
     from pep_compass.optimization.black_box.negative_black_box import NegativeBlackBox
 
     config = task["config"]
@@ -57,17 +56,20 @@ def run_task(task: dict[str, Any]) -> None:
             encoder_decoder=encoder_decoder,
             store_latents=tracking["store_latents"],
         )
-    observer = CSVObserver(maximize=observed_black_box.maximize)
-    observed_black_box.set_observer(observer)
-    observer.initialize_observer(
-        observed_black_box.get_black_box_info(),
-        {
-            "experiment_id": task["experiment_id"],
-            "experiment_path": task["output_path"],
-        },
-        task["seed"],
-        encoder_decoder=encoder_decoder,
-    )
+    else:
+        from pep_compass.optimization.black_box.csv_observer import CSVObserver
+
+        observer = CSVObserver(maximize=observed_black_box.maximize)
+        observed_black_box.set_observer(observer)
+        observer.initialize_observer(
+            observed_black_box.get_black_box_info(),
+            {
+                "experiment_id": task["experiment_id"],
+                "experiment_path": task["output_path"],
+            },
+            task["seed"],
+            encoder_decoder=encoder_decoder,
+        )
     logger.info("Starting %s", task["experiment_id"])
     if config["optimizer"]["name"] == "lambo2":
         target = (
@@ -156,5 +158,4 @@ def run_local_tasks(
         for task_path in task_paths
     ]
     run_commands(commands, execution["max_parallel_runs"])
-
 

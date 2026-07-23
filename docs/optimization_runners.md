@@ -50,8 +50,9 @@ The runner performs these operations:
 6. On the `local` backend, executes materialized tasks sequentially.
 7. On the `srun` backend, starts one isolated `srun` step per task and limits
    concurrent steps to `execution.max_parallel_runs`.
-8. For each task, builds the selected black box and optimizer, attaches a fresh
-   `CSVObserver`, and calls the optimizer with the task sequence and seed.
+8. For each task, builds the selected black box and optimizer and calls it with
+   the task sequence and seed. LE-BO writes the structured `tracking/` report;
+   other optimizers retain the legacy `CSVObserver` output.
 
 The number of optimizer runs is:
 
@@ -142,7 +143,7 @@ uv run python scripts/runner/run_optimization.py \
 ### General
 
 - `input_csv`: starting-peptide table.
-- `output_path`: root for manifests, task files, and observer trajectories.
+- `output_path`: root for manifests, task files, and optimization results.
 - `device`: Torch device passed to compatible models and optimizers.
 - `evaluation_budget`: budget passed to `optimizer.optimize`.
 - `seed`: base task seed; `null` selects the current Unix time once.
@@ -323,7 +324,9 @@ results/example/
 - `tasks/*.json` is the exact serialized unit executed locally or by `srun`.
 - `resolved_config.json` is the complete configuration after inheritance and
   grid substitution.
-- observer CSV files contain time, sequence, score, and optional latent point.
+- non-LE-BO optimizers retain observer CSV files with time, sequence, score,
+  and an optional latent point. LE-BO does not duplicate evaluations in a
+  black-box-named directory; its complete result is under `tracking/`.
 
 Aggregate trajectories without modifying the original files:
 
