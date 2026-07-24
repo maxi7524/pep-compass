@@ -11,9 +11,9 @@ from botorch.models import SingleTaskGP
 from botorch.models.transforms import Standardize
 from cachetools import LRUCache
 from gpytorch.mlls import ExactMarginalLogLikelihood
+from poli.core.abstract_black_box import AbstractBlackBox
 
 from pep_compass.local_enumeration.local_enumerator import LocalEnumerator
-from pep_compass.optimization.black_box.toxipep_black_box import AbstractBlackBox
 from pep_compass.optimization.lebo.fingerprints import Map4Fingerprint
 from pep_compass.optimization.lebo.kernel import TanimotoSimilarityKernel
 from pep_compass.optimization.optimizer import AbstractOptimizer
@@ -176,9 +176,11 @@ class LocalEnumerationBayesianOptimizer(AbstractOptimizer):
 
             test_X = (
                 torch.tensor(
-                    test_peptides_features, dtype=torch.float64, requires_grad=False
+                    test_peptides_features,
+                    dtype=torch.float64,
+                    device=self.device,
+                    requires_grad=False,
                 )
-                .cpu()
                 .unsqueeze(1)
             )
             logger.info(f"Test features device: {test_X.device}")
@@ -188,7 +190,7 @@ class LocalEnumerationBayesianOptimizer(AbstractOptimizer):
             with torch.no_grad():
                 test_logEI = []
                 for i in range(0, len(test_X), self.acquisition_batch_size):
-                    batch = test_X[i : i + self.acquisition_batch_size].to(self.device)
+                    batch = test_X[i : i + self.acquisition_batch_size]
                     logger.debug(f"Test features shape: {batch.shape}")
 
                     # TODO: this is hack. Because There is something wrong with Standarize and Tanimoto Kernel which squeezes when batch=1.
@@ -202,7 +204,7 @@ class LocalEnumerationBayesianOptimizer(AbstractOptimizer):
                     if is_one_batch:
                         compute_logEI = compute_logEI[:1]
 
-                    test_logEI.append(compute_logEI.cpu())
+                    test_logEI.append(compute_logEI)
                     logger.debug(
                         f"Computed logEI for batch {i // self.acquisition_batch_size + 1}"
                     )
@@ -226,7 +228,7 @@ class LocalEnumerationBayesianOptimizer(AbstractOptimizer):
                 if len(test_peptides) == 0:
                     break
 
-                best_improvement_index = test_logEI.argmax()
+                best_improvement_index = test_logEI.argmax().item()
 
                 best_improvement_peptide = test_peptides[best_improvement_index]
                 peptides_to_evaluate.append(best_improvement_peptide)

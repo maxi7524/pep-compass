@@ -47,7 +47,8 @@ The runner performs these operations:
 3. Expands the explicit `grid` object as a Cartesian product.
 4. Combines every grid variant with every CSV row and its `repetitions` value.
 5. Writes resolved configurations, task JSON files, and manifests.
-6. On the `local` backend, executes materialized tasks sequentially.
+6. On the `local` backend, executes one task in-process or multiple tasks in
+   isolated Python processes.
 7. On the `srun` backend, starts one isolated `srun` step per task and limits
    concurrent steps to `execution.max_parallel_runs`.
 8. For each task, builds the selected black box and optimizer and calls it with
@@ -185,8 +186,10 @@ available after concatenating results from multiple tasks.
 ### Execution
 
 - `execution.backend`: `local` or `srun`.
-- `execution.max_parallel_runs`: maximum concurrent `srun` processes. The local
-  backend remains sequential in this PR.
+- `execution.max_parallel_runs`: maximum concurrent local processes or `srun`
+  steps. A value of `1` keeps local execution in the runner process.
+- `execution.devices`: optional device names assigned round-robin to task
+  configurations, for example `["cuda:0", "cuda:1"]`.
 - `execution.srun.command`: normally `srun`.
 - `execution.srun.arguments`: arguments placed between `srun` and the Python
   command, for example `--exclusive`, `--partition=gpu`, or `--gres=gpu:1`.
@@ -198,6 +201,7 @@ uv run python scripts/runner/run_optimization.py \
   --config configs/optimization/template.json \
   --execution srun \
   --max-parallel-runs 4 \
+  --devices cuda:0 \
   --srun-argument=--exclusive \
   --srun-argument=--gres=gpu:1
 ```
@@ -207,6 +211,11 @@ second Slurm-specific experiment implementation. Scheduler, account, partition,
 CPU, memory, and GPU arguments remain cluster-specific and belong in
 `execution.srun.arguments` or CLI overrides. `srun_template.json` is a copyable
 example, not a cluster policy.
+
+For local multi-GPU execution, set `execution.backend` to `local`, set
+`max_parallel_runs` to the desired process count, and list the available
+devices. Do not start several model processes on one GPU unless its memory is
+sufficient.
 
 ### Black box
 

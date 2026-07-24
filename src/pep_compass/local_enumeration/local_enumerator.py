@@ -75,7 +75,7 @@ class SamplingMutationLocalEnumerator(LocalEnumerator):
         self.walker_trajectories_number = walker_trajectories_number
         self.time_walk_budget = time_walk_budget
         self.max_neighbour_levenstein = max_neighbour_levenstein
-        self.device = device
+        self.device = encoder_decoder.device
         self.tracking_level = tracking_level
 
         self.max_neighbour_levenstein = max_neighbour_levenstein or 25
@@ -107,8 +107,8 @@ class SamplingMutationLocalEnumerator(LocalEnumerator):
                     current_latent_position
                 )
                 adjusted_time_step = step_info["adjusted_time_step"]
-                U = step_info["U"].cpu().detach().numpy()
-                S = step_info["S"].cpu().detach().numpy()
+                U = step_info["U"]
+                S = step_info["S"]
 
                 mutated_peptides = self.mutation_enumerator.mutate(
                     current_peptide, U=U, S=S
@@ -225,8 +225,8 @@ class SamplingFilteredMutationLocalEnumerator(SamplingMutationLocalEnumerator):
                     current_latent_position
                 )
                 mutations = self.mutation_enumerator.get_mutations_from_s_u(
-                    step_info["S"].cpu().detach().numpy(),
-                    step_info["U"].cpu().detach().numpy(),
+                    step_info["S"],
+                    step_info["U"],
                 )
                 candidates = self.candidate_filter.filter_candidates(
                     current_peptide, mutations
@@ -295,7 +295,7 @@ class EuclideanWalkerLocalEnumeratorWithAmbientDistance(LocalEnumerator):
         self.max_walker_ambient_distance = max_walker_ambient_distance
         self.time_step = time_step
         self.max_neighbour_levenstein = max_neighbour_levenstein
-        self.device = device
+        self.device = encoder_decoder.device
         self.max_neighbour_levenstein = max_neighbour_levenstein or 25
 
     def local_enumeration(self, center_peptide: str) -> set[str]:
@@ -379,7 +379,7 @@ class EuclideanWalkerLocalEnumerator(LocalEnumerator):
         self.encoder_decoder = encoder_decoder
         self.walker_trajectories_number = walker_trajectories_number
         self.walker_time = walker_time
-        self.device = device
+        self.device = encoder_decoder.device
         self.time_step = time_step
         self.max_neighbour_levenstein = max_neighbour_levenstein or 25
         self.batch_size = batch_size
@@ -443,7 +443,7 @@ class NormalSamplingLocalEnumerator(LocalEnumerator):
         self.max_neighbour_levenstein = max_neighbour_levenstein or 25
         self.batch_size = batch_size
         self.encoder_decoder = encoder_decoder
-        self.device = device
+        self.device = encoder_decoder.device
 
         self.sampling_temperature = sampling_temperature
         self.number_of_samples = number_of_samples
@@ -486,7 +486,7 @@ class MutationLocalEnumerator(LocalEnumerator):
     ):
         self.encoder_decoder = encoder_decoder
         self.mutation_generator = mutation_generator
-        self.device = device
+        self.device = encoder_decoder.device
         self.tracking_level = tracking_level
         self.max_neighbour_levenstein = max_neighbour_levenstein
 
@@ -498,12 +498,10 @@ class MutationLocalEnumerator(LocalEnumerator):
 
         with torch.no_grad():
             # Encode the center peptide to get the latent point
-            center_latent_point = self.encoder_decoder.encode_peptides(
-                [center_peptide]
-            )[0]
+            center_latent_point = self.encoder_decoder.encode_peptides([center_peptide])
 
         with torch.no_grad():
-            jacobian = self.encoder_decoder.decoder_jacobian(center_latent_point)
+            jacobian = self.encoder_decoder.decoder_jacobian(center_latent_point)[0]
             logger.debug(f"jacobian device: {jacobian.device}")
             U, S, V = torch.linalg.svd(jacobian, full_matrices=False)
 
@@ -564,7 +562,7 @@ class FilteredMutationLocalEnumerator(MutationLocalEnumerator):
                 jacobian, full_matrices=False
             )
         mutations = self.mutation_generator.get_mutations_from_s_u(
-            singular_values.cpu().numpy(), left.cpu().numpy()
+            singular_values, left
         )
         candidates = self.candidate_filter.filter_candidates(
             center_peptide, mutations
@@ -598,7 +596,7 @@ class FilteredMutationLocalEnumerator(MutationLocalEnumerator):
         return accepted
 
 
-# TODO: It was an attempt to parallelize the walker trajectories. Probably it can be useful in the future.
+# Max: Kept the legacy multi-walker disabled | loky copies model state and tensors between processes.
 # class MultiWalkerLocalEnumerator(LocalEnumerator):
 #     def __init__(
 #         self,

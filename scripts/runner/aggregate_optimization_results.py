@@ -9,6 +9,7 @@ from pathlib import Path
 
 
 def _parse_args() -> argparse.Namespace:
+    """Parse the results root and aggregate output path."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("results", type=Path, help="Root output directory of a grid.")
     parser.add_argument(
@@ -51,6 +52,7 @@ def _read_config(result_file: Path, root: Path) -> tuple[str, str, str, str]:
 
 
 def main() -> None:
+    """Aggregate observer trajectories without modifying source files."""
     args = _parse_args()
     root = args.results.resolve()
     output = args.output.resolve()
