@@ -123,6 +123,10 @@ class LocalEnumerationBayesianOptimizer(AbstractOptimizer):
         # At the beggining of the search, score few random peptides to initialize the surrogate model
         if len(self.scored_peptides) == 1:
             self._initialize_scored_peptides()
+        # Max - debbuging: Zmiana z kontynuowania optymalizacji po wykorzystaniu całego budżetu na kontrolowane zakończenie ~inicjalizacja modelu może zużyć ostatnie dostępne ewaluacje, więc nie wolno przekazywać pustej listy peptydów do black boxa.
+        if self.black_box_calls >= max_scorer_calls:
+            logger.info("Evaluation budget exhausted during GP initialization.")
+            return None
 
         with self.timer("turbo filter"):
             # Max - debbuging: Zmiana z wyjątku dla pustej puli na kontrolowane zakończenie ~lokalna enumeracja może nie wygenerować nowego kandydata.
