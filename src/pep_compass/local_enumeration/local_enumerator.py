@@ -31,6 +31,10 @@ from pep_compass.local_enumeration.sampling_walker import \
     SamplingWalker
 from pep_compass.models.encoder_decoder.hydramp_encoder_decoder import \
     HydrAMPEncoderDecoder
+from pep_compass.optimization.lebo.trajectory_tracking import (
+    CandidateProvenance,
+    EnumerationTrace,
+)
 from pep_compass.utils.sequence_utils import translate_generated_peptide
 
 if TYPE_CHECKING:
@@ -41,6 +45,8 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 class LocalEnumerator(ABC):
+
+    last_trace: EnumerationTrace
 
     def local_enumeration(self, center_sequence: str) -> set[str]:
         """
@@ -60,6 +66,7 @@ class SamplingMutationLocalEnumerator(LocalEnumerator):
         time_walk_budget: float,
         max_neighbour_levenstein: int | None = None,
         device: str = "cpu",
+        tracking_level: str = "short",
     ):
         super().__init__()
         self.encoder_decoder = encoder_decoder
@@ -68,12 +75,15 @@ class SamplingMutationLocalEnumerator(LocalEnumerator):
         self.walker_trajectories_number = walker_trajectories_number
         self.time_walk_budget = time_walk_budget
         self.max_neighbour_levenstein = max_neighbour_levenstein
-        self.device = device
+        self.device = encoder_decoder.device
+        self.tracking_level = tracking_level
 
         self.max_neighbour_levenstein = max_neighbour_levenstein or 25
+        self.last_trace = EnumerationTrace()
 
     def local_enumeration(self, center_peptide) -> set[str]:
         neighbor_peptides = set()
+        self.last_trace = EnumerationTrace()
 
         with torch.no_grad():
             initial_latent_position = self.encoder_decoder.encode_peptides(
@@ -85,20 +95,25 @@ class SamplingMutationLocalEnumerator(LocalEnumerator):
             current_latent_position = initial_latent_position
             time_walk = 0.0
             current_peptide = center_peptide
+            trajectory_path = (
+                [center_peptide] if self.tracking_level != "short" else None
+            )
             walker_step = 0
 
             while time_walk < self.time_walk_budget:
 
+                mutation_parent = current_peptide
                 new_latent_position, step_info = self.sampling_walker.step(
                     current_latent_position
                 )
                 adjusted_time_step = step_info["adjusted_time_step"]
-                U = step_info["U"].cpu().detach().numpy()
-                S = step_info["S"].cpu().detach().numpy()
+                U = step_info["U"]
+                S = step_info["S"]
 
                 mutated_peptides = self.mutation_enumerator.mutate(
                     current_peptide, U=U, S=S
                 )
+                self.last_trace.generated_count += len(mutated_peptides)
 
                 with torch.no_grad():
                     current_peptide = self.encoder_decoder.decode_peptides(
@@ -114,8 +129,25 @@ class SamplingMutationLocalEnumerator(LocalEnumerator):
                     if Levenshtein.distance(peptide, center_peptide)
                     <= self.max_neighbour_levenstein
                 ]
+                self.last_trace.accepted_count += len(new_neighbor_peptides)
+
+                if trajectory_path is not None:
+                    for peptide in new_neighbor_peptides:
+                        self.last_trace.candidates.setdefault(
+                            peptide,
+                            CandidateProvenance(
+                                sequence=peptide,
+                                parent_sequence=mutation_parent,
+                                trajectory_id=trajectory_iter,
+                                step_id=walker_step,
+                                path=[*trajectory_path, peptide],
+                            ),
+                        )
 
                 neighbor_peptides.update(new_neighbor_peptides)
+
+                if trajectory_path is not None:
+                    trajectory_path.append(current_peptide)
 
                 logger.info(
                     f"Trajectory {trajectory_iter} Step {walker_step} Time {time_walk} / {self.time_walk_budget} Levenstain {Levenshtein.distance(current_peptide, center_peptide)}: Found {len(neighbor_peptides)} peptides ."
@@ -174,6 +206,7 @@ class SamplingFilteredMutationLocalEnumerator(SamplingMutationLocalEnumerator):
             radius constraint.
         """
         neighbor_peptides: set[str] = set()
+        self.last_trace = EnumerationTrace()
         with torch.no_grad():
             initial_latent_position = self.encoder_decoder.encode_peptides(
                 [center_peptide]
@@ -182,6 +215,9 @@ class SamplingFilteredMutationLocalEnumerator(SamplingMutationLocalEnumerator):
         for trajectory_iter in range(self.walker_trajectories_number):
             current_latent_position = initial_latent_position
             current_peptide = center_peptide
+            trajectory_path = (
+                [center_peptide] if self.tracking_level != "short" else None
+            )
             time_walk = 0.0
             walker_step = 0
             while time_walk < self.time_walk_budget:
@@ -189,24 +225,43 @@ class SamplingFilteredMutationLocalEnumerator(SamplingMutationLocalEnumerator):
                     current_latent_position
                 )
                 mutations = self.mutation_enumerator.get_mutations_from_s_u(
-                    step_info["S"].cpu().detach().numpy(),
-                    step_info["U"].cpu().detach().numpy(),
+                    step_info["S"],
+                    step_info["U"],
                 )
                 candidates = self.candidate_filter.filter_candidates(
                     current_peptide, mutations
                 )
-                neighbor_peptides.update(
-                    peptide
-                    for peptide in candidates
+                self.last_trace.generated_count += getattr(
+                    self.candidate_filter, "last_generated_count", len(candidates)
+                )
+                accepted = [
+                    peptide for peptide in candidates
                     if Levenshtein.distance(peptide, center_peptide)
                     <= self.max_neighbour_levenstein
-                )
+                ]
+                self.last_trace.accepted_count += len(accepted)
+                if trajectory_path is not None:
+                    for peptide in accepted:
+                        # Max: Keep the first accepted origin | duplicate paths are not useful for analysis.
+                        self.last_trace.candidates.setdefault(
+                            peptide,
+                            CandidateProvenance(
+                                sequence=peptide,
+                                parent_sequence=current_peptide,
+                                trajectory_id=trajectory_iter,
+                                step_id=walker_step + 1,
+                                path=[*trajectory_path, peptide],
+                            ),
+                        )
+                neighbor_peptides.update(accepted)
 
                 with torch.no_grad():
                     current_peptide = self.encoder_decoder.decode_peptides(
                         new_latent_position
                     )[0]
                 current_latent_position = new_latent_position
+                if trajectory_path is not None:
+                    trajectory_path.append(current_peptide)
                 time_walk += step_info["adjusted_time_step"]
                 walker_step += 1
                 logger.info(
@@ -240,7 +295,7 @@ class EuclideanWalkerLocalEnumeratorWithAmbientDistance(LocalEnumerator):
         self.max_walker_ambient_distance = max_walker_ambient_distance
         self.time_step = time_step
         self.max_neighbour_levenstein = max_neighbour_levenstein
-        self.device = device
+        self.device = encoder_decoder.device
         self.max_neighbour_levenstein = max_neighbour_levenstein or 25
 
     def local_enumeration(self, center_peptide: str) -> set[str]:
@@ -324,7 +379,7 @@ class EuclideanWalkerLocalEnumerator(LocalEnumerator):
         self.encoder_decoder = encoder_decoder
         self.walker_trajectories_number = walker_trajectories_number
         self.walker_time = walker_time
-        self.device = device
+        self.device = encoder_decoder.device
         self.time_step = time_step
         self.max_neighbour_levenstein = max_neighbour_levenstein or 25
         self.batch_size = batch_size
@@ -388,7 +443,7 @@ class NormalSamplingLocalEnumerator(LocalEnumerator):
         self.max_neighbour_levenstein = max_neighbour_levenstein or 25
         self.batch_size = batch_size
         self.encoder_decoder = encoder_decoder
-        self.device = device
+        self.device = encoder_decoder.device
 
         self.sampling_temperature = sampling_temperature
         self.number_of_samples = number_of_samples
@@ -427,25 +482,26 @@ class MutationLocalEnumerator(LocalEnumerator):
         mutation_generator: MutationEnumerator,
         max_neighbour_levenstein: int = None,
         device: str = "cpu",
+        tracking_level: str = "short",
     ):
         self.encoder_decoder = encoder_decoder
         self.mutation_generator = mutation_generator
-        self.device = device
+        self.device = encoder_decoder.device
+        self.tracking_level = tracking_level
         self.max_neighbour_levenstein = max_neighbour_levenstein
 
         if self.max_neighbour_levenstein is None:
             self.max_neighbour_levenstein = 25
+        self.last_trace = EnumerationTrace()
 
     def local_enumeration(self, center_peptide, **kwargs) -> set[str]:
 
         with torch.no_grad():
             # Encode the center peptide to get the latent point
-            center_latent_point = self.encoder_decoder.encode_peptides(
-                [center_peptide]
-            )[0]
+            center_latent_point = self.encoder_decoder.encode_peptides([center_peptide])
 
         with torch.no_grad():
-            jacobian = self.encoder_decoder.decoder_jacobian(center_latent_point)
+            jacobian = self.encoder_decoder.decoder_jacobian(center_latent_point)[0]
             logger.debug(f"jacobian device: {jacobian.device}")
             U, S, V = torch.linalg.svd(jacobian, full_matrices=False)
 
@@ -506,19 +562,41 @@ class FilteredMutationLocalEnumerator(MutationLocalEnumerator):
                 jacobian, full_matrices=False
             )
         mutations = self.mutation_generator.get_mutations_from_s_u(
-            singular_values.cpu().numpy(), left.cpu().numpy()
+            singular_values, left
         )
-        return {
+        candidates = self.candidate_filter.filter_candidates(
+            center_peptide, mutations
+        )
+        accepted = {
             peptide
-            for peptide in self.candidate_filter.filter_candidates(
-                center_peptide, mutations
-            )
+            for peptide in candidates
             if Levenshtein.distance(peptide, center_peptide)
             <= self.max_neighbour_levenstein
         }
+        self.last_trace = EnumerationTrace(
+            generated_count=getattr(
+                self.candidate_filter, "last_generated_count", len(candidates)
+            ),
+            accepted_count=len(accepted),
+            candidates=(
+                {
+                    peptide: CandidateProvenance(
+                        sequence=peptide,
+                        parent_sequence=center_peptide,
+                        trajectory_id=None,
+                        step_id=None,
+                        path=[center_peptide, peptide],
+                    )
+                    for peptide in accepted
+                }
+                if self.tracking_level != "short"
+                else {}
+            ),
+        )
+        return accepted
 
 
-# TODO: It was an attempt to parallelize the walker trajectories. Probably it can be useful in the future.
+# Max: Kept the legacy multi-walker disabled | loky copies model state and tensors between processes.
 # class MultiWalkerLocalEnumerator(LocalEnumerator):
 #     def __init__(
 #         self,

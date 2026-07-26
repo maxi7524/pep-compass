@@ -1,7 +1,7 @@
 from abc import ABC
-import numpy as np
+import math
+
 import torch
-from scipy.optimize import root_scalar
 
 from pep_compass.models.encoder_decoder.encoder_decoder import EncoderDecoder
 
@@ -9,11 +9,13 @@ from pep_compass.models.encoder_decoder.encoder_decoder import EncoderDecoder
 class SubRiemannianTangentSpace:
 
     def __init__(self, U, S, V, horizontal_threshold, device="cpu"):
+        if U.device != S.device or S.device != V.device:
+            raise ValueError("U, S, and V must be on the same device")
         self.U = U
         self.S = S
         self.V = V
         self.horizontal_threshold = horizontal_threshold
-        self.device = device
+        self.device = U.device
 
         self.horizontal_dim = torch.sum(
             torch.abs(self.S) > self.horizontal_threshold
@@ -25,12 +27,8 @@ class SubRiemannianTangentSpace:
         self.projection_matrix = None
 
     def _sample_sphere_tensor(self, size):
-        normal_np = np.random.normal(loc=0, scale=1, size=(size,))
-        normal = torch.tensor(normal_np, device=self.device).to(torch.float32)
-        norm = torch.sum(normal**2) ** 0.5
-        result = normal / norm
-        
-        return result
+        normal = torch.randn(size, device=self.device, dtype=self.S.dtype)
+        return normal / torch.linalg.vector_norm(normal)
 
     def sample_horizontal_direction(self):
         # TODO: Is there any chance that values in S are negative?
@@ -74,8 +72,11 @@ class SubRiemannianTangentSpace:
     def project_ambient_vector_to_horizontal_space(self, ambient_vector):
         if self.projection_matrix is None:
             # Compute jacobian taking to account only horizontal directions
-            S_horizontal_with_vertical_zeroed = torch.Tensor(self.S)
-            S_horizontal_with_vertical_zeroed[self.S <= self.horizontal_threshold] = 0
+            # Max: Preserved the SVD device and dtype | torch.Tensor(self.S) copied values to CPU.
+            S_horizontal_with_vertical_zeroed = self.S.clone()
+            S_horizontal_with_vertical_zeroed[
+                torch.abs(self.S) <= self.horizontal_threshold
+            ] = 0
             jac_horizontal = torch.matmul(
                 torch.matmul(self.U, torch.diag(S_horizontal_with_vertical_zeroed)),
                 self.V.T,
@@ -212,15 +213,6 @@ class SecondOrderRiemannianBrownianEfficientSampling(SamplingWalker):
 
         return horizontal_manifold_acceleration
 
-    @staticmethod
-    def _vector_quadratic_function(
-        A: np.ndarray, B: np.ndarray, t: float
-    ) -> np.ndarray:
-        """
-        Evaluate A * t^2 + B * t for vector-valued A, B given scalar t.
-        """
-        return A * (t**2) + B * t
-
     def _compute_sqrt_time_that_satisfies_bound(
         self,
         A_tensor: torch.Tensor,
@@ -233,26 +225,21 @@ class SecondOrderRiemannianBrownianEfficientSampling(SamplingWalker):
         default_sqrt_t, return default_sqrt_t. Otherwise solve for the largest
         t in (0, default_sqrt_t] such that ||f(t)|| = max_norm.
 
-        Inputs A_tensor and B_tensor are torch.Tensors; they will be converted to numpy arrays.
-        Returns a scalar sqrt(dt) value (float).
+        Inputs remain on their current Torch device. Returns a scalar sqrt(dt)
+        value.
         """
-        # Convert to numpy arrays on CPU for scipy root finding
-        A_np: np.ndarray = A_tensor.cpu().detach().numpy()
-        B_np: np.ndarray = B_tensor.cpu().detach().numpy()
-
-        def root_func(t: float) -> float:
-            return float(
-                np.linalg.norm(self._vector_quadratic_function(A_np, B_np, t))
-                - max_norm
-            )
-
-        # If default already below bound, return it
-        if root_func(default_sqrt_t) <= 0.0:
-            return default_sqrt_t
-
-        adjusted_sqrt_t = root_scalar(root_func, bracket=(0.0, default_sqrt_t))
-
-        return adjusted_sqrt_t.root
+        low = torch.zeros((), device=A_tensor.device, dtype=A_tensor.dtype)
+        high = torch.full_like(low, default_sqrt_t)
+        max_norm_tensor = torch.as_tensor(
+            max_norm, device=A_tensor.device, dtype=A_tensor.dtype
+        )
+        for _ in range(48):
+            midpoint = (low + high) / 2
+            update = A_tensor * midpoint.square() + B_tensor * midpoint
+            fits = torch.linalg.vector_norm(update) <= max_norm_tensor
+            low = torch.where(fits, midpoint, low)
+            high = torch.where(fits, high, midpoint)
+        return low.item()
 
     def _get_horizontal_position_update(
         self,
@@ -264,7 +251,7 @@ class SecondOrderRiemannianBrownianEfficientSampling(SamplingWalker):
         Compute the horizontal position update vector using the second-order expansion:
           delta = -0.5 * a * dt + v * sqrt(dt)
         """
-        sqrt_dt = float(np.sqrt(time_step))
+        sqrt_dt = math.sqrt(time_step)
         return -0.5 * manifold_acceleration * (sqrt_dt**2) + velocity * sqrt_dt
 
     def _get_adjusted_time_step(
@@ -296,7 +283,7 @@ class SecondOrderRiemannianBrownianEfficientSampling(SamplingWalker):
         # f(t) = (-0.5 * a) * t^2 + v * t
         A = -0.5 * horizontal_acceleration
         B = horizontal_velocity
-        default_sqrt_t = float(np.sqrt(self.time_step))
+        default_sqrt_t = math.sqrt(self.time_step)
 
         adjusted_sqrt_t = self._compute_sqrt_time_that_satisfies_bound(
             A, B, self.max_horizontal_update_norm, default_sqrt_t
@@ -337,7 +324,7 @@ class SecondOrderRiemannianBrownianEfficientSampling(SamplingWalker):
 
         if self.vertical_movement:
             random_vertical_direction = tangent_space.sample_vertical_direction()
-            vertical_update = random_vertical_direction * np.sqrt(adjusted_time_step)
+            vertical_update = random_vertical_direction * math.sqrt(adjusted_time_step)
             position_update += vertical_update
 
         new_latent_position = latent_position + position_update
@@ -351,6 +338,7 @@ class SecondOrderRiemannianBrownianEfficientSampling(SamplingWalker):
         return new_latent_position, step_info
 
 class SORBESWithoutManifoldAcceleration(SecondOrderRiemannianBrownianEfficientSampling):
+    # Max: Left the unused ablation unchanged | its constructor no longer matches the active SORBES API.
     def __init__(
         self,
         manifold: SubRiemannianManifold,

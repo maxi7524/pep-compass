@@ -1,0 +1,8 @@
+{
+  "extends": "../../base.json",
+  "output_path": "./results/lambo2",
+  "optimizer": {
+    "name": "lambo2",
+    "lambo2": {"negate_objective": true}
+  }
+}

@@ -1,7 +1,7 @@
 from collections import defaultdict
 from copy import deepcopy
 import numpy as np
-from einops import rearrange
+import torch
 
 
 class MutationEnumerator:
@@ -63,14 +63,18 @@ class MutationEnumerationInTangentSpace(MutationEnumerator):
         self.alphabet = alphabet or list(" ACDEFGHIKLMNPQRSTVWY")
 
     def mutate(
-        self, peptide: str, S: np.ndarray, U: np.ndarray, **kwargs: dict
+        self,
+        peptide: str,
+        S: np.ndarray | torch.Tensor,
+        U: np.ndarray | torch.Tensor,
+        **kwargs: dict,
     ) -> set[str]:
         """Generate mutated peptides using tangent-space directions.
 
         Args:
             peptide: The input peptide sequence.
-            S: Direction significance tensor (numpy array).
-            U: Direction basis tensor (numpy array).
+            S: Direction significance tensor.
+            U: Direction basis tensor.
 
         Returns:
             A set of unique mutated peptide sequences.
@@ -84,39 +88,64 @@ class MutationEnumerationInTangentSpace(MutationEnumerator):
 
     def get_mutations_from_s_u(
         self,
-        s: np.ndarray,
-        u: np.ndarray,
+        s: np.ndarray | torch.Tensor,
+        u: np.ndarray | torch.Tensor,
     ) -> dict[int, list[int]]:
         """Compute possible amino acid mutations from tensors S and U.
 
         Args:
-            s: Array of significance scores for directions | shape: [n_directions].
-            u: Tangent-space directions | shape: [max_len * len(alphabet), n_directions].
+            s: Significance scores with shape ``[n_directions]``.
+            u: Tangent-space directions with shape
+                ``[max_len * len(alphabet), n_directions]``.
 
         Returns:
             A dictionary mapping sequence positions to lists of amino acid indices.
         """
-        assert isinstance(s, np.ndarray) and isinstance(u, np.ndarray), ValueError(
-            f"s and u should be numpy arrays, got {type(s)} and {type(u)} instead."
-        )
-        assert s.ndim == 1, ValueError(f"s should be 1D, got {s.ndim}D instead.")
-        assert u.ndim == 2, ValueError(f"u should be 2D, got {u.ndim}D instead.")
-        number_of_directions = max(
-            (s > self.direction_significance_threshold).sum(),
-            self.min_number_of_directions,
-        )
-        mutations = defaultdict(list)
-        for direction_nb in range(number_of_directions):
-            current_table = np.abs(
-                u[:, direction_nb].reshape((self.max_len, len(self.alphabet)))
+        if not isinstance(s, (np.ndarray, torch.Tensor)) or not isinstance(
+            u, (np.ndarray, torch.Tensor)
+        ):
+            raise TypeError(
+                f"s and u must be NumPy arrays or Torch tensors, got "
+                f"{type(s)} and {type(u)}"
             )
-            change_position = current_table.sum(
-                axis=1
-            ).argmax()  # NOTE: this looks like an assumption that a single direction in the latent corresponds to change on a single position. wouldnt it make sense to compute SVD over positions separately (even smaller sample size tho)?
+        if s.ndim != 1:
+            raise ValueError(f"s must be 1D, got {s.ndim}D")
+        if u.ndim != 2:
+            raise ValueError(f"u must be 2D, got {u.ndim}D")
+        expected_rows = self.max_len * len(self.alphabet)
+        if u.shape[0] != expected_rows:
+            raise ValueError(
+                f"u must have {expected_rows} rows, got {u.shape[0]}"
+            )
+        significant = (s > self.direction_significance_threshold).sum()
+        if isinstance(significant, torch.Tensor):
+            significant = significant.item()
+        number_of_directions = min(
+            max(int(significant), self.min_number_of_directions),
+            u.shape[1],
+        )
 
-            for j in range(1, current_table.shape[1]):
-                if current_table[change_position, j] > self.token_threshold:
-                    mutations[change_position].append(j)
+        mutations: dict[int, list[int]] = defaultdict(list)
+        for direction_nb in range(number_of_directions):
+            current_table = u[:, direction_nb].reshape(
+                self.max_len, len(self.alphabet)
+            )
+            current_table = (
+                current_table.abs()
+                if isinstance(current_table, torch.Tensor)
+                else np.abs(current_table)
+            )
+
+            # Max: Checked every position above the threshold | argmax discarded valid MUTANG proposals.
+            selected = current_table[:, 1:] > self.token_threshold
+            if isinstance(selected, torch.Tensor):
+                selected_indices = selected.nonzero(as_tuple=False).cpu().tolist()
+            else:
+                selected_indices = np.argwhere(selected).tolist()
+            for position, amino_acid_offset in selected_indices:
+                amino_acid = amino_acid_offset + 1
+                if amino_acid not in mutations[position]:
+                    mutations[position].append(amino_acid)
 
         return mutations
 

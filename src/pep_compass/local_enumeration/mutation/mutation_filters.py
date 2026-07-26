@@ -136,6 +136,8 @@ def _enumerate_sequences(
 class MutationCandidateFilter(ABC):
     """Filter a MUTANG mutation pool into peptide candidates."""
 
+    last_generated_count: int = 0
+
     @abstractmethod
     def filter_candidates(
         self,
@@ -202,6 +204,7 @@ class LpbeboFilter(MutationCandidateFilter):
             alphabet=self.alphabet,
             maximum_candidates=self.maximum_candidates,
         )
+        self.last_generated_count = len(distribution.sequences)
         selected = _nucleus_indices(
             distribution.log_potentials, self.top_p, self.temperature
         )
@@ -306,6 +309,7 @@ class LamsFilter(_GeometryFilter):
             include_parent_residue=True,
             maximum_candidates=self.maximum_candidates,
         )
+        self.last_generated_count = len(distribution.sequences)
         return [
             sequence
             for sequence, score in zip(
@@ -364,6 +368,7 @@ class TandemFilter(_GeometryFilter):
             include_parent_residue=True,
             maximum_candidates=self.maximum_candidates,
         )
+        self.last_generated_count = len(distribution.sequences)
         selected = _nucleus_indices(
             distribution.log_potentials, self.top_p, self.temperature
         )
@@ -418,14 +423,10 @@ class MoveFilter(MutationCandidateFilter):
         sequences = _enumerate_sequences(
             parent_peptide, mutations, self.alphabet, self.maximum_candidates
         )
+        self.last_generated_count = len(sequences)
         if not sequences:
             return []
-        parent_latent = (
-            self.encoder_decoder.encode_peptides([parent_peptide])[0]
-            .detach()
-            .cpu()
-            .numpy()
-        )
+        parent_latent = self.encoder_decoder.encode_peptides([parent_peptide])[0]
         single_mutations = {
             (position, sequence[position])
             for sequence in sequences
@@ -438,31 +439,24 @@ class MoveFilter(MutationCandidateFilter):
             sequence = list(parent_peptide)
             sequence[position] = amino_acid
             single_sequences.append("".join(sequence))
-        single_latents = (
-            self.encoder_decoder.encode_peptides(single_sequences)
-            .detach()
-            .cpu()
-            .numpy()
+        single_latents = self.encoder_decoder.encode_peptides(single_sequences)
+        displacements = single_latents - parent_latent
+        displacement_index = {key: index for index, key in enumerate(single_keys)}
+        candidate_displacements = torch.zeros(
+            (len(sequences), parent_latent.shape[0]),
+            device=parent_latent.device,
+            dtype=parent_latent.dtype,
         )
-        displacements = {
-            key: single_latents[index] - parent_latent
-            for index, key in enumerate(single_keys)
-        }
-        scores = np.asarray(
-            [
-                -np.linalg.norm(
-                    sum(
-                        (
-                            displacements[(position, sequence[position])]
-                            for position in range(len(parent_peptide))
-                            if sequence[position] != parent_peptide[position]
-                        ),
-                        np.zeros_like(parent_latent),
-                    )
-                )
-                for sequence in sequences
+        for candidate_index, sequence in enumerate(sequences):
+            indices = [
+                displacement_index[(position, sequence[position])]
+                for position in range(len(parent_peptide))
+                if sequence[position] != parent_peptide[position]
             ]
-        )
+            candidate_displacements[candidate_index] = displacements[indices].sum(dim=0)
+        scores = (
+            -torch.linalg.vector_norm(candidate_displacements, dim=1)
+        ).cpu().numpy()
         selected = _nucleus_indices(scores, self.top_p, self.temperature)
         return [sequences[index] for index in selected]
 
@@ -536,6 +530,7 @@ class RandomLeBoFilter(MutationCandidateFilter):
         sequences = _enumerate_sequences(
             parent_peptide, mutations, self.alphabet, self.maximum_candidates
         )
+        self.last_generated_count = len(sequences)
         if self.mode == "mutang_random" and sequences:
             random_mass = np.random.random(len(sequences))
             random_mass /= random_mass.sum()
