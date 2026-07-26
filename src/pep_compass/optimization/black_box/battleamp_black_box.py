@@ -1,11 +1,27 @@
 import numpy as np
 import torch
-from poli_baselines.core.abstract_solver import AbstractBlackBox
+from concurrent.futures import ProcessPoolExecutor
+from multiprocessing import get_context
+
+from poli.core.abstract_black_box import AbstractBlackBox
 from poli.core.black_box_information import BlackBoxInformation
 import torch.nn.functional as F
 from einops import rearrange
 
-from pep_compass.models.battleamp.BattleAMPPredictor import PredictorBattleAMP
+
+_battleamp_predictor = None
+
+
+def _predict_in_isolated_process(sequences: list[str]) -> np.ndarray:
+    global _battleamp_predictor
+    if _battleamp_predictor is None:
+        from pep_compass.models.battleamp.BattleAMPPredictor import (
+            PredictorBattleAMP,
+        )
+
+        _battleamp_predictor = PredictorBattleAMP(device="cpu")
+    return _battleamp_predictor.predict(sequences).flatten()
+
 
 class BattleAMPBlackBox(AbstractBlackBox):
     def __init__(
@@ -27,10 +43,20 @@ class BattleAMPBlackBox(AbstractBlackBox):
         )
         
         self.device = device
-        self.battleamp_predictor = PredictorBattleAMP(device=device)
-        
-        # BattleAMP returns a single prediction value, so no aggregation needed
-        self.peptide_scorer = lambda x: np.log2(self.battleamp_predictor.predict(x).flatten())
+        self._executor = None
+        if str(device).startswith("cuda"):
+            # Max - debbuging: Zmiana z TensorFlow i PyTorch w jednym procesie na izolowany worker BattleAMP ~biblioteki TensorFlow psuły cuSOLVER używany przez LE-BO na GPU.
+            self._executor = ProcessPoolExecutor(
+                max_workers=1,
+                mp_context=get_context("spawn"),
+            )
+            self.battleamp_predictor = None
+        else:
+            from pep_compass.models.battleamp.BattleAMPPredictor import (
+                PredictorBattleAMP,
+            )
+
+            self.battleamp_predictor = PredictorBattleAMP(device=device)
 
         self.maximize = False
 
@@ -51,7 +77,13 @@ class BattleAMPBlackBox(AbstractBlackBox):
 
     def _black_box(self, x: np.ndarray, context: dict = None) -> np.ndarray:
         sequences = ["".join(seq) for seq in x]
-        predictions = self.peptide_scorer(sequences)
+        if self._executor is not None:
+            predictions = self._executor.submit(
+                _predict_in_isolated_process, sequences
+            ).result()
+        else:
+            predictions = self.battleamp_predictor.predict(sequences).flatten()
+        predictions = np.log2(predictions)
 
         for i, seq in enumerate(sequences):
             self.cache.append((seq, predictions[i].item()))
@@ -60,3 +92,9 @@ class BattleAMPBlackBox(AbstractBlackBox):
     
     def clear_cache(self):
         self.cache = []
+
+    def terminate(self) -> None:
+        if self._executor is not None:
+            self._executor.shutdown(wait=True)
+            self._executor = None
+        super().terminate()

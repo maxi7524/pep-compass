@@ -36,6 +36,10 @@ class PredictorBattleAMP:
         
         if not os.path.exists(model_path):
             raise FileNotFoundError(f"BattleAMP model not found at {model_path}")
+
+        if str(device).startswith("cpu"):
+            # Max - debbuging: Zmiana z automatycznego wyboru urządzenia TensorFlow na jawne ukrycie GPU ~izolowany BattleAMP CPU nie może rezerwować VRAM używanego przez PyTorch.
+            tf.config.set_visible_devices([], "GPU")
             
         # Configure TensorFlow to use GPU if available and requested
         if device == "cuda":
@@ -99,4 +103,3 @@ class PredictorBattleAMP:
         predictions = 10 ** predictions
         
         return predictions
-
