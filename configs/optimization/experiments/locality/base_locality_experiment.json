@@ -1,0 +1,26 @@
+{
+  "extends": "../../base.json",
+  "input_csv": "../../peptides/peptides_all.csv",
+  "evaluation_budget": 10,
+  "tracking": {
+    "level": "normal",
+    "store_latents": false
+  },
+  "local_enumeration": {
+    "walker_trajectories": 100
+  },
+  "filter": {
+    "maximum_candidates": 1000
+  },
+  "optimizer": {
+    "lebo": {
+      "initial_peptides": 1,
+      "evaluations_per_iteration": 3
+    }
+  },
+  "grid": {
+    "mutation.token_threshold": [1e-7, 1e-6, 1e-5],
+    "filter.similarity_threshold": [-0.1, 0.0, 0.1],
+    "local_enumeration.max_neighbour_levenshtein": [1, 2, 3, 4]
+  }
+}

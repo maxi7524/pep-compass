@@ -131,8 +131,8 @@ def validate_config(config: dict[str, Any]) -> None:
                 f"Unsupported LE-BO candidate strategy: {candidate_strategy!r}"
             )
     tracking = config["tracking"]
-    if tracking["level"] not in {"short", "normal", "full"}:
-        raise ValueError("tracking.level must be short, normal, or full")
+    if tracking["level"] not in {"short", "normal", "all"}:
+        raise ValueError("tracking.level must be short, normal, or all")
     if not isinstance(tracking["store_latents"], bool):
         raise ValueError("tracking.store_latents must be a boolean")
     if config["execution"]["backend"] not in {"local", "srun"}:

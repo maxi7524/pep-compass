@@ -1,0 +1,9 @@
+{
+  "extends": "base_locality_experiment.json",
+  "output_path": "./results/locality/07_random_mutang_retention",
+  "optimizer": {"lebo": {"candidate_strategy": "random_mutang"}},
+  "grid": {
+    "filter.selection_fraction": [0.5, 0.6, 0.7, 0.8],
+    "filter.temperature": [0.5, 2.0, 10.0]
+  }
+}
