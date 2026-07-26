@@ -118,11 +118,23 @@ class LocalEnumerationBayesianOptimizer(AbstractOptimizer):
             peptide for _, peptide in filtered if peptide not in self.scored_peptides
         ]
 
-    def _bayesian_optimization(self, max_scorer_calls) -> str:
+    def _bayesian_optimization(self, max_scorer_calls) -> str | None:
         self.iteration_evaluations = []
         # At the beggining of the search, score few random peptides to initialize the surrogate model
         if len(self.scored_peptides) == 1:
             self._initialize_scored_peptides()
+        # Max - debbuging: Zmiana z kontynuowania optymalizacji po wykorzystaniu całego budżetu na kontrolowane zakończenie ~inicjalizacja modelu może zużyć ostatnie dostępne ewaluacje, więc nie wolno przekazywać pustej listy peptydów do black boxa.
+        if self.black_box_calls >= max_scorer_calls:
+            logger.info("Evaluation budget exhausted during GP initialization.")
+            return None
+
+        with self.timer("turbo filter"):
+            # Max - debbuging: Zmiana z wyjątku dla pustej puli na kontrolowane zakończenie ~lokalna enumeracja może nie wygenerować nowego kandydata.
+            test_peptides = self._turbo_filter()
+            logger.info("Number of test peptides: %s", len(test_peptides))
+            if not test_peptides:
+                logger.warning("No test peptides left; stopping optimization.")
+                return None
 
         with self.timer("extract train features"):
             # Make train set from all scored peptides
@@ -159,15 +171,6 @@ class LocalEnumerationBayesianOptimizer(AbstractOptimizer):
             logEI = LogExpectedImprovement(
                 model=gp, best_f=train_Y.min(), maximize=False
             ).to(self.device)
-
-        with self.timer("turbo filter"):
-            # Filter test peptides based on the trust region distance
-            test_peptides = self._turbo_filter()
-
-            logger.info(f"Number of test peptides: {len(test_peptides)}")
-
-            if len(test_peptides) == 0:
-                raise ValueError("No test peptides left to evaluate.")
 
         with self.timer("extract test features"):
             test_peptides_features = self._extract_features(test_peptides)
@@ -464,7 +467,7 @@ class LocalEnumerationBayesianOptimizer(AbstractOptimizer):
                     f"Added {len(self.not_scored_peptides_set) - len_before} new peptides to not scored peptides."
                 )
 
-            current_center_peptide = self._bayesian_optimization(evaluation_budget)
+            next_center_peptide = self._bayesian_optimization(evaluation_budget)
 
             if self.tracker is not None:
                 provenance_to_record = {
@@ -493,6 +496,10 @@ class LocalEnumerationBayesianOptimizer(AbstractOptimizer):
                     candidate_provenance=provenance_to_record,
                 )
             iteration_id += 1
+
+            if next_center_peptide is None:
+                break
+            current_center_peptide = next_center_peptide
 
             logger.info(
                 f"Best peptide: {self.the_best_peptide} with score {self.the_best_score}"
