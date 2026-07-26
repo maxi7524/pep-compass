@@ -1,0 +1,7 @@
+{
+  "extends": "base_locality_experiment.json",
+  "output_path": "./results/locality/02_lams_threshold",
+  "optimizer": {"lebo": {"candidate_strategy": "lams"}},
+  "mutation": {"token_threshold": 1e-6},
+  "grid": {"filter.similarity_threshold": [-0.1, 0.0, 0.1]}
+}

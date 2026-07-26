@@ -33,6 +33,7 @@ from pep_compass.models.encoder_decoder.hydramp_encoder_decoder import \
     HydrAMPEncoderDecoder
 from pep_compass.optimization.lebo.trajectory_tracking import (
     CandidateProvenance,
+    EnumerationStep,
     EnumerationTrace,
 )
 from pep_compass.utils.sequence_utils import translate_generated_peptide
@@ -95,9 +96,6 @@ class SamplingMutationLocalEnumerator(LocalEnumerator):
             current_latent_position = initial_latent_position
             time_walk = 0.0
             current_peptide = center_peptide
-            trajectory_path = (
-                [center_peptide] if self.tracking_level != "short" else None
-            )
             walker_step = 0
 
             while time_walk < self.time_walk_budget:
@@ -131,23 +129,44 @@ class SamplingMutationLocalEnumerator(LocalEnumerator):
                 ]
                 self.last_trace.accepted_count += len(new_neighbor_peptides)
 
-                if trajectory_path is not None:
-                    for peptide in new_neighbor_peptides:
-                        self.last_trace.candidates.setdefault(
-                            peptide,
-                            CandidateProvenance(
-                                sequence=peptide,
-                                parent_sequence=mutation_parent,
-                                trajectory_id=trajectory_iter,
-                                step_id=walker_step,
-                                path=[*trajectory_path, peptide],
-                            ),
+                if self.tracking_level != "short":
+                    step_node_id = f"trajectory_{trajectory_iter}_step_{walker_step}"
+                    parent_id = (
+                        f"trajectory_{trajectory_iter}_step_{walker_step - 1}"
+                        if walker_step > 1
+                        else f"trajectory_{trajectory_iter}_root"
+                    )
+                    self.last_trace.steps.append(
+                        EnumerationStep(
+                            trajectory_id=trajectory_iter,
+                            step_id=walker_step,
+                            node_id=step_node_id,
+                            parent_id=parent_id,
+                            parent_sequence=mutation_parent,
+                            next_sequence=current_peptide,
+                            proposed_count=len(mutated_peptides),
+                            post_limit_count=len(mutated_peptides),
+                            post_method_filter_count=len(mutated_peptides),
+                            post_constraint_filter_count=len(new_neighbor_peptides),
                         )
+                    )
+                    for peptide in new_neighbor_peptides:
+                        provenance = CandidateProvenance(
+                            sequence=peptide,
+                            parent_sequence=mutation_parent,
+                            trajectory_id=trajectory_iter,
+                            step_id=walker_step,
+                            node_id=(
+                                f"{step_node_id}_candidate_"
+                                f"{self.last_trace.all_candidates.count}"
+                            ),
+                            parent_id=step_node_id,
+                        )
+                        self.last_trace.candidates.setdefault(peptide, provenance)
+                        if self.tracking_level == "all":
+                            self.last_trace.all_candidates.append(provenance)
 
                 neighbor_peptides.update(new_neighbor_peptides)
-
-                if trajectory_path is not None:
-                    trajectory_path.append(current_peptide)
 
                 logger.info(
                     f"Trajectory {trajectory_iter} Step {walker_step} Time {time_walk} / {self.time_walk_budget} Levenstain {Levenshtein.distance(current_peptide, center_peptide)}: Found {len(neighbor_peptides)} peptides ."
@@ -215,9 +234,6 @@ class SamplingFilteredMutationLocalEnumerator(SamplingMutationLocalEnumerator):
         for trajectory_iter in range(self.walker_trajectories_number):
             current_latent_position = initial_latent_position
             current_peptide = center_peptide
-            trajectory_path = (
-                [center_peptide] if self.tracking_level != "short" else None
-            )
             time_walk = 0.0
             walker_step = 0
             while time_walk < self.time_walk_budget:
@@ -231,6 +247,7 @@ class SamplingFilteredMutationLocalEnumerator(SamplingMutationLocalEnumerator):
                 candidates = self.candidate_filter.filter_candidates(
                     current_peptide, mutations
                 )
+                bounded_candidates = self.candidate_filter.last_bounded_candidates
                 self.last_trace.generated_count += getattr(
                     self.candidate_filter, "last_generated_count", len(candidates)
                 )
@@ -240,28 +257,62 @@ class SamplingFilteredMutationLocalEnumerator(SamplingMutationLocalEnumerator):
                     <= self.max_neighbour_levenstein
                 ]
                 self.last_trace.accepted_count += len(accepted)
-                if trajectory_path is not None:
-                    for peptide in accepted:
-                        # Max: Keep the first accepted origin | duplicate paths are not useful for analysis.
-                        self.last_trace.candidates.setdefault(
-                            peptide,
-                            CandidateProvenance(
-                                sequence=peptide,
-                                parent_sequence=current_peptide,
-                                trajectory_id=trajectory_iter,
-                                step_id=walker_step + 1,
-                                path=[*trajectory_path, peptide],
-                            ),
-                        )
-                neighbor_peptides.update(accepted)
-
                 with torch.no_grad():
-                    current_peptide = self.encoder_decoder.decode_peptides(
+                    next_peptide = self.encoder_decoder.decode_peptides(
                         new_latent_position
                     )[0]
+                if self.tracking_level != "short":
+                    step_id = walker_step + 1
+                    step_node_id = f"trajectory_{trajectory_iter}_step_{step_id}"
+                    parent_id = (
+                        f"trajectory_{trajectory_iter}_step_{step_id - 1}"
+                        if step_id > 1
+                        else f"trajectory_{trajectory_iter}_root"
+                    )
+                    self.last_trace.steps.append(
+                        EnumerationStep(
+                            trajectory_id=trajectory_iter,
+                            step_id=step_id,
+                            node_id=step_node_id,
+                            parent_id=parent_id,
+                            parent_sequence=current_peptide,
+                            next_sequence=next_peptide,
+                            proposed_count=getattr(
+                                self.candidate_filter,
+                                "last_proposed_count",
+                                len(bounded_candidates),
+                            ),
+                            post_limit_count=len(bounded_candidates),
+                            post_method_filter_count=len(candidates),
+                            post_constraint_filter_count=len(accepted),
+                        )
+                    )
+                    accepted_set = set(accepted)
+                    method_filtered_set = set(candidates)
+                    for candidate_index, peptide in enumerate(
+                        bounded_candidates if self.tracking_level == "all" else accepted
+                    ):
+                        provenance = CandidateProvenance(
+                            sequence=peptide,
+                            parent_sequence=current_peptide,
+                            trajectory_id=trajectory_iter,
+                            step_id=step_id,
+                            node_id=f"{step_node_id}_candidate_{candidate_index}",
+                            parent_id=step_node_id,
+                            passed_method_filter=peptide in method_filtered_set,
+                            passed_constraint_filter=(
+                                Levenshtein.distance(peptide, center_peptide)
+                                <= self.max_neighbour_levenstein
+                            ),
+                        )
+                        if peptide in accepted_set:
+                            self.last_trace.candidates.setdefault(peptide, provenance)
+                        if self.tracking_level == "all":
+                            self.last_trace.all_candidates.append(provenance)
+                neighbor_peptides.update(accepted)
+
+                current_peptide = next_peptide
                 current_latent_position = new_latent_position
-                if trajectory_path is not None:
-                    trajectory_path.append(current_peptide)
                 time_walk += step_info["adjusted_time_step"]
                 walker_step += 1
                 logger.info(
@@ -573,25 +624,52 @@ class FilteredMutationLocalEnumerator(MutationLocalEnumerator):
             if Levenshtein.distance(peptide, center_peptide)
             <= self.max_neighbour_levenstein
         }
+        bounded_candidates = self.candidate_filter.last_bounded_candidates
+        step = EnumerationStep(
+            trajectory_id=None,
+            step_id=1,
+            node_id="single_point_step_1",
+            parent_id="single_point_root",
+            parent_sequence=center_peptide,
+            next_sequence=center_peptide,
+            proposed_count=getattr(
+                self.candidate_filter, "last_proposed_count", len(candidates)
+            ),
+            post_limit_count=len(bounded_candidates),
+            post_method_filter_count=len(candidates),
+            post_constraint_filter_count=len(accepted),
+        )
+        method_filtered_set = set(candidates)
+        provenance = [
+            CandidateProvenance(
+                sequence=peptide,
+                parent_sequence=center_peptide,
+                trajectory_id=None,
+                step_id=1,
+                node_id=f"single_point_step_1_candidate_{candidate_index}",
+                parent_id="single_point_step_1",
+                passed_method_filter=peptide in method_filtered_set,
+                passed_constraint_filter=(
+                    Levenshtein.distance(peptide, center_peptide)
+                    <= self.max_neighbour_levenstein
+                ),
+            )
+            for candidate_index, peptide in enumerate(
+                bounded_candidates if self.tracking_level == "all" else accepted
+            )
+        ]
         self.last_trace = EnumerationTrace(
             generated_count=getattr(
                 self.candidate_filter, "last_generated_count", len(candidates)
             ),
             accepted_count=len(accepted),
             candidates=(
-                {
-                    peptide: CandidateProvenance(
-                        sequence=peptide,
-                        parent_sequence=center_peptide,
-                        trajectory_id=None,
-                        step_id=None,
-                        path=[center_peptide, peptide],
-                    )
-                    for peptide in accepted
-                }
+                {item.sequence: item for item in provenance if item.sequence in accepted}
                 if self.tracking_level != "short"
                 else {}
             ),
+            steps=[step] if self.tracking_level != "short" else [],
+            all_candidates=provenance if self.tracking_level == "all" else [],
         )
         return accepted
 

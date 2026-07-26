@@ -1,0 +1,18 @@
+{
+  "extends": "../../base.json",
+  "input_csv": "../../peptides/peptides_all.csv",
+  "evaluation_budget": 10,
+  "tracking": {
+    "level": "normal",
+    "store_latents": false
+  },
+  "local_enumeration": {
+    "walker_trajectories": 100
+  },
+  "optimizer": {
+    "lebo": {
+      "initial_peptides": 1,
+      "evaluations_per_iteration": 3
+    }
+  }
+}

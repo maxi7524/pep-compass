@@ -461,7 +461,10 @@ class LocalEnumerationBayesianOptimizer(AbstractOptimizer):
                 self.not_scored_peptides_set.update(peptides_to_add)
                 trace = self.local_enumerator.last_trace
                 for sequence, provenance in trace.candidates.items():
+                    provenance.source_iteration_id = iteration_id
                     self.candidate_provenance.setdefault(sequence, provenance)
+                for provenance in trace.all_candidates:
+                    provenance.source_iteration_id = iteration_id
 
                 logger.info(
                     f"Added {len(self.not_scored_peptides_set) - len_before} new peptides to not scored peptides."
@@ -481,7 +484,6 @@ class LocalEnumerationBayesianOptimizer(AbstractOptimizer):
                         for sequence, _ in self.iteration_evaluations
                         if sequence in self.candidate_provenance
                     }
-                # Max: Persist after GP selection | normal mode keeps only evaluated paths.
                 self.tracker.record_iteration(
                     iteration_id=iteration_id,
                     center_sequence=iteration_center_peptide,

@@ -1,0 +1,6 @@
+{
+  "extends": "base_locality_experiment.json",
+  "output_path": "./results/locality/01_mutang_token_threshold",
+  "optimizer": {"lebo": {"candidate_strategy": "lebo"}},
+  "grid": {"mutation.token_threshold": [1e-7, 1e-6, 1e-5]}
+}

@@ -156,32 +156,36 @@ uv run python scripts/runner/run_optimization.py \
 
 The `tracking.level` setting controls how much LE-BO provenance is persisted:
 
-- `short` writes iteration summaries and peptides evaluated by the black box;
-- `normal` additionally writes the generating trajectories of evaluated
-  peptides;
-- `full` additionally writes every locally accepted candidate that could enter
-  optimizer selection.
+- `short` writes only peptides evaluated by the APEX black box;
+- `normal` additionally writes proposal counts at every local-enumeration step
+  and the generating trajectory of evaluated peptides;
+- `all` additionally writes every candidate after the Cartesian-product size
+  limit, including whether it passed the method and final constraint filters.
 
-Rejected peptide strings and duplicate generation events are not stored. Their
-effect is visible through the aggregate `generated_count`, `accepted_count`,
-and `rejected_count` columns. `tracking.store_latents` controls latent encoding
-for candidate rows; disable it when only sequence provenance is needed.
+`normal` represents rejected proposals only through aggregate counts. `all`
+preserves post-limit peptide strings and duplicate generation events, with
+separate method-filter and constraint-filter flags. `tracking.store_latents`
+controls candidate latent encoding; disable it for memory-efficient `all` runs.
 
 Each LE-BO task writes a directory below
 `<output_path>/<grid_id>/tracking/<experiment_id>/` containing:
 
 - `tracking_metadata.json`: objective name, mathematical meaning, direction,
   black-box parameters, candidate strategy, and tracking settings;
-- `iteration_statistics.csv`: one row per optimizer iteration;
+- `iteration_statistics.csv`: one row per optimizer iteration for `normal` and
+  `all`;
 - `evaluations.csv`: raw black-box objective values with their meaning and
   optimization direction;
-- `candidates.csv`: trajectory provenance for `normal` and `full` tracking.
+- `enumeration_steps.csv`: per-step proposal counts and compact walker nodes for
+  `normal` and `all` tracking;
+- `candidates.csv`: evaluated provenance for `normal`, or every post-limit
+  generation event for `all`.
 
-`trajectory_path` is a JSON list stored inside one CSV field. It contains the
-decoded sequence path from the iteration centre to the candidate. A candidate
-sequence is written once; repeated generation of the same sequence is ignored.
-`run_id`, `iteration_id`, `trajectory_id`, `step_id`, and `candidate_id` remain
-available after concatenating results from multiple tasks.
+Trajectories are normalized instead of copying a complete JSON path into every
+candidate row. Join on `run_id`, `source_iteration_id`, and
+`candidates.parent_id` to `enumeration_steps.node_id`, then
+follow step `parent_id` values to reconstruct a walker path. Repeated generation
+events are preserved in `all`, even when their peptide strings are equal.
 
 ### Execution
 
