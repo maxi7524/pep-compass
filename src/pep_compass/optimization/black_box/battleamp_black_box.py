@@ -45,7 +45,7 @@ class BattleAMPBlackBox(AbstractBlackBox):
         self.device = device
         self._executor = None
         if str(device).startswith("cuda"):
-            # Max - debbuging: Zmiana z TensorFlow i PyTorch w jednym procesie na izolowany worker BattleAMP ~biblioteki TensorFlow psuły cuSOLVER używany przez LE-BO na GPU.
+            # Max - debbuging: Zmiana z uruchamiania BattleAMP i PyTorch w jednym procesie na uruchamianie BattleAMP w osobnym procesie CPU ~TensorFlow pozostaje odseparowany od procesu, w którym PyTorch wykonuje LE-BO na GPU, dzięki czemu nie inicjalizuje tam CUDA i nie zakłóca działania cuSOLVER.
             self._executor = ProcessPoolExecutor(
                 max_workers=1,
                 mp_context=get_context("spawn"),

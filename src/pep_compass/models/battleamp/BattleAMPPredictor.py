@@ -38,7 +38,7 @@ class PredictorBattleAMP:
             raise FileNotFoundError(f"BattleAMP model not found at {model_path}")
 
         if str(device).startswith("cpu"):
-            # Max - debbuging: Zmiana z automatycznego wyboru urządzenia TensorFlow na jawne ukrycie GPU ~izolowany BattleAMP CPU nie może rezerwować VRAM używanego przez PyTorch.
+           # Max - debbuging: Zmiana z pozostawienia TensorFlow dostępu do wykrytych GPU na jawne ukrycie GPU ~BattleAMP działa w osobnym procesie na CPU, więc TensorFlow nie może inicjalizować CUDA ani rezerwować pamięci GPU używanej przez PyTorch.
             tf.config.set_visible_devices([], "GPU")
             
         # Configure TensorFlow to use GPU if available and requested

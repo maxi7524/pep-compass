@@ -37,7 +37,8 @@ class HydrophobicityPredictor:
         
         for seq in seq_list:
             try:
-                # Max - debbuging: Zmiana z importu seqme na jego backend modlamp ~seqme ładowało TensorFlow i psuło późniejszą inicjalizację cuSOLVER w PyTorch.
+                # Max - debbuging: Zmiana z wywołania modelu hydrophobicity przez seqme na bezpośrednie użycie modlamp.PeptideDescriptor ~seqme korzystało z tego samego backendu, ale podczas importu ładowało również TensorFlow; teraz skala i sposób obliczania wyniku pozostają takie same, bez niepotrzebnej inicjalizacji TensorFlow i konfliktu z CUDA PyTorch.
+                # Link do dokumentacji: `https://seqme.readthedocs.io/en/stable/_modules/seqme/models/amino_acid_descriptors.html#Hydrophobicity`
                 descriptor = PeptideDescriptor(seq)
                 descriptor.load_scale(self.scale)
                 descriptor.calculate_global()
