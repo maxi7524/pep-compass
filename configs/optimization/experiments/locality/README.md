@@ -2,9 +2,10 @@
 
 Every experiment in this directory extends `base_locality_experiment.json`.
 The shared base reads `configs/optimization/peptides/peptides_all.csv`, runs 100
-SORBES trajectories per local-enumeration call, and uses an evaluation budget
-of 10 so an `all` tracking run normally finishes within a few BO iterations.
-The peptide CSV is intentionally not included in this change.
+SORBES trajectories per local-enumeration call, limits each candidate product
+to 1,000 sequences, and uses an evaluation budget of 10. Its common grid covers
+MUTANG token threshold, LAMS similarity threshold, and Levenshtein radius. The
+peptide CSV is intentionally not included in this change.
 
 Select the tracking detail in the base or an individual experiment:
 
@@ -14,5 +15,6 @@ Select the tracking detail in the base or an individual experiment:
 - `all`: every generation event after the Cartesian-product limit, with method
   and constraint-filter outcomes plus normalized parent identifiers.
 
-The numbered configs cover MUTANG token sensitivity, LAMS thresholds and
-Levenshtein radii, TANDEM top-p and temperature, and random controls.
+The remaining independent configs cover the three-position random walker,
+TANDEM top-p, TANDEM temperature excluding the top-p experiment's temperature
+1.0 case, and a matched random-MUTANG baseline.

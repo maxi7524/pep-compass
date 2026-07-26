@@ -2,9 +2,8 @@
   "extends": "base_locality_experiment.json",
   "output_path": "./results/locality/06_tandem_temperature",
   "optimizer": {"lebo": {"candidate_strategy": "tandem"}},
-  "mutation": {"token_threshold": 1e-6},
   "grid": {
     "filter.top_p": [0.5, 0.6, 0.7, 0.8],
-    "filter.temperature": [0.5, 1.0, 2.0, 10.0]
+    "filter.temperature": [0.5, 2.0, 10.0]
   }
 }

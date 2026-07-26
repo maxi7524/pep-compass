@@ -508,6 +508,7 @@ class RandomLeBoFilter(MutationCandidateFilter):
         self,
         mode: str = "walker",
         selection_fraction: float = 0.6,
+        temperature: float = 1.0,
         maximum_positions: int = 5,
         residues_per_position: int = 4,
         maximum_candidates: int = 30_000,
@@ -519,6 +520,7 @@ class RandomLeBoFilter(MutationCandidateFilter):
             randomizes selection over the real MUTANG product.
         :param selection_fraction: Random probability mass retained in
             ``mutang_random`` mode.
+        :param temperature: Positive scaling applied to random baseline scores.
         :param maximum_positions: Maximum positions sampled in ``walker`` mode.
         :param residues_per_position: Residue choices sampled per position.
         :param maximum_candidates: Maximum product size.
@@ -528,6 +530,7 @@ class RandomLeBoFilter(MutationCandidateFilter):
             raise ValueError("mode must be 'walker' or 'mutang_random'")
         self.mode = mode
         self.selection_fraction = selection_fraction
+        self.temperature = temperature
         self.maximum_positions = maximum_positions
         self.residues_per_position = residues_per_position
         self.maximum_candidates = maximum_candidates
@@ -569,12 +572,9 @@ class RandomLeBoFilter(MutationCandidateFilter):
         self.last_generated_count = len(sequences)
         self.last_bounded_candidates = sequences
         if self.mode == "mutang_random" and sequences:
-            random_mass = np.random.random(len(sequences))
-            random_mass /= random_mass.sum()
-            order = np.argsort(random_mass)[::-1]
-            cumulative = np.cumsum(random_mass[order])
-            keep = np.empty(len(sequences), dtype=bool)
-            keep[0] = True
-            keep[1:] = cumulative[:-1] < self.selection_fraction
-            sequences = [sequences[index] for index in order[keep]]
+            random_scores = np.random.random(len(sequences))
+            selected = _nucleus_indices(
+                random_scores, self.selection_fraction, self.temperature
+            )
+            sequences = [sequences[index] for index in selected]
         return sequences
