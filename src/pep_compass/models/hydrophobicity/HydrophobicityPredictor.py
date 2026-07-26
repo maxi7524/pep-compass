@@ -1,38 +1,29 @@
 import numpy as np
 from typing import List, Union
-from seqme.models import Hydrophobicity
+from modlamp.descriptors import PeptideDescriptor
 
 
 class HydrophobicityPredictor:
     """
-    Hydrophobicity predictor using the Eisenberg scale.
+    Hydrophobicity predictor using a modlAMP amino-acid scale.
     Compatible interface with other predictors (APEX, BattleAMP, etc.).
     """
     
     def __init__(self, scale: str = "eisenberg"):
         """
-        Initialize the Hydrophobicity predictor using seqme.
+        Initialize the Hydrophobicity predictor using modlAMP.
         
         Args:
-            scale (str): Hydrophobicity scale to use. Supports scales available in seqme.
+            scale (str): Hydrophobicity scale to use. Supports scales available in modlAMP.
         """
         self.scale = scale
-        
-        # Initialize seqme Hydrophobicity model
-        try:
-            self.hydrophobicity_model = Hydrophobicity(scale=scale)
-        except Exception as e:
-            # Fallback to eisenberg if the scale is not available
-            print(f"Warning: Scale '{scale}' not available, falling back to 'eisenberg'. Error: {e}")
-            self.hydrophobicity_model = Hydrophobicity(scale="eisenberg")
-            self.scale = "eisenberg"
         
         # Set pathogen list to match other predictors
         self.pathogen_list = ["Hydrophobicity"]
 
     def predict(self, seq_list: List[str], use_tqdm: bool = False) -> np.ndarray:
         """
-        Predict hydrophobicity scores for a list of peptide sequences using seqme.
+        Predict hydrophobicity scores for a list of peptide sequences using modlAMP.
         
         Args:
             seq_list (list): List of peptide sequences as strings.
@@ -46,8 +37,12 @@ class HydrophobicityPredictor:
         
         for seq in seq_list:
             try:
-                # Use seqme's Hydrophobicity model to score the sequence
-                score = self.hydrophobicity_model.__call__(seq)
+                # Max - debbuging: Zmiana z wywołania modelu hydrophobicity przez seqme na bezpośrednie użycie modlamp.PeptideDescriptor ~seqme korzystało z tego samego backendu, ale podczas importu ładowało również TensorFlow; teraz skala i sposób obliczania wyniku pozostają takie same, bez niepotrzebnej inicjalizacji TensorFlow i konfliktu z CUDA PyTorch.
+                # Link do dokumentacji: `https://seqme.readthedocs.io/en/stable/_modules/seqme/models/amino_acid_descriptors.html#Hydrophobicity`
+                descriptor = PeptideDescriptor(seq)
+                descriptor.load_scale(self.scale)
+                descriptor.calculate_global()
+                score = descriptor.descriptor.squeeze(axis=-1)
                 scores.append(score)
             except Exception as e:
                 print(f"Warning: Error scoring sequence '{seq}': {e}. Using -100")
@@ -58,13 +53,13 @@ class HydrophobicityPredictor:
 
     def get_available_scales(self) -> List[str]:
         """
-        Get list of available hydrophobicity scales from seqme.
+        Get list of available hydrophobicity scales.
         
         Returns:
-            List[str]: Available scales in seqme.
+            List[str]: Available scales exposed by the predictor.
         """
         try:
-            return self.hydrophobicity_model.available_scales
+            return PeptideDescriptor.scalenames
         except:
             return ["eisenberg"]  # fallback
     
@@ -78,14 +73,15 @@ class HydrophobicityPredictor:
         return {
             "current_scale": self.scale,
             "available_scales": self.get_available_scales(),
-            "description": f"Hydrophobicity predictor using seqme with {self.scale} scale",
-            "seqme_model": str(type(self.hydrophobicity_model).__name__)
+            "description": f"Hydrophobicity predictor using modlAMP with {self.scale} scale",
+            # Max - debbuging: Zmiana z usuniętego atrybutu seqme na aktywną klasę deskryptora ~get_scale_info kończyło się AttributeError.
+            "seqme_model": PeptideDescriptor.__name__,
         }
 
 
 if __name__ == "__main__":
-    # Test the hydrophobicity predictor with seqme
-    print("=== seqme Hydrophobicity Predictor Test ===")
+    # Test the hydrophobicity predictor with modlAMP
+    print("=== modlAMP Hydrophobicity Predictor Test ===")
     
     try:
         predictor = HydrophobicityPredictor(scale="eisenberg")
