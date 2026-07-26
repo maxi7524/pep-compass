@@ -18,3 +18,12 @@ Select the tracking detail in the base or an individual experiment:
 The remaining independent configs cover the three-position random walker,
 TANDEM top-p, TANDEM temperature excluding the top-p experiment's temperature
 1.0 case, and a matched random-MUTANG baseline.
+
+Run one experiment or the complete set from the repository root:
+
+```bash
+scripts/run_locality_experiment.sh 5 --dry-run
+scripts/run_locality_experiment.sh all --execution srun --max-parallel-runs 4
+```
+
+All additional arguments are forwarded to `run_optimization.py`.
