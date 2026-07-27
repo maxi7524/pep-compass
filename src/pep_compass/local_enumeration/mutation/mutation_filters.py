@@ -24,6 +24,7 @@ import itertools
 import math
 import random
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from typing import ClassVar
 
 import numpy as np
@@ -63,6 +64,40 @@ def _nucleus_indices(
     keep[0] = True
     keep[1:] = cumulative[:-1] < top_p
     return order[keep]
+
+
+@dataclass(slots=True)
+class CandidateFilterTrace:
+    """Store scores aligned with ``last_bounded_candidates``.
+
+    :param scores: Raw method-specific scores before temperature scaling.
+    :param probabilities: Softmax probabilities used by nucleus selection.
+    :param cumulative_probabilities: Inclusive cumulative mass in score order.
+    :param ranks: One-based descending-score ranks.
+    """
+
+    scores: np.ndarray
+    probabilities: np.ndarray
+    cumulative_probabilities: np.ndarray
+    ranks: np.ndarray
+
+
+def _score_trace(scores: np.ndarray, temperature: float) -> CandidateFilterTrace:
+    """Build aligned probability and rank diagnostics for candidate scores."""
+    if len(scores) == 0:
+        empty = np.array([], dtype=float)
+        return CandidateFilterTrace(empty, empty, empty, empty.astype(int))
+    order = np.argsort(scores)[::-1]
+    scaled = scores[order] / temperature
+    ordered_probabilities = np.exp(scaled - scaled.max())
+    ordered_probabilities /= ordered_probabilities.sum()
+    probabilities = np.empty(len(scores), dtype=float)
+    cumulative = np.empty(len(scores), dtype=float)
+    ranks = np.empty(len(scores), dtype=int)
+    probabilities[order] = ordered_probabilities
+    cumulative[order] = np.cumsum(ordered_probabilities)
+    ranks[order] = np.arange(1, len(scores) + 1)
+    return CandidateFilterTrace(scores, probabilities, cumulative, ranks)
 
 
 def _bounded_mutations(
@@ -154,6 +189,11 @@ class MutationCandidateFilter(ABC):
     last_generated_count: int = 0
     last_proposed_count: int = 0
     last_bounded_candidates: ClassVar[list[str]] = []
+    last_filter_trace: CandidateFilterTrace | None = None
+
+    def _record_scores(self, scores: np.ndarray, temperature: float = 1.0) -> None:
+        """Record score diagnostics aligned with the bounded candidate list."""
+        self.last_filter_trace = _score_trace(np.asarray(scores), temperature)
 
     @abstractmethod
     def filter_candidates(
@@ -226,6 +266,7 @@ class LpbeboFilter(MutationCandidateFilter):
         )
         self.last_generated_count = len(distribution.sequences)
         self.last_bounded_candidates = distribution.sequences
+        self._record_scores(distribution.log_potentials, self.temperature)
         selected = _nucleus_indices(
             distribution.log_potentials, self.top_p, self.temperature
         )
@@ -335,6 +376,7 @@ class LamsFilter(_GeometryFilter):
         )
         self.last_generated_count = len(distribution.sequences)
         self.last_bounded_candidates = distribution.sequences
+        self._record_scores(distribution.log_potentials)
         return [
             sequence
             for sequence, score in zip(
@@ -398,6 +440,7 @@ class TandemFilter(_GeometryFilter):
         )
         self.last_generated_count = len(distribution.sequences)
         self.last_bounded_candidates = distribution.sequences
+        self._record_scores(distribution.log_potentials, self.temperature)
         selected = _nucleus_indices(
             distribution.log_potentials, self.top_p, self.temperature
         )
@@ -458,6 +501,7 @@ class MoveFilter(MutationCandidateFilter):
         self.last_generated_count = len(sequences)
         self.last_bounded_candidates = sequences
         if not sequences:
+            self._record_scores(np.array([]), self.temperature)
             return []
         parent_latent = self.encoder_decoder.encode_peptides([parent_peptide])[0]
         single_mutations = {
@@ -490,6 +534,7 @@ class MoveFilter(MutationCandidateFilter):
         scores = (
             (-torch.linalg.vector_norm(candidate_displacements, dim=1)).cpu().numpy()
         )
+        self._record_scores(scores, self.temperature)
         selected = _nucleus_indices(scores, self.top_p, self.temperature)
         return [sequences[index] for index in selected]
 
@@ -571,8 +616,10 @@ class RandomLeBoFilter(MutationCandidateFilter):
         )
         self.last_generated_count = len(sequences)
         self.last_bounded_candidates = sequences
+        self.last_filter_trace = None
         if self.mode == "mutang_random" and sequences:
             random_scores = np.random.random(len(sequences))
+            self._record_scores(random_scores, self.temperature)
             selected = _nucleus_indices(
                 random_scores, self.selection_fraction, self.temperature
             )

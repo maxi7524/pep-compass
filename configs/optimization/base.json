@@ -31,7 +31,9 @@
   },
   "tracking": {
     "level": "normal",
-    "store_latents": true
+    "store_latents": true,
+    "start_iteration": null,
+    "start_sequence_length": null
   },
   "encoder": {
     "jacobian_mode": "approx",

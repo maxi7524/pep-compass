@@ -33,6 +33,10 @@ class CandidateProvenance:
     parent_id: str = ""
     passed_method_filter: bool = True
     passed_constraint_filter: bool = True
+    method_score: float | None = None
+    method_probability: float | None = None
+    method_cumulative_probability: float | None = None
+    method_rank: int | None = None
 
 
 class CandidateEventSpool:
@@ -191,6 +195,10 @@ class LeboCSVTracker:
                     "parent_id",
                     "passed_method_filter",
                     "passed_constraint_filter",
+                    "method_score",
+                    "method_probability",
+                    "method_cumulative_probability",
+                    "method_rank",
                     "latent_point",
                     "evaluated",
                 ],
@@ -378,6 +386,10 @@ class LeboCSVTracker:
                 "parent_id",
                 "passed_method_filter",
                 "passed_constraint_filter",
+                "method_score",
+                "method_probability",
+                "method_cumulative_probability",
+                "method_rank",
                 "latent_point",
                 "evaluated",
             ],
@@ -390,11 +402,19 @@ class LeboCSVTracker:
                     "parent_sequence": item.parent_sequence,
                     "trajectory_id": item.trajectory_id,
                     "step_id": item.step_id,
-                    "source_iteration_id": item.source_iteration_id,
+                    "source_iteration_id": (
+                        item.source_iteration_id
+                        if item.source_iteration_id is not None
+                        else iteration_id
+                    ),
                     "node_id": item.node_id,
                     "parent_id": item.parent_id,
                     "passed_method_filter": item.passed_method_filter,
                     "passed_constraint_filter": item.passed_constraint_filter,
+                    "method_score": item.method_score,
+                    "method_probability": item.method_probability,
+                    "method_cumulative_probability": item.method_cumulative_probability,
+                    "method_rank": item.method_rank,
                     "latent_point": latent_points.get(item.sequence, ""),
                     "evaluated": item.sequence in evaluated,
                 }

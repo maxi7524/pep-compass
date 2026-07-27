@@ -32,6 +32,7 @@ from pep_compass.local_enumeration.sampling_walker import \
 from pep_compass.models.encoder_decoder.hydramp_encoder_decoder import \
     HydrAMPEncoderDecoder
 from pep_compass.optimization.lebo.trajectory_tracking import (
+    CandidateEventSpool,
     CandidateProvenance,
     EnumerationStep,
     EnumerationTrace,
@@ -44,6 +45,13 @@ if TYPE_CHECKING:
     )
 
 logger = logging.getLogger(__name__)
+
+
+def _trace_value(values: np.ndarray | None, index: int) -> float | int | None:
+    """Return a scalar trace value when the candidate has score diagnostics."""
+    if values is None or index >= len(values):
+        return None
+    return values[index].item()
 
 class LocalEnumerator(ABC):
 
@@ -289,9 +297,15 @@ class SamplingFilteredMutationLocalEnumerator(SamplingMutationLocalEnumerator):
                     )
                     accepted_set = set(accepted)
                     method_filtered_set = set(candidates)
+                    filter_trace = self.candidate_filter.last_filter_trace
+                    bounded_index = {
+                        sequence: index
+                        for index, sequence in enumerate(bounded_candidates)
+                    }
                     for candidate_index, peptide in enumerate(
                         bounded_candidates if self.tracking_level == "all" else accepted
                     ):
+                        score_index = bounded_index.get(peptide, candidate_index)
                         provenance = CandidateProvenance(
                             sequence=peptide,
                             parent_sequence=current_peptide,
@@ -303,6 +317,24 @@ class SamplingFilteredMutationLocalEnumerator(SamplingMutationLocalEnumerator):
                             passed_constraint_filter=(
                                 Levenshtein.distance(peptide, center_peptide)
                                 <= self.max_neighbour_levenstein
+                            ),
+                            method_score=_trace_value(
+                                filter_trace.scores if filter_trace else None,
+                                score_index,
+                            ),
+                            method_probability=_trace_value(
+                                filter_trace.probabilities if filter_trace else None,
+                                score_index,
+                            ),
+                            method_cumulative_probability=_trace_value(
+                                filter_trace.cumulative_probabilities
+                                if filter_trace
+                                else None,
+                                score_index,
+                            ),
+                            method_rank=_trace_value(
+                                filter_trace.ranks if filter_trace else None,
+                                score_index,
                             ),
                         )
                         if peptide in accepted_set:
@@ -640,8 +672,17 @@ class FilteredMutationLocalEnumerator(MutationLocalEnumerator):
             post_constraint_filter_count=len(accepted),
         )
         method_filtered_set = set(candidates)
-        provenance = [
-            CandidateProvenance(
+        filter_trace = self.candidate_filter.last_filter_trace
+        bounded_index = {
+            sequence: index for index, sequence in enumerate(bounded_candidates)
+        }
+        provenance = []
+        all_candidates = CandidateEventSpool()
+        for candidate_index, peptide in enumerate(
+            bounded_candidates if self.tracking_level == "all" else accepted
+        ):
+            score_index = bounded_index.get(peptide, candidate_index)
+            candidate = CandidateProvenance(
                 sequence=peptide,
                 parent_sequence=center_peptide,
                 trajectory_id=None,
@@ -653,11 +694,23 @@ class FilteredMutationLocalEnumerator(MutationLocalEnumerator):
                     Levenshtein.distance(peptide, center_peptide)
                     <= self.max_neighbour_levenstein
                 ),
+                method_score=_trace_value(
+                    filter_trace.scores if filter_trace else None, score_index
+                ),
+                method_probability=_trace_value(
+                    filter_trace.probabilities if filter_trace else None, score_index
+                ),
+                method_cumulative_probability=_trace_value(
+                    filter_trace.cumulative_probabilities if filter_trace else None,
+                    score_index,
+                ),
+                method_rank=_trace_value(
+                    filter_trace.ranks if filter_trace else None, score_index
+                ),
             )
-            for candidate_index, peptide in enumerate(
-                bounded_candidates if self.tracking_level == "all" else accepted
-            )
-        ]
+            provenance.append(candidate)
+            if self.tracking_level == "all":
+                all_candidates.append(candidate)
         self.last_trace = EnumerationTrace(
             generated_count=getattr(
                 self.candidate_filter, "last_generated_count", len(candidates)
@@ -669,7 +722,7 @@ class FilteredMutationLocalEnumerator(MutationLocalEnumerator):
                 else {}
             ),
             steps=[step] if self.tracking_level != "short" else [],
-            all_candidates=provenance if self.tracking_level == "all" else [],
+            all_candidates=all_candidates,
         )
         return accepted
 
