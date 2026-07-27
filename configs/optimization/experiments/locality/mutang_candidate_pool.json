@@ -1,0 +1,13 @@
+{
+  "extends": "base_locality_experiment.json",
+  "output_path": "./results/locality/mutang_candidate_pool",
+  "optimizer": {
+    "lebo": {
+      "candidate_strategy": "random_mutang"
+    }
+  },
+  "filter": {
+    "selection_fraction": 1.0,
+    "temperature": 1.0
+  }
+}

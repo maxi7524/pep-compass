@@ -1,6 +1,0 @@
-{
-  "extends": "base_locality_experiment.json",
-  "output_path": "./results/locality/03_random_three_positions",
-  "optimizer": {"lebo": {"candidate_strategy": "random_walker"}},
-  "filter": {"maximum_positions": 3}
-}
