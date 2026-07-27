@@ -46,6 +46,8 @@ def _trace() -> EnumerationTrace:
         parent_id="step_1",
         passed_method_filter=False,
         passed_constraint_filter=False,
+        method_score=0.25,
+        method_rank=2,
     )
     all_candidates = CandidateEventSpool()
     all_candidates.append(accepted)
@@ -116,6 +118,9 @@ def test_all_preserves_every_post_limit_generation_event(tmp_path: Path) -> None
 
     assert [row["sequence"] for row in candidates] == ["ACD", "ACE"]
     assert candidates[1]["passed_method_filter"] == "False"
+    assert candidates[1]["method_score"] == "0.25"
+    assert candidates[1]["method_rank"] == "2"
+    assert candidates[1]["source_iteration_id"] == "1"
 
 
 def test_legacy_full_level_is_rejected(tmp_path: Path) -> None:

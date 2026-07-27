@@ -6,8 +6,9 @@ variant, input peptides, parameter grid, and execution backend. The runner
 materializes every run before loading a model, which makes a dry run sufficient
 to validate the complete grid and Slurm commands.
 
-The entry point only parses CLI overrides and starts prepared tasks. Supporting
-modules in the same directory separate responsibilities:
+The files in `scripts/runner/` are compatibility entry points. Reusable runner
+code lives in `pep_compass.experiments.runner`, where modules separate
+responsibilities:
 
 - `configuration.py` loads inherited JSON, validates it, expands grids, reads
   peptide CSV files, and materializes task manifests;
@@ -166,6 +167,13 @@ The `tracking.level` setting controls how much LE-BO provenance is persisted:
 preserves post-limit peptide strings and duplicate generation events, with
 separate method-filter and constraint-filter flags. `tracking.store_latents`
 controls candidate latent encoding; disable it for memory-efficient `all` runs.
+`tracking.start_iteration` and `tracking.start_sequence_length` defer detailed
+tracking until either threshold is reached. Both are optional, use OR semantics,
+and do not skip optimization iterations. Once enabled, tracking remains active.
+
+For score-based methods, `candidates.csv` also records the raw filter score and
+descending rank. Nucleus filters additionally record temperature-scaled
+probability and inclusive cumulative probability mass.
 
 Each LE-BO task writes a directory below
 `<output_path>/<grid_id>/tracking/<experiment_id>/` containing:
