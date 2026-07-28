@@ -40,7 +40,7 @@ your environment. The default backend keeps the package MIT-clean.
 From the repo root (uses the `blosum-matrix` env for deps):
 
 ```bash
-cd src/blosum_matrix
+cd packages/blosum_matrix
 uv run python ../../scripts/blosum_matrix/generate_all.py
 ```
 

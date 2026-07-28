@@ -3,7 +3,7 @@
 Regenerate from the repo root (via the `blosum-matrix` package env):
 
 ```bash
-cd src/blosum_matrix
+cd packages/blosum_matrix
 uv run python ../../scripts/blosum_matrix/generate_all.py
 ```
 
