@@ -220,8 +220,11 @@ src/pep_compass/models/hydramp/weights/
 # dev dir
 dev/
 
-# data
-data/
+# data (ignore contents; allow tracked placeholders / curated matrices)
+data/*
+!data/.gitkeep
+!data/blosum_matrix/
+!data/blosum_matrix/**
 
 # Trash
 logs/
