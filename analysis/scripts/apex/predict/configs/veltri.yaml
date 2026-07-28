@@ -1,9 +1,0 @@
-# APEX prediction config for mutants (veltri_negative) using full pathogen set
-input_files: [data/hydramp/veltri_negative.csv, data/hydramp/veltri_positive.csv]
-output_dir: results/apex_predictions/data/hydramp/veltri/all
-sequence_column: Sequence
-use_tqdm: true
-apex_predictor_kwargs:
-  path: all
-  device: cuda
-  batch_size: 10000
