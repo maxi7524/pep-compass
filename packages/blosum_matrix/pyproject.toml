@@ -1,0 +1,29 @@
+[project]
+name = "blosum-matrix"
+version = "0.1.0"
+description = "Canonical Henikoff & Henikoff (1992) BLOSUM construction from pre-aligned blocks"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "biopython>=1.87",
+    "numpy>=1.26,<2",
+    "typer>=0.20.0",
+]
+
+[project.optional-dependencies]
+cdhit = [
+    "py-cdhit>=1.1.5",
+]
+
+[project.scripts]
+blosum-matrix = "blosum_matrix.cli:app"
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]

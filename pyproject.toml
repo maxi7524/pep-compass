@@ -47,6 +47,7 @@ dependencies = [
   "seqme[aa-descriptors]>=0.5.0",
   "ipykernel>=7.2.0",
   "fair-esm>=2.0.0",
+  "typer>=0.27.0",
 ]
 
 [project.optional-dependencies]
@@ -69,6 +70,7 @@ dev = [
 ]
 
 [tool.uv]
+exclude-newer = "1 week"
 conflicts = [
   [
     { extra = "cpu" },
@@ -123,9 +125,6 @@ explicit = true
 name = "pytorch-cu128"
 url = "https://download.pytorch.org/whl/cu128"
 explicit = true
-
-[workspace]
-members = ["analysis"]
 
 [tool.setuptools]
 include-package-data = true
