@@ -169,6 +169,7 @@ def _build_filter(config: dict[str, Any], encoder_decoder):
                 else "mutang_random"
             ),
             selection_fraction=filter_config["selection_fraction"],
+            temperature=filter_config["temperature"],
             maximum_positions=filter_config["maximum_positions"],
             residues_per_position=filter_config["residues_per_position"],
             **common,
@@ -204,6 +205,9 @@ def _build_local_enumerator(
             max_neighbour_levenstein=local["max_neighbour_levenshtein"],
             device=config["device"],
             tracking_level=config["tracking"]["level"],
+            store_walker_latents=config["tracking"].get(
+                "store_walker_latents", False
+            ),
         )
     common = {
         "encoder_decoder": encoder_decoder,
@@ -214,6 +218,12 @@ def _build_local_enumerator(
         "max_neighbour_levenstein": local["max_neighbour_levenshtein"],
         "device": config["device"],
         "tracking_level": config["tracking"]["level"],
+        "store_walker_latents": config["tracking"].get(
+            "store_walker_latents", False
+        ),
+        "stop_walker_at_levenshtein_limit": local.get(
+            "stop_walker_at_levenshtein_limit", True
+        ),
     }
     if candidate_strategy == "lebo":
         return SamplingMutationLocalEnumerator(**common)
@@ -336,4 +346,3 @@ def build_optimizer(config: dict[str, Any], discrete_black_box):
             ) from error
         return LaMBO2, discrete_black_box, None
     raise AssertionError(f"Validated optimizer is not implemented: {name}")
-

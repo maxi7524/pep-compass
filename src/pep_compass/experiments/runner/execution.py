@@ -7,10 +7,11 @@ import logging
 import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor
+from functools import partial
 from pathlib import Path
 from typing import Any
 
-from builders import build_black_box, build_optimizer
+from pep_compass.experiments.runner.builders import build_black_box, build_optimizer
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +56,11 @@ def run_task(task: dict[str, Any]) -> None:
             objective_parameters=config["black_box"],
             encoder_decoder=encoder_decoder,
             store_latents=tracking["store_latents"],
+            store_walker_latents=tracking.get("store_walker_latents", False),
         )
+        from pep_compass.experiments.runner.tracking import should_start_tracking
+
+        optimizer.tracking_start_condition = partial(should_start_tracking, tracking)
     else:
         from pep_compass.optimization.black_box.csv_observer import CSVObserver
 
@@ -111,7 +116,8 @@ def srun_command(task_path: Path, execution: dict[str, Any]) -> list[str]:
         srun["command"],
         *srun["arguments"],
         sys.executable,
-        str(Path(__file__).with_name("run_optimization.py").resolve()),
+        "-m",
+        "pep_compass.experiments.runner.cli",
         "--task-file",
         str(task_path.resolve()),
     ]
@@ -151,11 +157,11 @@ def run_local_tasks(
     commands = [
         [
             sys.executable,
-            str(Path(__file__).with_name("run_optimization.py").resolve()),
+            "-m",
+            "pep_compass.experiments.runner.cli",
             "--task-file",
             str(task_path.resolve()),
         ]
         for task_path in task_paths
     ]
     run_commands(commands, execution["max_parallel_runs"])
-

@@ -1,4 +1,5 @@
 import logging
+from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 import Levenshtein
@@ -48,6 +49,7 @@ class LocalEnumerationBayesianOptimizer(AbstractOptimizer):
         blosum_diversity_matrix: int | None = None,
         blosum_diversity_max_score: float | None = None,
         tracker: "LeboCSVTracker | None" = None,
+        tracking_start_condition: Callable[[int, str], bool] | None = None,
     ):
         super().__init__(black_box)
 
@@ -82,6 +84,8 @@ class LocalEnumerationBayesianOptimizer(AbstractOptimizer):
         self.standardize = standardize
         self.best_as_center = best_as_center
         self.tracker = tracker
+        self.tracking_start_condition = tracking_start_condition
+        self._tracking_active = tracking_start_condition is None
         self.candidate_provenance = {}
         self.iteration_evaluations = []
 
@@ -402,7 +406,10 @@ class LocalEnumerationBayesianOptimizer(AbstractOptimizer):
 
         self.timer.reset()
 
-        if self.tracker is not None:
+        self._tracking_active = self.tracking_start_condition is None or bool(
+            self.tracking_start_condition(0, starting_point)
+        )
+        if self.tracker is not None and self._tracking_active:
             from pep_compass.optimization.lebo.trajectory_tracking import (
                 EnumerationTrace,
             )
@@ -444,6 +451,15 @@ class LocalEnumerationBayesianOptimizer(AbstractOptimizer):
                 current_center_peptide = self.the_best_peptide
             iteration_center_peptide = current_center_peptide
 
+            if not self._tracking_active and self.tracking_start_condition is not None:
+                self._tracking_active = bool(
+                    self.tracking_start_condition(iteration_id, current_center_peptide)
+                )
+            if self.tracker is not None:
+                self.local_enumerator.tracking_level = (
+                    self.tracker.level if self._tracking_active else "short"
+                )
+
             with self.timer("Local Search"):
                 local_candidate_set = self.local_enumerator.local_enumeration(
                     current_center_peptide
@@ -461,7 +477,10 @@ class LocalEnumerationBayesianOptimizer(AbstractOptimizer):
                 self.not_scored_peptides_set.update(peptides_to_add)
                 trace = self.local_enumerator.last_trace
                 for sequence, provenance in trace.candidates.items():
+                    provenance.source_iteration_id = iteration_id
                     self.candidate_provenance.setdefault(sequence, provenance)
+                for provenance in trace.all_candidates:
+                    provenance.source_iteration_id = iteration_id
 
                 logger.info(
                     f"Added {len(self.not_scored_peptides_set) - len_before} new peptides to not scored peptides."
@@ -469,7 +488,7 @@ class LocalEnumerationBayesianOptimizer(AbstractOptimizer):
 
             next_center_peptide = self._bayesian_optimization(evaluation_budget)
 
-            if self.tracker is not None:
+            if self.tracker is not None and self._tracking_active:
                 provenance_to_record = {
                     sequence: provenance
                     for sequence, provenance in trace.candidates.items()
@@ -481,7 +500,6 @@ class LocalEnumerationBayesianOptimizer(AbstractOptimizer):
                         for sequence, _ in self.iteration_evaluations
                         if sequence in self.candidate_provenance
                     }
-                # Max: Persist after GP selection | normal mode keeps only evaluated paths.
                 self.tracker.record_iteration(
                     iteration_id=iteration_id,
                     center_sequence=iteration_center_peptide,
@@ -495,6 +513,8 @@ class LocalEnumerationBayesianOptimizer(AbstractOptimizer):
                     best_objective_value=self._raw_objective(self.the_best_score),
                     candidate_provenance=provenance_to_record,
                 )
+            else:
+                trace.all_candidates.close()
             iteration_id += 1
 
             if next_center_peptide is None:

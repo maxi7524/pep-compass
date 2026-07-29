@@ -25,16 +25,15 @@ import numpy as np
 import torch
 from joblib import Parallel, delayed, parallel_backend
 
-from pep_compass.local_enumeration.mutation_enumerator import \
-    MutationEnumerator
+from pep_compass.local_enumeration.catalog import (
+    EnumerationTrace,
+    LocalEnumerationCatalog,
+)
+from pep_compass.local_enumeration.mutation_enumerator import MutationEnumerator
 from pep_compass.local_enumeration.sampling_walker import \
-    SamplingWalker
+    SamplingWalker, SubRiemannianTangentSpace
 from pep_compass.models.encoder_decoder.hydramp_encoder_decoder import \
     HydrAMPEncoderDecoder
-from pep_compass.optimization.lebo.trajectory_tracking import (
-    CandidateProvenance,
-    EnumerationTrace,
-)
 from pep_compass.utils.sequence_utils import translate_generated_peptide
 
 if TYPE_CHECKING:
@@ -43,6 +42,29 @@ if TYPE_CHECKING:
     )
 
 logger = logging.getLogger(__name__)
+
+
+def _trace_value(values: np.ndarray | None, index: int) -> float | int | None:
+    """Return a scalar trace value when the candidate has score diagnostics."""
+    if values is None or index >= len(values):
+        return None
+    return values[index].item()
+
+
+def _method_score_map(filter_trace, sequences: list[str]) -> dict[str, tuple]:
+    """Return filter diagnostics keyed by their aligned candidate sequence."""
+    if filter_trace is None:
+        return {}
+    return {
+        sequence: (
+            _trace_value(filter_trace.scores, index),
+            _trace_value(filter_trace.probabilities, index),
+            _trace_value(filter_trace.cumulative_probabilities, index),
+            _trace_value(filter_trace.ranks, index),
+        )
+        for index, sequence in enumerate(sequences)
+    }
+
 
 class LocalEnumerator(ABC):
 
@@ -67,6 +89,8 @@ class SamplingMutationLocalEnumerator(LocalEnumerator):
         max_neighbour_levenstein: int | None = None,
         device: str = "cpu",
         tracking_level: str = "short",
+        store_walker_latents: bool = False,
+        stop_walker_at_levenshtein_limit: bool = True,
     ):
         super().__init__()
         self.encoder_decoder = encoder_decoder
@@ -77,13 +101,18 @@ class SamplingMutationLocalEnumerator(LocalEnumerator):
         self.max_neighbour_levenstein = max_neighbour_levenstein
         self.device = encoder_decoder.device
         self.tracking_level = tracking_level
+        self.store_walker_latents = store_walker_latents
+        self.stop_walker_at_levenshtein_limit = stop_walker_at_levenshtein_limit
 
         self.max_neighbour_levenstein = max_neighbour_levenstein or 25
         self.last_trace = EnumerationTrace()
 
     def local_enumeration(self, center_peptide) -> set[str]:
         neighbor_peptides = set()
-        self.last_trace = EnumerationTrace()
+        catalog = LocalEnumerationCatalog(
+            self.tracking_level, self.store_walker_latents
+        )
+        self.last_trace = catalog.trace
 
         with torch.no_grad():
             initial_latent_position = self.encoder_decoder.encode_peptides(
@@ -95,14 +124,12 @@ class SamplingMutationLocalEnumerator(LocalEnumerator):
             current_latent_position = initial_latent_position
             time_walk = 0.0
             current_peptide = center_peptide
-            trajectory_path = (
-                [center_peptide] if self.tracking_level != "short" else None
-            )
             walker_step = 0
 
             while time_walk < self.time_walk_budget:
 
                 mutation_parent = current_peptide
+                previous_latent_position = current_latent_position
                 new_latent_position, step_info = self.sampling_walker.step(
                     current_latent_position
                 )
@@ -110,10 +137,19 @@ class SamplingMutationLocalEnumerator(LocalEnumerator):
                 U = step_info["U"]
                 S = step_info["S"]
 
-                mutated_peptides = self.mutation_enumerator.mutate(
-                    current_peptide, U=U, S=S
+                mutations = self.mutation_enumerator.get_mutations_from_s_u(S, U)
+                mutations = {
+                    position: amino_acids
+                    for position, amino_acids in mutations.items()
+                    if position < len(current_peptide)
+                }
+                mutated_peptides = list(
+                    dict.fromkeys(
+                        self.mutation_enumerator.mutate_peptide(
+                            current_peptide, mutations
+                        )
+                    )
                 )
-                self.last_trace.generated_count += len(mutated_peptides)
 
                 with torch.no_grad():
                     current_peptide = self.encoder_decoder.decode_peptides(
@@ -129,31 +165,34 @@ class SamplingMutationLocalEnumerator(LocalEnumerator):
                     if Levenshtein.distance(peptide, center_peptide)
                     <= self.max_neighbour_levenstein
                 ]
-                self.last_trace.accepted_count += len(new_neighbor_peptides)
-
-                if trajectory_path is not None:
-                    for peptide in new_neighbor_peptides:
-                        self.last_trace.candidates.setdefault(
-                            peptide,
-                            CandidateProvenance(
-                                sequence=peptide,
-                                parent_sequence=mutation_parent,
-                                trajectory_id=trajectory_iter,
-                                step_id=walker_step,
-                                path=[*trajectory_path, peptide],
-                            ),
-                        )
+                tangent_space = step_info["tangent_space"]
+                catalog.record_step(
+                    trajectory_id=trajectory_iter,
+                    step_id=walker_step,
+                    parent_sequence=mutation_parent,
+                    next_sequence=current_peptide,
+                    current_latent_position=previous_latent_position,
+                    next_latent_position=new_latent_position,
+                    singular_values=S,
+                    effective_dimension=tangent_space.horizontal_dim,
+                    adjusted_time_step=adjusted_time_step,
+                    mutations=mutations,
+                    theoretical_product_count=len(mutated_peptides),
+                    post_cap_candidates=mutated_peptides,
+                    post_method_filter_candidates=mutated_peptides,
+                    post_constraint_candidates=new_neighbor_peptides,
+                    method_scores={},
+                    center_sequence=center_peptide,
+                )
 
                 neighbor_peptides.update(new_neighbor_peptides)
-
-                if trajectory_path is not None:
-                    trajectory_path.append(current_peptide)
 
                 logger.info(
                     f"Trajectory {trajectory_iter} Step {walker_step} Time {time_walk} / {self.time_walk_budget} Levenstain {Levenshtein.distance(current_peptide, center_peptide)}: Found {len(neighbor_peptides)} peptides ."
                 )
                 if (
-                    Levenshtein.distance(current_peptide, center_peptide)
+                    self.stop_walker_at_levenshtein_limit
+                    and Levenshtein.distance(current_peptide, center_peptide)
                     > self.max_neighbour_levenstein
                 ):
                     logger.info(
@@ -206,7 +245,10 @@ class SamplingFilteredMutationLocalEnumerator(SamplingMutationLocalEnumerator):
             radius constraint.
         """
         neighbor_peptides: set[str] = set()
-        self.last_trace = EnumerationTrace()
+        catalog = LocalEnumerationCatalog(
+            self.tracking_level, self.store_walker_latents
+        )
+        self.last_trace = catalog.trace
         with torch.no_grad():
             initial_latent_position = self.encoder_decoder.encode_peptides(
                 [center_peptide]
@@ -215,9 +257,6 @@ class SamplingFilteredMutationLocalEnumerator(SamplingMutationLocalEnumerator):
         for trajectory_iter in range(self.walker_trajectories_number):
             current_latent_position = initial_latent_position
             current_peptide = center_peptide
-            trajectory_path = (
-                [center_peptide] if self.tracking_level != "short" else None
-            )
             time_walk = 0.0
             walker_step = 0
             while time_walk < self.time_walk_budget:
@@ -228,40 +267,57 @@ class SamplingFilteredMutationLocalEnumerator(SamplingMutationLocalEnumerator):
                     step_info["S"],
                     step_info["U"],
                 )
+                mutations = {
+                    position: amino_acids
+                    for position, amino_acids in mutations.items()
+                    if position < len(current_peptide)
+                }
                 candidates = self.candidate_filter.filter_candidates(
-                    current_peptide, mutations
+                    current_peptide,
+                    mutations,
+                    tangent_space=step_info["tangent_space"],
                 )
-                self.last_trace.generated_count += getattr(
-                    self.candidate_filter, "last_generated_count", len(candidates)
-                )
+                bounded_candidates = self.candidate_filter.last_bounded_candidates
                 accepted = [
                     peptide for peptide in candidates
                     if Levenshtein.distance(peptide, center_peptide)
                     <= self.max_neighbour_levenstein
                 ]
-                self.last_trace.accepted_count += len(accepted)
-                if trajectory_path is not None:
-                    for peptide in accepted:
-                        # Max: Keep the first accepted origin | duplicate paths are not useful for analysis.
-                        self.last_trace.candidates.setdefault(
-                            peptide,
-                            CandidateProvenance(
-                                sequence=peptide,
-                                parent_sequence=current_peptide,
-                                trajectory_id=trajectory_iter,
-                                step_id=walker_step + 1,
-                                path=[*trajectory_path, peptide],
-                            ),
-                        )
-                neighbor_peptides.update(accepted)
-
                 with torch.no_grad():
-                    current_peptide = self.encoder_decoder.decode_peptides(
+                    next_peptide = self.encoder_decoder.decode_peptides(
                         new_latent_position
                     )[0]
+                step_id = walker_step + 1
+                tangent_space = step_info["tangent_space"]
+                catalog.record_step(
+                    trajectory_id=trajectory_iter,
+                    step_id=step_id,
+                    parent_sequence=current_peptide,
+                    next_sequence=next_peptide,
+                    current_latent_position=current_latent_position,
+                    next_latent_position=new_latent_position,
+                    singular_values=step_info["S"],
+                    effective_dimension=tangent_space.horizontal_dim,
+                    adjusted_time_step=step_info["adjusted_time_step"],
+                    mutations=mutations,
+                    theoretical_product_count=getattr(
+                        self.candidate_filter,
+                        "last_proposed_count",
+                        len(bounded_candidates),
+                    ),
+                    post_cap_candidates=bounded_candidates,
+                    post_method_filter_candidates=candidates,
+                    post_constraint_candidates=accepted,
+                    method_scores=_method_score_map(
+                        self.candidate_filter.last_filter_trace,
+                        bounded_candidates,
+                    ),
+                    center_sequence=center_peptide,
+                )
+                neighbor_peptides.update(accepted)
+
+                current_peptide = next_peptide
                 current_latent_position = new_latent_position
-                if trajectory_path is not None:
-                    trajectory_path.append(current_peptide)
                 time_walk += step_info["adjusted_time_step"]
                 walker_step += 1
                 logger.info(
@@ -273,7 +329,8 @@ class SamplingFilteredMutationLocalEnumerator(SamplingMutationLocalEnumerator):
                     len(neighbor_peptides),
                 )
                 if (
-                    Levenshtein.distance(current_peptide, center_peptide)
+                    self.stop_walker_at_levenshtein_limit
+                    and Levenshtein.distance(current_peptide, center_peptide)
                     > self.max_neighbour_levenstein
                 ):
                     break
@@ -483,11 +540,13 @@ class MutationLocalEnumerator(LocalEnumerator):
         max_neighbour_levenstein: int = None,
         device: str = "cpu",
         tracking_level: str = "short",
+        store_walker_latents: bool = False,
     ):
         self.encoder_decoder = encoder_decoder
         self.mutation_generator = mutation_generator
         self.device = encoder_decoder.device
         self.tracking_level = tracking_level
+        self.store_walker_latents = store_walker_latents
         self.max_neighbour_levenstein = max_neighbour_levenstein
 
         if self.max_neighbour_levenstein is None:
@@ -558,14 +617,28 @@ class FilteredMutationLocalEnumerator(MutationLocalEnumerator):
         with torch.no_grad():
             center_latent_point = self.encoder_decoder.encode_peptides([center_peptide])
             jacobian = self.encoder_decoder.decoder_jacobian(center_latent_point)[0]
-            left, singular_values, _ = torch.linalg.svd(
+            left, singular_values, right = torch.linalg.svd(
                 jacobian, full_matrices=False
             )
+        tangent_space = SubRiemannianTangentSpace(
+            U=left,
+            S=singular_values,
+            V=right,
+            horizontal_threshold=getattr(
+                self.candidate_filter, "horizontal_threshold", 0.1
+            ),
+            device=str(center_latent_point.device),
+        )
         mutations = self.mutation_generator.get_mutations_from_s_u(
             singular_values, left
         )
+        mutations = {
+            position: amino_acids
+            for position, amino_acids in mutations.items()
+            if position < len(center_peptide)
+        }
         candidates = self.candidate_filter.filter_candidates(
-            center_peptide, mutations
+            center_peptide, mutations, tangent_space=tangent_space
         )
         accepted = {
             peptide
@@ -573,26 +646,34 @@ class FilteredMutationLocalEnumerator(MutationLocalEnumerator):
             if Levenshtein.distance(peptide, center_peptide)
             <= self.max_neighbour_levenstein
         }
-        self.last_trace = EnumerationTrace(
-            generated_count=getattr(
-                self.candidate_filter, "last_generated_count", len(candidates)
-            ),
-            accepted_count=len(accepted),
-            candidates=(
-                {
-                    peptide: CandidateProvenance(
-                        sequence=peptide,
-                        parent_sequence=center_peptide,
-                        trajectory_id=None,
-                        step_id=None,
-                        path=[center_peptide, peptide],
-                    )
-                    for peptide in accepted
-                }
-                if self.tracking_level != "short"
-                else {}
-            ),
+        bounded_candidates = self.candidate_filter.last_bounded_candidates
+        catalog = LocalEnumerationCatalog(
+            self.tracking_level, self.store_walker_latents
         )
+        catalog.record_step(
+            trajectory_id=0,
+            step_id=1,
+            parent_sequence=center_peptide,
+            next_sequence=center_peptide,
+            current_latent_position=center_latent_point,
+            next_latent_position=center_latent_point,
+            singular_values=singular_values,
+            effective_dimension=tangent_space.horizontal_dim,
+            adjusted_time_step=0.0,
+            mutations=mutations,
+            theoretical_product_count=getattr(
+                self.candidate_filter, "last_proposed_count", len(bounded_candidates)
+            ),
+            post_cap_candidates=bounded_candidates,
+            post_method_filter_candidates=candidates,
+            post_constraint_candidates=list(accepted),
+            method_scores=_method_score_map(
+                self.candidate_filter.last_filter_trace,
+                bounded_candidates,
+            ),
+            center_sequence=center_peptide,
+        )
+        self.last_trace = catalog.trace
         return accepted
 
 

@@ -24,6 +24,8 @@ import itertools
 import math
 import random
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
+from typing import ClassVar
 
 import numpy as np
 import torch
@@ -64,6 +66,40 @@ def _nucleus_indices(
     return order[keep]
 
 
+@dataclass(slots=True)
+class CandidateFilterTrace:
+    """Store scores aligned with ``last_bounded_candidates``.
+
+    :param scores: Raw method-specific scores before temperature scaling.
+    :param probabilities: Softmax probabilities used by nucleus selection.
+    :param cumulative_probabilities: Inclusive cumulative mass in score order.
+    :param ranks: One-based descending-score ranks.
+    """
+
+    scores: np.ndarray
+    probabilities: np.ndarray
+    cumulative_probabilities: np.ndarray
+    ranks: np.ndarray
+
+
+def _score_trace(scores: np.ndarray, temperature: float) -> CandidateFilterTrace:
+    """Build aligned probability and rank diagnostics for candidate scores."""
+    if len(scores) == 0:
+        empty = np.array([], dtype=float)
+        return CandidateFilterTrace(empty, empty, empty, empty.astype(int))
+    order = np.argsort(scores)[::-1]
+    scaled = scores[order] / temperature
+    ordered_probabilities = np.exp(scaled - scaled.max())
+    ordered_probabilities /= ordered_probabilities.sum()
+    probabilities = np.empty(len(scores), dtype=float)
+    cumulative = np.empty(len(scores), dtype=float)
+    ranks = np.empty(len(scores), dtype=int)
+    probabilities[order] = ordered_probabilities
+    cumulative[order] = np.cumsum(ordered_probabilities)
+    ranks[order] = np.arange(1, len(scores) + 1)
+    return CandidateFilterTrace(scores, probabilities, cumulative, ranks)
+
+
 def _bounded_mutations(
     parent_peptide: str,
     mutations: dict[int, list[int]],
@@ -76,6 +112,7 @@ def _bounded_mutations(
     mutated remain possible. This replaces the per-script ``_cap_mutations``
     implementations from ``lebo_plus.py``, ``lpbebo_plus.py``, and ``move.py``.
     """
+    mutations = _valid_mutations(parent_peptide, mutations)
     padded_parent = parent_peptide.ljust(25)
     choices = {
         position: sorted(set(amino_acids) | {alphabet.index(padded_parent[position])})
@@ -99,6 +136,38 @@ def _bounded_mutations(
         else:
             break
     return choices
+
+
+def _proposal_count(
+    parent_peptide: str,
+    mutations: dict[int, list[int]],
+    alphabet: list[str],
+) -> int:
+    """Return Cartesian-product size before the candidate limit is applied."""
+    mutations = _valid_mutations(parent_peptide, mutations)
+    padded_parent = parent_peptide.ljust(25)
+    choice_counts = [
+        len(set(amino_acids) | {alphabet.index(padded_parent[position])})
+        for position, amino_acids in mutations.items()
+    ]
+    return max(math.prod(choice_counts) - 1, 0) if choice_counts else 0
+
+
+def _valid_mutations(
+    parent_peptide: str,
+    mutations: dict[int, list[int]],
+) -> dict[int, list[int]]:
+    """Return unique MUTANG residue options within the peptide length.
+
+    :param parent_peptide: Sequence to which mutations will be applied.
+    :param mutations: Proposed residue indices grouped by model position.
+    :return: Valid non-empty options for positions in the peptide sequence.
+    """
+    return {
+        position: sorted(set(amino_acids))
+        for position, amino_acids in mutations.items()
+        if 0 <= position < len(parent_peptide) and amino_acids
+    }
 
 
 def _enumerate_sequences(
@@ -130,19 +199,27 @@ def _enumerate_sequences(
         candidate = "".join(sequence)
         if candidate != parent_peptide:
             sequences.append(candidate)
-    return sequences
+    return list(dict.fromkeys(sequences))
 
 
 class MutationCandidateFilter(ABC):
     """Filter a MUTANG mutation pool into peptide candidates."""
 
     last_generated_count: int = 0
+    last_proposed_count: int = 0
+    last_bounded_candidates: ClassVar[list[str]] = []
+    last_filter_trace: CandidateFilterTrace | None = None
+
+    def _record_scores(self, scores: np.ndarray, temperature: float = 1.0) -> None:
+        """Record score diagnostics aligned with the bounded candidate list."""
+        self.last_filter_trace = _score_trace(np.asarray(scores), temperature)
 
     @abstractmethod
     def filter_candidates(
         self,
         parent_peptide: str,
         mutations: dict[int, list[int]],
+        tangent_space: SubRiemannianTangentSpace | None = None,
     ) -> list[str]:
         """Return selected peptide candidates.
 
@@ -187,6 +264,7 @@ class LpbeboFilter(MutationCandidateFilter):
         self,
         parent_peptide: str,
         mutations: dict[int, list[int]],
+        tangent_space: SubRiemannianTangentSpace | None = None,
     ) -> list[str]:
         """Score the bounded MUTANG product and retain its top-p nucleus.
 
@@ -194,6 +272,9 @@ class LpbeboFilter(MutationCandidateFilter):
         :param mutations: MUTANG residue choices.
         :return: Candidates selected by decoder log-probability.
         """
+        self.last_proposed_count = _proposal_count(
+            parent_peptide, mutations, self.alphabet
+        )
         bounded = _bounded_mutations(
             parent_peptide, mutations, self.alphabet, self.maximum_candidates
         )
@@ -205,6 +286,8 @@ class LpbeboFilter(MutationCandidateFilter):
             maximum_candidates=self.maximum_candidates,
         )
         self.last_generated_count = len(distribution.sequences)
+        self.last_bounded_candidates = distribution.sequences
+        self._record_scores(distribution.log_potentials, self.temperature)
         selected = _nucleus_indices(
             distribution.log_potentials, self.top_p, self.temperature
         )
@@ -242,13 +325,19 @@ class _GeometryFilter(MutationCandidateFilter):
 
     @torch.no_grad()
     def _pairwise_potential(
-        self, parent_peptide: str
+        self,
+        parent_peptide: str,
+        tangent_space: SubRiemannianTangentSpace | None = None,
     ) -> ProjectedDirectionPairwiseSimilarityPotential:
         """Build a projected-direction potential at the current parent.
 
         :param parent_peptide: Sequence at which the Jacobian is evaluated.
         :return: Pairwise potential backed by the current tangent space.
         """
+        if tangent_space is not None:
+            return ProjectedDirectionPairwiseSimilarityPotential(
+                tangent_space, self.alphabet
+            )
         latent_batch = self.encoder_decoder.encode_peptides([parent_peptide])
         latent = latent_batch[0]
         jacobian = self.encoder_decoder.decoder_jacobian(latent_batch)[0]
@@ -288,6 +377,7 @@ class LamsFilter(_GeometryFilter):
         self,
         parent_peptide: str,
         mutations: dict[int, list[int]],
+        tangent_space: SubRiemannianTangentSpace | None = None,
     ) -> list[str]:
         """Return combinations whose worst mutated pair passes the threshold.
 
@@ -295,11 +385,14 @@ class LamsFilter(_GeometryFilter):
         :param mutations: MUTANG residue choices.
         :return: LAMS-compatible candidate strings.
         """
+        self.last_proposed_count = _proposal_count(
+            parent_peptide, mutations, self.alphabet
+        )
         bounded = _bounded_mutations(
             parent_peptide, mutations, self.alphabet, self.maximum_candidates
         )
         potential = LamsAnchorSimilarityPotential(
-            self._pairwise_potential(parent_peptide)
+            self._pairwise_potential(parent_peptide, tangent_space)
         )
         distribution = compose_mutant_distribution(
             parent_peptide,
@@ -310,6 +403,8 @@ class LamsFilter(_GeometryFilter):
             maximum_candidates=self.maximum_candidates,
         )
         self.last_generated_count = len(distribution.sequences)
+        self.last_bounded_candidates = distribution.sequences
+        self._record_scores(distribution.log_potentials)
         return [
             sequence
             for sequence, score in zip(
@@ -350,6 +445,7 @@ class TandemFilter(_GeometryFilter):
         self,
         parent_peptide: str,
         mutations: dict[int, list[int]],
+        tangent_space: SubRiemannianTangentSpace | None = None,
     ) -> list[str]:
         """Score the bounded product with TANDEM and apply top-p selection.
 
@@ -357,18 +453,23 @@ class TandemFilter(_GeometryFilter):
         :param mutations: MUTANG residue choices.
         :return: TANDEM-selected candidate strings.
         """
+        self.last_proposed_count = _proposal_count(
+            parent_peptide, mutations, self.alphabet
+        )
         bounded = _bounded_mutations(
             parent_peptide, mutations, self.alphabet, self.maximum_candidates
         )
         distribution = compose_mutant_distribution(
             parent_peptide,
             bounded,
-            self._pairwise_potential(parent_peptide),
+            self._pairwise_potential(parent_peptide, tangent_space),
             alphabet=self.alphabet,
             include_parent_residue=True,
             maximum_candidates=self.maximum_candidates,
         )
         self.last_generated_count = len(distribution.sequences)
+        self.last_bounded_candidates = distribution.sequences
+        self._record_scores(distribution.log_potentials, self.temperature)
         selected = _nucleus_indices(
             distribution.log_potentials, self.top_p, self.temperature
         )
@@ -413,6 +514,7 @@ class MoveFilter(MutationCandidateFilter):
         self,
         parent_peptide: str,
         mutations: dict[int, list[int]],
+        tangent_space: SubRiemannianTangentSpace | None = None,
     ) -> list[str]:
         """Rank candidates by approximate net latent displacement.
 
@@ -420,11 +522,16 @@ class MoveFilter(MutationCandidateFilter):
         :param mutations: MUTANG residue choices.
         :return: MOVE-selected candidate strings.
         """
+        self.last_proposed_count = _proposal_count(
+            parent_peptide, mutations, self.alphabet
+        )
         sequences = _enumerate_sequences(
             parent_peptide, mutations, self.alphabet, self.maximum_candidates
         )
         self.last_generated_count = len(sequences)
+        self.last_bounded_candidates = sequences
         if not sequences:
+            self._record_scores(np.array([]), self.temperature)
             return []
         parent_latent = self.encoder_decoder.encode_peptides([parent_peptide])[0]
         single_mutations = {
@@ -455,8 +562,9 @@ class MoveFilter(MutationCandidateFilter):
             ]
             candidate_displacements[candidate_index] = displacements[indices].sum(dim=0)
         scores = (
-            -torch.linalg.vector_norm(candidate_displacements, dim=1)
-        ).cpu().numpy()
+            (-torch.linalg.vector_norm(candidate_displacements, dim=1)).cpu().numpy()
+        )
+        self._record_scores(scores, self.temperature)
         selected = _nucleus_indices(scores, self.top_p, self.temperature)
         return [sequences[index] for index in selected]
 
@@ -475,6 +583,7 @@ class RandomLeBoFilter(MutationCandidateFilter):
         self,
         mode: str = "walker",
         selection_fraction: float = 0.6,
+        temperature: float = 1.0,
         maximum_positions: int = 5,
         residues_per_position: int = 4,
         maximum_candidates: int = 30_000,
@@ -486,6 +595,7 @@ class RandomLeBoFilter(MutationCandidateFilter):
             randomizes selection over the real MUTANG product.
         :param selection_fraction: Random probability mass retained in
             ``mutang_random`` mode.
+        :param temperature: Positive scaling applied to random baseline scores.
         :param maximum_positions: Maximum positions sampled in ``walker`` mode.
         :param residues_per_position: Residue choices sampled per position.
         :param maximum_candidates: Maximum product size.
@@ -495,6 +605,7 @@ class RandomLeBoFilter(MutationCandidateFilter):
             raise ValueError("mode must be 'walker' or 'mutang_random'")
         self.mode = mode
         self.selection_fraction = selection_fraction
+        self.temperature = temperature
         self.maximum_positions = maximum_positions
         self.residues_per_position = residues_per_position
         self.maximum_candidates = maximum_candidates
@@ -504,6 +615,7 @@ class RandomLeBoFilter(MutationCandidateFilter):
         self,
         parent_peptide: str,
         mutations: dict[int, list[int]],
+        tangent_space: SubRiemannianTangentSpace | None = None,
     ) -> list[str]:
         """Return candidates produced by the configured random control.
 
@@ -527,17 +639,20 @@ class RandomLeBoFilter(MutationCandidateFilter):
                 )
                 for position in positions
             }
+        self.last_proposed_count = _proposal_count(
+            parent_peptide, mutations, self.alphabet
+        )
         sequences = _enumerate_sequences(
             parent_peptide, mutations, self.alphabet, self.maximum_candidates
         )
         self.last_generated_count = len(sequences)
+        self.last_bounded_candidates = sequences
+        self.last_filter_trace = None
         if self.mode == "mutang_random" and sequences:
-            random_mass = np.random.random(len(sequences))
-            random_mass /= random_mass.sum()
-            order = np.argsort(random_mass)[::-1]
-            cumulative = np.cumsum(random_mass[order])
-            keep = np.empty(len(sequences), dtype=bool)
-            keep[0] = True
-            keep[1:] = cumulative[:-1] < self.selection_fraction
-            sequences = [sequences[index] for index in order[keep]]
+            random_scores = np.random.random(len(sequences))
+            self._record_scores(random_scores, self.temperature)
+            selected = _nucleus_indices(
+                random_scores, self.selection_fraction, self.temperature
+            )
+            sequences = [sequences[index] for index in selected]
         return sequences

@@ -469,6 +469,11 @@ def compose_mutant_distribution(
     ``maximum_candidates`` limits the returned highest-scoring rows.
     """
     alphabet = alphabet or DEFAULT_ALPHABET
+    mutations = {
+        position: sorted(set(amino_acids))
+        for position, amino_acids in mutations.items()
+        if 0 <= position < len(parent_peptide) and amino_acids
+    }
     padded_parent = parent_peptide.ljust(max_len)
     augmented = {
         position: sorted(
@@ -508,6 +513,11 @@ def compose_mutant_distribution(
                 sequences.append(candidate)
                 scores.append(score)
 
+    unique_scores: dict[str, float] = {}
+    for sequence, score in zip(sequences, scores):
+        unique_scores[sequence] = max(score, unique_scores.get(sequence, -np.inf))
+    sequences = list(unique_scores)
+    scores = [unique_scores[sequence] for sequence in sequences]
     order = np.argsort(scores)[::-1]
     if maximum_candidates is not None:
         order = order[:maximum_candidates]
