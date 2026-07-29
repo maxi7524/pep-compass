@@ -14,6 +14,7 @@ They reuse canonical SORBES from ``sampling_walker.py`` and canonical MUTANG
 from ``mutation_enumerator.py`` rather than copying historical implementations.
 """
 
+import json
 import logging
 from abc import ABC
 from collections import defaultdict
@@ -53,6 +54,19 @@ def _trace_value(values: np.ndarray | None, index: int) -> float | int | None:
         return None
     return values[index].item()
 
+
+def _serialize_latent_position(position: torch.Tensor, enabled: bool) -> str:
+    """Serialize a walker latent position without retaining device tensors.
+
+    :param position: Latent position produced or consumed by the walker.
+    :param enabled: Whether walker latent tracking is enabled.
+    :return: Compact JSON array, or an empty string when tracking is disabled.
+    """
+    if not enabled:
+        return ""
+    return json.dumps(position.detach().cpu().tolist(), separators=(",", ":"))
+
+
 class LocalEnumerator(ABC):
 
     last_trace: EnumerationTrace
@@ -76,6 +90,7 @@ class SamplingMutationLocalEnumerator(LocalEnumerator):
         max_neighbour_levenstein: int | None = None,
         device: str = "cpu",
         tracking_level: str = "short",
+        store_walker_latents: bool = False,
     ):
         super().__init__()
         self.encoder_decoder = encoder_decoder
@@ -86,6 +101,7 @@ class SamplingMutationLocalEnumerator(LocalEnumerator):
         self.max_neighbour_levenstein = max_neighbour_levenstein
         self.device = encoder_decoder.device
         self.tracking_level = tracking_level
+        self.store_walker_latents = store_walker_latents
 
         self.max_neighbour_levenstein = max_neighbour_levenstein or 25
         self.last_trace = EnumerationTrace()
@@ -109,6 +125,7 @@ class SamplingMutationLocalEnumerator(LocalEnumerator):
             while time_walk < self.time_walk_budget:
 
                 mutation_parent = current_peptide
+                previous_latent_position = current_latent_position
                 new_latent_position, step_info = self.sampling_walker.step(
                     current_latent_position
                 )
@@ -156,6 +173,13 @@ class SamplingMutationLocalEnumerator(LocalEnumerator):
                             post_limit_count=len(mutated_peptides),
                             post_method_filter_count=len(mutated_peptides),
                             post_constraint_filter_count=len(new_neighbor_peptides),
+                            current_latent_position=_serialize_latent_position(
+                                previous_latent_position, self.store_walker_latents
+                            ),
+                            next_latent_position=_serialize_latent_position(
+                                new_latent_position, self.store_walker_latents
+                            ),
+                            adjusted_time_step=adjusted_time_step,
                         )
                     )
                     for peptide in new_neighbor_peptides:
@@ -293,6 +317,13 @@ class SamplingFilteredMutationLocalEnumerator(SamplingMutationLocalEnumerator):
                             post_limit_count=len(bounded_candidates),
                             post_method_filter_count=len(candidates),
                             post_constraint_filter_count=len(accepted),
+                            current_latent_position=_serialize_latent_position(
+                                current_latent_position, self.store_walker_latents
+                            ),
+                            next_latent_position=_serialize_latent_position(
+                                new_latent_position, self.store_walker_latents
+                            ),
+                            adjusted_time_step=step_info["adjusted_time_step"],
                         )
                     )
                     accepted_set = set(accepted)

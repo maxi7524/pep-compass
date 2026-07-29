@@ -135,6 +135,8 @@ def validate_config(config: dict[str, Any]) -> None:
         raise ValueError("tracking.level must be short, normal, or all")
     if not isinstance(tracking["store_latents"], bool):
         raise ValueError("tracking.store_latents must be a boolean")
+    if not isinstance(tracking.get("store_walker_latents", False), bool):
+        raise ValueError("tracking.store_walker_latents must be a boolean")
     for key in ("start_iteration", "start_sequence_length"):
         value = tracking.get(key)
         if value is not None and (not isinstance(value, int) or value < 0):

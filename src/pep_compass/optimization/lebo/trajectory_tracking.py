@@ -66,7 +66,7 @@ class CandidateEventSpool:
 
 @dataclass(slots=True)
 class EnumerationStep:
-    """Store compact counts and the decoded walker state for one step."""
+    """Store compact counts and walker state for one enumeration step."""
 
     trajectory_id: int | None
     step_id: int
@@ -78,6 +78,9 @@ class EnumerationStep:
     post_limit_count: int
     post_method_filter_count: int
     post_constraint_filter_count: int
+    current_latent_position: str = ""
+    next_latent_position: str = ""
+    adjusted_time_step: float | None = None
 
 
 @dataclass
@@ -112,6 +115,7 @@ class LeboCSVTracker:
         objective_parameters: dict[str, Any],
         encoder_decoder: Any | None = None,
         store_latents: bool = True,
+        store_walker_latents: bool = False,
     ) -> None:
         if level not in {"short", "normal", "all"}:
             raise ValueError("tracking.level must be short, normal, or all")
@@ -126,6 +130,7 @@ class LeboCSVTracker:
         self.objective_parameters = objective_parameters
         self.encoder_decoder = encoder_decoder
         self.store_latents = store_latents
+        self.store_walker_latents = store_walker_latents
         self._candidate_ids: dict[str, str] = {}
         self._write_headers()
         self._write_metadata()
@@ -177,6 +182,9 @@ class LeboCSVTracker:
                     "post_limit_count",
                     "post_method_filter_count",
                     "post_constraint_filter_count",
+                    "current_latent_position",
+                    "next_latent_position",
+                    "adjusted_time_step",
                 ],
                 [],
             )
@@ -215,6 +223,7 @@ class LeboCSVTracker:
             "objective_description": self.objective_description,
             "objective_parameters": self.objective_parameters,
             "store_latents": self.store_latents,
+            "store_walker_latents": self.store_walker_latents,
         }
         with (self.output_directory / "tracking_metadata.json").open(
             "w", encoding="utf-8"
@@ -346,6 +355,9 @@ class LeboCSVTracker:
                 "post_limit_count",
                 "post_method_filter_count",
                 "post_constraint_filter_count",
+                "current_latent_position",
+                "next_latent_position",
+                "adjusted_time_step",
             ],
             [
                 {"run_id": self.run_id, "iteration_id": iteration_id, **asdict(step)}

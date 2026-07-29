@@ -215,6 +215,9 @@ def _build_local_enumerator(
         "max_neighbour_levenstein": local["max_neighbour_levenshtein"],
         "device": config["device"],
         "tracking_level": config["tracking"]["level"],
+        "store_walker_latents": config["tracking"].get(
+            "store_walker_latents", False
+        ),
     }
     if candidate_strategy == "lebo":
         return SamplingMutationLocalEnumerator(**common)

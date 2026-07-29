@@ -6,6 +6,7 @@
   "tracking": {
     "level": "all",
     "store_latents": false,
+    "store_walker_latents": true,
     "start_iteration": null,
     "start_sequence_length": null
   },

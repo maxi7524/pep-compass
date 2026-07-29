@@ -56,6 +56,7 @@ def run_task(task: dict[str, Any]) -> None:
             objective_parameters=config["black_box"],
             encoder_decoder=encoder_decoder,
             store_latents=tracking["store_latents"],
+            store_walker_latents=tracking.get("store_walker_latents", False),
         )
         from pep_compass.experiments.runner.tracking import should_start_tracking
 
