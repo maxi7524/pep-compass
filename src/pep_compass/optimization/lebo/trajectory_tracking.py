@@ -1,107 +1,27 @@
-"""CSV tracking for LE-BO candidate provenance and iteration summaries."""
+"""LEBO adapter for objective and local-enumeration experiment tracking."""
 
 from __future__ import annotations
 
 import csv
 import json
-import tempfile
-from collections.abc import Iterable, Iterator
-from dataclasses import asdict, dataclass, field
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any, Literal
 
-TrackingLevel = Literal["short", "normal", "all"]
+from pep_compass.local_enumeration.catalog import (
+    CandidateEventSpool,
+    CandidateProvenance,
+    EnumerationStep,
+    EnumerationTrace,
+    normalize_tracking_level,
+)
+from pep_compass.local_enumeration.catalog_writer import LocalEnumerationCSVWriter
 
-
-@dataclass(slots=True)
-class CandidateProvenance:
-    """Describe the first local-enumeration path that produced a candidate.
-
-    :param sequence: Candidate peptide sequence.
-    :param parent_sequence: Sequence mutated to create the candidate.
-    :param trajectory_id: Zero-based SORBES trajectory index.
-    :param step_id: One-based step within the trajectory.
-    :param path: Decoded SORBES path up to the generating step.
-    """
-
-    sequence: str
-    parent_sequence: str
-    trajectory_id: int | None
-    step_id: int | None
-    source_iteration_id: int | None = None
-    node_id: str = ""
-    parent_id: str = ""
-    passed_method_filter: bool = True
-    passed_constraint_filter: bool = True
-    method_score: float | None = None
-    method_probability: float | None = None
-    method_cumulative_probability: float | None = None
-    method_rank: int | None = None
-
-
-class CandidateEventSpool:
-    """Spill candidate events to disk instead of retaining an unbounded list."""
-
-    def __init__(self, maximum_memory_bytes: int = 1_048_576) -> None:
-        self.count = 0
-        self._events = tempfile.SpooledTemporaryFile(  # noqa: SIM115
-            mode="w+", max_size=maximum_memory_bytes, encoding="utf-8"
-        )
-
-    def append(self, candidate: CandidateProvenance) -> None:
-        """Append one compact JSON event to the spool."""
-        self._events.write(json.dumps(asdict(candidate), separators=(",", ":")))
-        self._events.write("\n")
-        self.count += 1
-
-    def __iter__(self) -> Iterator[CandidateProvenance]:
-        self._events.seek(0)
-        for line in self._events:
-            yield CandidateProvenance(**json.loads(line))
-
-    def close(self) -> None:
-        """Close and remove any temporary backing file."""
-        self._events.close()
-
-
-@dataclass(slots=True)
-class EnumerationStep:
-    """Store compact counts and walker state for one enumeration step."""
-
-    trajectory_id: int | None
-    step_id: int
-    node_id: str
-    parent_id: str
-    parent_sequence: str
-    next_sequence: str
-    proposed_count: int
-    post_limit_count: int
-    post_method_filter_count: int
-    post_constraint_filter_count: int
-    current_latent_position: str = ""
-    next_latent_position: str = ""
-    adjusted_time_step: float | None = None
-
-
-@dataclass
-class EnumerationTrace:
-    """Summarize one local-enumeration call with level-dependent provenance."""
-
-    generated_count: int = 0
-    accepted_count: int = 0
-    candidates: dict[str, CandidateProvenance] = field(default_factory=dict)
-    steps: list[EnumerationStep] = field(default_factory=list)
-    all_candidates: CandidateEventSpool = field(default_factory=CandidateEventSpool)
+TrackingLevel = Literal["quick", "normal", "long", "short", "all"]
 
 
 class LeboCSVTracker:
-    """Persist compact LE-BO histories in separate analysis-friendly files.
-
-    ``short`` stores only APEX evaluations. ``normal`` adds proposal counts for
-    every walker step and provenance for evaluated candidates. ``all`` stores
-    every candidate after the Cartesian-product limit, including candidates
-    rejected by the method-specific and final constraint filters.
-    """
+    """Combine LEBO iteration results with a reusable enumeration writer."""
 
     def __init__(
         self,
@@ -117,104 +37,85 @@ class LeboCSVTracker:
         store_latents: bool = True,
         store_walker_latents: bool = False,
     ) -> None:
-        if level not in {"short", "normal", "all"}:
-            raise ValueError("tracking.level must be short, normal, or all")
+        """Initialize one LEBO tracking adapter.
+
+        :param output_directory: Directory receiving tracking tables.
+        :param run_id: Stable run identifier.
+        :param level: Tracking mode: ``quick``, ``normal``, or ``long``.
+        :param candidate_strategy: LEBO local candidate strategy.
+        :param objective_name: Human-readable objective name.
+        :param objective_direction: ``maximize`` or ``minimize``.
+        :param objective_description: Objective semantics stored in metadata.
+        :param objective_parameters: Resolved black-box configuration.
+        :param encoder_decoder: Encoder used for unique candidate means.
+        :param store_latents: Whether unique candidate means are stored.
+        :param store_walker_latents: Whether walker geometry is stored.
+        :raises ValueError: If ``level`` is unsupported.
+        """
         self.output_directory = Path(output_directory)
         self.output_directory.mkdir(parents=True, exist_ok=True)
-        self.level = level
+        self.level = normalize_tracking_level(level)
         self.run_id = run_id
         self.candidate_strategy = candidate_strategy
         self.objective_name = objective_name
         self.objective_direction = objective_direction
         self.objective_description = objective_description
         self.objective_parameters = objective_parameters
-        self.encoder_decoder = encoder_decoder
         self.store_latents = store_latents
         self.store_walker_latents = store_walker_latents
-        self._candidate_ids: dict[str, str] = {}
+        self.catalog_writer = LocalEnumerationCSVWriter(
+            output_directory=self.output_directory,
+            run_id=run_id,
+            level=self.level,
+            encoder_decoder=encoder_decoder,
+            store_candidate_latents=store_latents,
+        )
         self._write_headers()
         self._write_metadata()
 
+    # Schemas and output primitives
+    @staticmethod
+    def _evaluation_fields() -> list[str]:
+        return [
+            "run_id",
+            "iteration_id",
+            "candidate_id",
+            "sequence",
+            "objective_name",
+            "objective_value",
+            "objective_direction",
+        ]
+
+    @staticmethod
+    def _iteration_fields() -> list[str]:
+        return [
+            "run_id",
+            "iteration_id",
+            "center_sequence",
+            "trajectory_count",
+            "walker_step_count",
+            "post_cap_event_count",
+            "post_cap_unique_count",
+            "post_method_filter_event_count",
+            "post_method_filter_unique_count",
+            "post_constraint_event_count",
+            "post_constraint_unique_count",
+            "optimizer_pool_unique_count",
+            "evaluated_count",
+            "best_sequence",
+            "best_objective_value",
+        ]
+
     def _write_headers(self) -> None:
+        self._write_rows("evaluations.csv", self._evaluation_fields(), [])
         if self.level != "short":
             self._write_rows(
-                "iteration_statistics.csv",
-                [
-                    "run_id",
-                    "iteration_id",
-                    "center_sequence",
-                    "generated_count",
-                    "accepted_count",
-                    "rejected_count",
-                    "evaluated_count",
-                    "candidate_pool_size",
-                    "best_sequence",
-                    "best_objective_value",
-                ],
-                [],
-            )
-        self._write_rows(
-            "evaluations.csv",
-            [
-                "run_id",
-                "iteration_id",
-                "candidate_id",
-                "sequence",
-                "objective_name",
-                "objective_value",
-                "objective_direction",
-            ],
-            [],
-        )
-        if self.level != "short":
-            self._write_rows(
-                "enumeration_steps.csv",
-                [
-                    "run_id",
-                    "iteration_id",
-                    "trajectory_id",
-                    "step_id",
-                    "node_id",
-                    "parent_id",
-                    "parent_sequence",
-                    "next_sequence",
-                    "proposed_count",
-                    "post_limit_count",
-                    "post_method_filter_count",
-                    "post_constraint_filter_count",
-                    "current_latent_position",
-                    "next_latent_position",
-                    "adjusted_time_step",
-                ],
-                [],
-            )
-            self._write_rows(
-                "candidates.csv",
-                [
-                    "run_id",
-                    "iteration_id",
-                    "candidate_id",
-                    "sequence",
-                    "parent_sequence",
-                    "trajectory_id",
-                    "step_id",
-                    "source_iteration_id",
-                    "node_id",
-                    "parent_id",
-                    "passed_method_filter",
-                    "passed_constraint_filter",
-                    "method_score",
-                    "method_probability",
-                    "method_cumulative_probability",
-                    "method_rank",
-                    "latent_point",
-                    "evaluated",
-                ],
-                [],
+                "optimizer_iterations.csv", self._iteration_fields(), []
             )
 
     def _write_metadata(self) -> None:
         metadata = {
+            "schema_version": 2,
             "tracking_level": self.level,
             "run_id": self.run_id,
             "candidate_strategy": self.candidate_strategy,
@@ -224,6 +125,8 @@ class LeboCSVTracker:
             "objective_parameters": self.objective_parameters,
             "store_latents": self.store_latents,
             "store_walker_latents": self.store_walker_latents,
+            "candidate_latent_semantics": "encoder_posterior_mean",
+            "walker_latent_semantics": "actual_sorbes_position",
         }
         with (self.output_directory / "tracking_metadata.json").open(
             "w", encoding="utf-8"
@@ -244,30 +147,7 @@ class LeboCSVTracker:
                 writer.writeheader()
             writer.writerows(rows)
 
-    def _encode(self, sequences: list[str]) -> dict[str, str]:
-        if not sequences or not self.store_latents or self.encoder_decoder is None:
-            return {}
-        import torch
-
-        encoded: dict[str, str] = {}
-        with torch.no_grad():
-            for start in range(0, len(sequences), 256):
-                batch = sequences[start : start + 256]
-                latent_points = self.encoder_decoder.encode_peptides(batch)
-                encoded.update(
-                    {
-                        sequence: json.dumps(point.detach().cpu().tolist())
-                        for sequence, point in zip(batch, latent_points)
-                    }
-                )
-        return encoded
-
-    def _candidate_id(self, sequence: str) -> str:
-        """Return one stable run-local identifier for a peptide sequence."""
-        if sequence not in self._candidate_ids:
-            self._candidate_ids[sequence] = f"candidate_{len(self._candidate_ids):06d}"
-        return self._candidate_ids[sequence]
-
+    # LEBO adapter
     def record_iteration(
         self,
         iteration_id: int,
@@ -279,56 +159,46 @@ class LeboCSVTracker:
         best_objective_value: float,
         candidate_provenance: dict[str, CandidateProvenance] | None = None,
     ) -> None:
-        """Append one optimizer iteration and its configured candidate subset."""
-        evaluated = {sequence for sequence, _ in evaluations}
+        """Append one optimizer iteration and its enumeration catalog.
+
+        :param iteration_id: Zero-based initialization or optimizer iteration.
+        :param center_sequence: Sequence around which local enumeration ran.
+        :param trace: Catalog produced by the local enumerator.
+        :param evaluations: Sequence and objective-value pairs evaluated now.
+        :param candidate_pool_size: Cumulative unique optimizer pool size.
+        :param best_sequence: Best sequence observed after the iteration.
+        :param best_objective_value: Objective value of ``best_sequence``.
+        :param candidate_provenance: Deprecated compatibility argument.
+        """
+        del candidate_provenance
+        self._write_evaluations(iteration_id, evaluations)
         if self.level != "short":
-            self._write_rows(
-                "iteration_statistics.csv",
-                [
-                    "run_id",
-                    "iteration_id",
-                    "center_sequence",
-                    "generated_count",
-                    "accepted_count",
-                    "rejected_count",
-                    "evaluated_count",
-                    "candidate_pool_size",
-                    "best_sequence",
-                    "best_objective_value",
-                ],
-                [
-                    {
-                        "run_id": self.run_id,
-                        "iteration_id": iteration_id,
-                        "center_sequence": center_sequence,
-                        "generated_count": trace.generated_count,
-                        "accepted_count": trace.accepted_count,
-                        "rejected_count": max(
-                            trace.generated_count - trace.accepted_count, 0
-                        ),
-                        "evaluated_count": len(evaluations),
-                        "candidate_pool_size": candidate_pool_size,
-                        "best_sequence": best_sequence,
-                        "best_objective_value": best_objective_value,
-                    }
-                ],
+            self._write_iteration_summary(
+                iteration_id,
+                center_sequence,
+                trace,
+                len(evaluations),
+                candidate_pool_size,
+                best_sequence,
+                best_objective_value,
             )
+        self.catalog_writer.write_iteration(
+            iteration_id,
+            trace,
+            {sequence for sequence, _ in evaluations},
+        )
+
+    def _write_evaluations(
+        self, iteration_id: int, evaluations: list[tuple[str, float]]
+    ) -> None:
         self._write_rows(
             "evaluations.csv",
-            [
-                "run_id",
-                "iteration_id",
-                "candidate_id",
-                "sequence",
-                "objective_name",
-                "objective_value",
-                "objective_direction",
-            ],
+            self._evaluation_fields(),
             (
                 {
                     "run_id": self.run_id,
                     "iteration_id": iteration_id,
-                    "candidate_id": self._candidate_id(sequence),
+                    "candidate_id": self.catalog_writer.candidate_id(sequence),
                     "sequence": sequence,
                     "objective_name": self.objective_name,
                     "objective_value": score,
@@ -337,100 +207,54 @@ class LeboCSVTracker:
                 for sequence, score in evaluations
             ),
         )
-        if self.level == "short":
-            trace.all_candidates.close()
-            return
+
+    def _write_iteration_summary(
+        self,
+        iteration_id: int,
+        center_sequence: str,
+        trace: EnumerationTrace,
+        evaluated_count: int,
+        candidate_pool_size: int,
+        best_sequence: str,
+        best_objective_value: float,
+    ) -> None:
         self._write_rows(
-            "enumeration_steps.csv",
+            "optimizer_iterations.csv",
+            self._iteration_fields(),
             [
-                "run_id",
-                "iteration_id",
-                "trajectory_id",
-                "step_id",
-                "node_id",
-                "parent_id",
-                "parent_sequence",
-                "next_sequence",
-                "proposed_count",
-                "post_limit_count",
-                "post_method_filter_count",
-                "post_constraint_filter_count",
-                "current_latent_position",
-                "next_latent_position",
-                "adjusted_time_step",
-            ],
-            [
-                {"run_id": self.run_id, "iteration_id": iteration_id, **asdict(step)}
-                for step in trace.steps
-            ],
-        )
-        provenance = (
-            trace.candidates if candidate_provenance is None else candidate_provenance
-        )
-        selected = (
-            trace.all_candidates
-            if self.level == "all"
-            else list(
-                {
-                    sequence: provenance[sequence]
-                    for sequence in evaluated
-                    if sequence in provenance
-                }.values()
-            )
-        )
-        latent_points = (
-            self._encode(list({item.sequence for item in selected}))
-            if self.store_latents
-            else {}
-        )
-        self._write_rows(
-            "candidates.csv",
-            [
-                "run_id",
-                "iteration_id",
-                "candidate_id",
-                "sequence",
-                "parent_sequence",
-                "trajectory_id",
-                "step_id",
-                "source_iteration_id",
-                "node_id",
-                "parent_id",
-                "passed_method_filter",
-                "passed_constraint_filter",
-                "method_score",
-                "method_probability",
-                "method_cumulative_probability",
-                "method_rank",
-                "latent_point",
-                "evaluated",
-            ],
-            (
                 {
                     "run_id": self.run_id,
                     "iteration_id": iteration_id,
-                    "candidate_id": self._candidate_id(item.sequence),
-                    "sequence": item.sequence,
-                    "parent_sequence": item.parent_sequence,
-                    "trajectory_id": item.trajectory_id,
-                    "step_id": item.step_id,
-                    "source_iteration_id": (
-                        item.source_iteration_id
-                        if item.source_iteration_id is not None
-                        else iteration_id
+                    "center_sequence": center_sequence,
+                    "trajectory_count": len(
+                        {step.trajectory_id for step in trace.steps}
                     ),
-                    "node_id": item.node_id,
-                    "parent_id": item.parent_id,
-                    "passed_method_filter": item.passed_method_filter,
-                    "passed_constraint_filter": item.passed_constraint_filter,
-                    "method_score": item.method_score,
-                    "method_probability": item.method_probability,
-                    "method_cumulative_probability": item.method_cumulative_probability,
-                    "method_rank": item.method_rank,
-                    "latent_point": latent_points.get(item.sequence, ""),
-                    "evaluated": item.sequence in evaluated,
+                    "walker_step_count": len(trace.steps),
+                    "post_cap_event_count": trace.post_cap_event_count,
+                    "post_cap_unique_count": len(trace.post_cap_sequences),
+                    "post_method_filter_event_count": (
+                        trace.post_method_filter_event_count
+                    ),
+                    "post_method_filter_unique_count": len(
+                        trace.post_method_filter_sequences
+                    ),
+                    "post_constraint_event_count": trace.post_constraint_event_count,
+                    "post_constraint_unique_count": len(
+                        trace.post_constraint_sequences
+                    ),
+                    "optimizer_pool_unique_count": candidate_pool_size,
+                    "evaluated_count": evaluated_count,
+                    "best_sequence": best_sequence,
+                    "best_objective_value": best_objective_value,
                 }
-                for item in selected
-            ),
+            ],
         )
-        trace.all_candidates.close()
+
+
+__all__ = [
+    "CandidateEventSpool",
+    "CandidateProvenance",
+    "EnumerationStep",
+    "EnumerationTrace",
+    "LeboCSVTracker",
+]

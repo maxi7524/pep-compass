@@ -333,6 +333,7 @@ class SecondOrderRiemannianBrownianEfficientSampling(SamplingWalker):
             "adjusted_time_step": adjusted_time_step,
             "S": tangent_space.S,
             "U": tangent_space.U,
+            "tangent_space": tangent_space,
         }
 
         return new_latent_position, step_info

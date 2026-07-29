@@ -205,6 +205,9 @@ def _build_local_enumerator(
             max_neighbour_levenstein=local["max_neighbour_levenshtein"],
             device=config["device"],
             tracking_level=config["tracking"]["level"],
+            store_walker_latents=config["tracking"].get(
+                "store_walker_latents", False
+            ),
         )
     common = {
         "encoder_decoder": encoder_decoder,
@@ -217,6 +220,9 @@ def _build_local_enumerator(
         "tracking_level": config["tracking"]["level"],
         "store_walker_latents": config["tracking"].get(
             "store_walker_latents", False
+        ),
+        "stop_walker_at_levenshtein_limit": local.get(
+            "stop_walker_at_levenshtein_limit", True
         ),
     }
     if candidate_strategy == "lebo":

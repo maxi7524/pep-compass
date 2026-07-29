@@ -112,6 +112,7 @@ def _bounded_mutations(
     mutated remain possible. This replaces the per-script ``_cap_mutations``
     implementations from ``lebo_plus.py``, ``lpbebo_plus.py``, and ``move.py``.
     """
+    mutations = _valid_mutations(parent_peptide, mutations)
     padded_parent = parent_peptide.ljust(25)
     choices = {
         position: sorted(set(amino_acids) | {alphabet.index(padded_parent[position])})
@@ -143,12 +144,30 @@ def _proposal_count(
     alphabet: list[str],
 ) -> int:
     """Return Cartesian-product size before the candidate limit is applied."""
+    mutations = _valid_mutations(parent_peptide, mutations)
     padded_parent = parent_peptide.ljust(25)
     choice_counts = [
         len(set(amino_acids) | {alphabet.index(padded_parent[position])})
         for position, amino_acids in mutations.items()
     ]
     return max(math.prod(choice_counts) - 1, 0) if choice_counts else 0
+
+
+def _valid_mutations(
+    parent_peptide: str,
+    mutations: dict[int, list[int]],
+) -> dict[int, list[int]]:
+    """Return unique MUTANG residue options within the peptide length.
+
+    :param parent_peptide: Sequence to which mutations will be applied.
+    :param mutations: Proposed residue indices grouped by model position.
+    :return: Valid non-empty options for positions in the peptide sequence.
+    """
+    return {
+        position: sorted(set(amino_acids))
+        for position, amino_acids in mutations.items()
+        if 0 <= position < len(parent_peptide) and amino_acids
+    }
 
 
 def _enumerate_sequences(
@@ -180,7 +199,7 @@ def _enumerate_sequences(
         candidate = "".join(sequence)
         if candidate != parent_peptide:
             sequences.append(candidate)
-    return sequences
+    return list(dict.fromkeys(sequences))
 
 
 class MutationCandidateFilter(ABC):
@@ -200,6 +219,7 @@ class MutationCandidateFilter(ABC):
         self,
         parent_peptide: str,
         mutations: dict[int, list[int]],
+        tangent_space: SubRiemannianTangentSpace | None = None,
     ) -> list[str]:
         """Return selected peptide candidates.
 
@@ -244,6 +264,7 @@ class LpbeboFilter(MutationCandidateFilter):
         self,
         parent_peptide: str,
         mutations: dict[int, list[int]],
+        tangent_space: SubRiemannianTangentSpace | None = None,
     ) -> list[str]:
         """Score the bounded MUTANG product and retain its top-p nucleus.
 
@@ -304,13 +325,19 @@ class _GeometryFilter(MutationCandidateFilter):
 
     @torch.no_grad()
     def _pairwise_potential(
-        self, parent_peptide: str
+        self,
+        parent_peptide: str,
+        tangent_space: SubRiemannianTangentSpace | None = None,
     ) -> ProjectedDirectionPairwiseSimilarityPotential:
         """Build a projected-direction potential at the current parent.
 
         :param parent_peptide: Sequence at which the Jacobian is evaluated.
         :return: Pairwise potential backed by the current tangent space.
         """
+        if tangent_space is not None:
+            return ProjectedDirectionPairwiseSimilarityPotential(
+                tangent_space, self.alphabet
+            )
         latent_batch = self.encoder_decoder.encode_peptides([parent_peptide])
         latent = latent_batch[0]
         jacobian = self.encoder_decoder.decoder_jacobian(latent_batch)[0]
@@ -350,6 +377,7 @@ class LamsFilter(_GeometryFilter):
         self,
         parent_peptide: str,
         mutations: dict[int, list[int]],
+        tangent_space: SubRiemannianTangentSpace | None = None,
     ) -> list[str]:
         """Return combinations whose worst mutated pair passes the threshold.
 
@@ -364,7 +392,7 @@ class LamsFilter(_GeometryFilter):
             parent_peptide, mutations, self.alphabet, self.maximum_candidates
         )
         potential = LamsAnchorSimilarityPotential(
-            self._pairwise_potential(parent_peptide)
+            self._pairwise_potential(parent_peptide, tangent_space)
         )
         distribution = compose_mutant_distribution(
             parent_peptide,
@@ -417,6 +445,7 @@ class TandemFilter(_GeometryFilter):
         self,
         parent_peptide: str,
         mutations: dict[int, list[int]],
+        tangent_space: SubRiemannianTangentSpace | None = None,
     ) -> list[str]:
         """Score the bounded product with TANDEM and apply top-p selection.
 
@@ -433,7 +462,7 @@ class TandemFilter(_GeometryFilter):
         distribution = compose_mutant_distribution(
             parent_peptide,
             bounded,
-            self._pairwise_potential(parent_peptide),
+            self._pairwise_potential(parent_peptide, tangent_space),
             alphabet=self.alphabet,
             include_parent_residue=True,
             maximum_candidates=self.maximum_candidates,
@@ -485,6 +514,7 @@ class MoveFilter(MutationCandidateFilter):
         self,
         parent_peptide: str,
         mutations: dict[int, list[int]],
+        tangent_space: SubRiemannianTangentSpace | None = None,
     ) -> list[str]:
         """Rank candidates by approximate net latent displacement.
 
@@ -585,6 +615,7 @@ class RandomLeBoFilter(MutationCandidateFilter):
         self,
         parent_peptide: str,
         mutations: dict[int, list[int]],
+        tangent_space: SubRiemannianTangentSpace | None = None,
     ) -> list[str]:
         """Return candidates produced by the configured random control.
 

@@ -131,12 +131,20 @@ def validate_config(config: dict[str, Any]) -> None:
                 f"Unsupported LE-BO candidate strategy: {candidate_strategy!r}"
             )
     tracking = config["tracking"]
-    if tracking["level"] not in {"short", "normal", "all"}:
-        raise ValueError("tracking.level must be short, normal, or all")
+    supported_tracking_levels = {"quick", "normal", "long", "short", "all"}
+    if tracking["level"] not in supported_tracking_levels:
+        raise ValueError("tracking.level must be quick, normal, or long")
     if not isinstance(tracking["store_latents"], bool):
         raise ValueError("tracking.store_latents must be a boolean")
     if not isinstance(tracking.get("store_walker_latents", False), bool):
         raise ValueError("tracking.store_walker_latents must be a boolean")
+    stop_at_limit = config["local_enumeration"].get(
+        "stop_walker_at_levenshtein_limit", True
+    )
+    if not isinstance(stop_at_limit, bool):
+        raise ValueError(
+            "local_enumeration.stop_walker_at_levenshtein_limit must be a boolean"
+        )
     for key in ("start_iteration", "start_sequence_length"):
         value = tracking.get(key)
         if value is not None and (not isinstance(value, int) or value < 0):

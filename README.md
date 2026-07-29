@@ -70,7 +70,7 @@ APEX weights are required for APEX-based evaluation/optimization.
 Run the initialization script from the repository root:
 
 ```bash
-scripts/initialization/download_apex_models.sh
+scripts/initialization/download_apex_models_article.sh
 ```
 
 The script downloads only

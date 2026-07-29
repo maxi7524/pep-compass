@@ -13,7 +13,7 @@ IMPORTANT: you need to change cu118 for current device setup.
 This prepares three runs, one for each configured MUTANG token threshold.
 
 ```bash
-nohup env PYTHONUNBUFFERED=1 uv run --extra cu118 python \
+nohup uv run --extra cu118 python \
   scripts/runner/run_optimization.py \
   --config configs/optimization/experiments/locality/01_sorbes_mutang_raw_pool.json \
   > logs/locality/01_sorbes_mutang_raw_pool.log 2>&1 &
@@ -31,9 +31,9 @@ tail -f logs/locality/01_sorbes_mutang_raw_pool.log
 This prepares one run with up to four mutable positions. It serves as control group for testing mutang results 
 
 ```bash
-nohup env PYTHONUNBUFFERED=1 uv run --extra cu118 python \
+nohup uv run --extra cu118 python \
   scripts/runner/run_optimization.py \
-  --config configs/optimization/experiments/locality/02_random_three_position_raw_pool.json \
+  --config configs/optimization/experiments/locality/02_random_positions.json \
   > logs/locality/02_random_three_position_raw_pool.log 2>&1 &
 echo $! | tee logs/locality/02_random_three_position_raw_pool.pid
 ```
