@@ -1,7 +1,7 @@
 {
   "extends": "../../base.json",
   "input_csv": "../../peptides/peptides.csv",
-  "evaluation_budget": 5,
+  "evaluation_budget": 1,
   "seed": 972,
   "tracking": {
     "level": "all",
@@ -11,15 +11,15 @@
   },
   "local_enumeration": {
     "walker_trajectories": 100,
-    "max_neighbour_levenshtein": 25
+    "max_neighbour_levenshtein": 4
   },
   "filter": {
-    "maximum_candidates": 1000
+    "maximum_candidates": 30000
   },
   "optimizer": {
     "lebo": {
       "initial_peptides": 1,
-      "evaluations_per_iteration": 5
+      "evaluations_per_iteration": 1
     }
   },
   "grid": {
