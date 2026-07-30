@@ -40,9 +40,13 @@ experiment:
 ```
 
 Ścieżka względna jest liczona od pliku YAML. Kolumna `repetitions` jest
-opcjonalna i domyślnie ma wartość `1`. Na obecnym etapie powtórzenia rozwijają
-wejściowy batch; niezależne taski eksperymentalne i grid parametrów będą osobną
-warstwą wykonawczą.
+opcjonalna i domyślnie ma wartość `1`. Każde powtórzenie tworzy niezależny run
+z osobnym seedem, stanem budżetu, trackerem i katalogiem wyników. Dla inputu
+inline wspólną liczbę powtórzeń można podać jako `experiment.input.repetitions`.
+
+Runner zapisuje `run_manifest.csv` oraz katalogi `runs/run_XXXXX`. Ciężki
+encoder-decoder jest inicjalizowany raz i współdzielony tylko jako model;
+zmienny stan optymalizacji nie jest współdzielony między runami.
 
 ## Kroki
 

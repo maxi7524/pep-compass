@@ -53,7 +53,9 @@ class PepCompassCore:
         import pep_compass.mutation_generators.strategies  # noqa: F401
         import pep_compass.walkers.strategies  # noqa: F401
 
-    def build_runner(self, config: Mapping[str, Any]) -> OptimizationRunner:
+    def build_runner(
+        self, config: Mapping[str, Any], *, tracker=None
+    ) -> OptimizationRunner:
         """Build an optimization runner from the ``optimization.steps`` tree."""
         optimization = config.get("optimization", config)
         raw_steps = optimization.get("steps")
@@ -65,7 +67,12 @@ class PepCompassCore:
             oracle_calls=limits_config.get("oracle_calls"),
             generated_candidates=limits_config.get("generated_candidates"),
         )
-        return OptimizationRunner(self.encoder_decoder, root, self.tracker, limits)
+        return OptimizationRunner(
+            self.encoder_decoder,
+            root,
+            self.tracker if tracker is None else tracker,
+            limits,
+        )
 
     def _build_flow(self, configurations: Sequence[Mapping[str, Any]]) -> Flow:
         return Flow(

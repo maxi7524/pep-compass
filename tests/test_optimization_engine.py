@@ -11,7 +11,11 @@ import pytest
 from pep_compass.filters.strategies.selectors.deduplicate import DeduplicateFilter
 from pep_compass.filters.base import Filter
 from pep_compass.filters.manager import FilterManager
-from pep_compass.experiments.input import load_input_sequences
+from pep_compass.experiments.composable import ComposableExperiment
+from pep_compass.experiments.input import (
+    load_input_sequences,
+    materialize_input_tasks,
+)
 from pep_compass.core.builder import PepCompassCore
 from pep_compass.optimization.batch import (
     CandidateBatch,
@@ -231,6 +235,56 @@ def test_csv_input_expands_repetitions_relative_to_configuration(tmp_path) -> No
     )
 
     assert result == ["AAAA", "AAAA", "CCCC"]
+
+
+def test_repetitions_materialize_independent_tasks_in_source_order(tmp_path) -> None:
+    input_path = tmp_path / "peptides.csv"
+    input_path.write_text(
+        "sequence,repetitions\nAAAA,2\nCCCC,1\n",
+        encoding="utf-8",
+    )
+
+    tasks = materialize_input_tasks(
+        {"csv": {"path": "peptides.csv"}},
+        base_directory=tmp_path,
+    )
+
+    assert [task.sequence for task in tasks] == ["AAAA", "AAAA", "CCCC"]
+    assert [task.repetition for task in tasks] == [0, 1, 0]
+    assert [task.run_id for task in tasks] == [
+        "run_00000",
+        "run_00001",
+        "run_00002",
+    ]
+
+
+def test_composable_experiment_isolates_repetitions_and_writes_manifest(
+    tmp_path,
+) -> None:
+    config = {
+        "experiment": {
+            "seed": 17,
+            "input": {"sequences": ["AAAA", "CCCC"], "repetitions": 2},
+            "output": {"directory": "results"},
+        },
+        "optimization": {"steps": []},
+    }
+
+    result = ComposableExperiment(
+        config,
+        PepCompassCore(_EncoderDecoder()),
+        config_directory=tmp_path,
+    ).run()
+
+    assert [run.seed for run in result.runs] == [17, 18, 19, 20]
+    assert [run.result.candidates.sequences for run in result.runs] == [
+        ("AAAA",),
+        ("AAAA",),
+        ("CCCC",),
+        ("CCCC",),
+    ]
+    assert (tmp_path / "results" / "run_manifest.csv").exists()
+    assert (tmp_path / "results" / "runs" / "run_00003" / "result.json").exists()
 
 
 def test_core_builds_nested_loop_and_parallel_without_oracle() -> None:

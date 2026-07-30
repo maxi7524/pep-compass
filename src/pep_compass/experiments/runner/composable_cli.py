@@ -28,22 +28,25 @@ def main() -> None:
     config_path = _parse_args().config.resolve()
     config = load_configuration(config_path)
     experiment = config.get("experiment", {})
-    output = experiment.get("output", {})
-    output_directory = Path(output.get("directory", "results/composable"))
-    if not output_directory.is_absolute():
-        output_directory = config_path.parent / output_directory
     tracking = experiment.get("tracking")
-    tracker = None
-    if tracking is not None:
-        tracker = CSVStepTracker(
-            output_directory / "tracking",
+
+    def tracker_factory(run_directory: Path):
+        if tracking is None:
+            return None
+        return CSVStepTracker(
+            run_directory / "tracking",
             level=tracking.get("level", "normal"),
             max_depth=tracking.get("max_depth"),
             store_latents=tracking.get("store_latents", False),
             store_fields=tracking.get("store_fields", False),
         )
-    core = PepCompassCore.from_config(config, tracker=tracker)
-    ComposableExperiment(config, core, config_directory=config_path.parent).run()
+    core = PepCompassCore.from_config(config)
+    ComposableExperiment(
+        config,
+        core,
+        config_directory=config_path.parent,
+        tracker_factory=tracker_factory,
+    ).run()
 
 
 if __name__ == "__main__":
