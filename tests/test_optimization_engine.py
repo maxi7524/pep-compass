@@ -1,0 +1,286 @@
+"""Contract tests for the composable optimization engine."""
+
+from __future__ import annotations
+
+import torch
+import pytest
+
+from pep_compass.filters.strategies.selectors.deduplicate import DeduplicateFilter
+from pep_compass.filters.base import Filter
+from pep_compass.filters.manager import FilterManager
+from pep_compass.core.builder import PepCompassCore
+from pep_compass.optimization.batch import (
+    CandidateBatch,
+    OptionalField,
+    TensorField,
+)
+from pep_compass.optimization.context import OptimizationContext
+from pep_compass.optimization.flow import Flow, Loop, Parallel
+from pep_compass.optimization.runner import OptimizationRunner
+from pep_compass.optimization.step import Step
+from pep_compass.optimization.tracking import InMemoryStepTracker
+from pep_compass.mutation_generators.strategies.mutang import MutangGenerator
+from pep_compass.mutation_generators.base import MutationGenerator
+from pep_compass.mutation_generators.manager import MutationGeneratorManager
+from pep_compass.oracles.strategies.black_box import BlackBoxOracle
+from pep_compass.walkers.base import Walker
+from pep_compass.walkers.manager import WalkerManager
+
+
+class _SuffixStep(Step):
+    def __init__(self, suffix: str, field_name: str | None = None) -> None:
+        self.suffix = suffix
+        self.field_name = field_name
+
+    @property
+    def name(self) -> str:
+        return f"suffix_{self.suffix}"
+
+    def _execute(self, batch, context):
+        result = batch.with_sequences(
+            [f"{sequence}{self.suffix}" for sequence in batch.sequences]
+        )
+        if self.field_name is not None:
+            result = result.with_field(
+                self.field_name,
+                TensorField(torch.ones(len(batch), device=batch.latent_origins.device)),
+            )
+        return result
+
+
+class _EncoderDecoder:
+    def encode_peptides(self, sequences):
+        return torch.arange(len(sequences) * 2, dtype=torch.float32).reshape(-1, 2)
+
+
+class _MutationEnumerator:
+    def get_mutations_from_s_u(self, singular_values, left_vectors):
+        return {0: [1]}
+
+    def mutate_peptide(self, sequence, mutations):
+        return [sequence, f"X{sequence[1:]}"]
+
+
+def _batch() -> CandidateBatch:
+    return CandidateBatch(
+        ["A", "B"],
+        torch.tensor([[1.0, 2.0], [3.0, 4.0]]),
+    )
+
+
+def test_batch_selection_keeps_every_column_aligned() -> None:
+    batch = _batch().with_field("score", TensorField(torch.tensor([0.1, 0.9])))
+
+    selected = batch.select(torch.tensor([1]))
+
+    assert selected.sequences == ("B",)
+    assert selected.latent_origins.tolist() == [[3.0, 4.0]]
+    assert isinstance(selected.fields["score"], TensorField)
+    assert selected.fields["score"].values.tolist() == pytest.approx([0.9])
+
+
+def test_parallel_concatenates_outputs_and_marks_missing_fields() -> None:
+    parallel = Parallel(
+        {
+            "geometry": _SuffixStep("G", "geometry.score"),
+            "random": _SuffixStep("R"),
+        }
+    )
+
+    result = parallel(_batch(), OptimizationContext(_EncoderDecoder()))
+
+    assert result.sequences == ("AG", "BG", "AR", "BR")
+    field = result.fields["geometry.score"]
+    assert isinstance(field, OptionalField)
+    assert field.valid.tolist() == [True, True, False, False]
+
+
+def test_concurrent_parallel_has_deterministic_branch_order() -> None:
+    parallel = Parallel(
+        {"first": _SuffixStep("1"), "second": _SuffixStep("2")},
+        execution="concurrent",
+    )
+
+    result = parallel(_batch(), OptimizationContext(_EncoderDecoder(), seed=7))
+
+    assert result.sequences == ("A1", "B1", "A2", "B2")
+
+
+def test_loop_tracks_nested_iteration_indices() -> None:
+    tracker = InMemoryStepTracker()
+    loop = Loop(Flow([_SuffixStep("X")]), iterations=2)
+
+    result = loop(_batch(), OptimizationContext(_EncoderDecoder(), tracker=tracker))
+
+    assert result.sequences == ("AXX", "BXX")
+    suffix_records = [
+        record for record in tracker.records if record.step_name == "suffix_X"
+    ]
+    assert [record.loop_indices for record in suffix_records] == [(0,), (1,)]
+
+
+def test_tracking_depth_disables_deeper_steps_without_changing_results() -> None:
+    tracker = InMemoryStepTracker(max_depth=1)
+    flow = Flow([_SuffixStep("X")])
+
+    result = flow(_batch(), OptimizationContext(_EncoderDecoder(), tracker=tracker))
+
+    assert result.sequences == ("AX", "BX")
+    assert [record.step_name for record in tracker.records] == ["Flow"]
+
+
+def test_deduplication_is_explicit_and_preserves_distinct_latents_by_default() -> None:
+    batch = CandidateBatch(
+        ["A", "A"],
+        torch.tensor([[1.0, 2.0], [3.0, 4.0]]),
+    )
+    context = OptimizationContext(_EncoderDecoder())
+
+    by_sequence = DeduplicateFilter("sequence")(batch, context)
+    by_pair = DeduplicateFilter("sequence_and_latent")(batch, context)
+
+    assert len(by_sequence) == 1
+    assert len(by_pair) == 2
+
+
+def test_runner_supports_experiment_without_oracle() -> None:
+    runner = OptimizationRunner(_EncoderDecoder(), Flow([_SuffixStep("X")]))
+
+    result = runner.run(["A"], seed=11)
+
+    assert result.candidates.sequences == ("AX",)
+    assert result.best_candidate is None
+    assert result.best_score is None
+    assert result.objective_name is None
+
+
+def test_core_builds_nested_loop_and_parallel_without_oracle() -> None:
+    config = {
+        "optimization": {
+            "steps": [
+                {
+                    "parallel": {
+                        "execution": "concurrent",
+                        "merge": "concatenate",
+                        "branches": [
+                            {
+                                "name": "left",
+                                "steps": [
+                                    {
+                                        "filter": {
+                                            "method": "deduplicate",
+                                            "parameters": {"key": "sequence"},
+                                        }
+                                    }
+                                ],
+                            },
+                            {
+                                "name": "right",
+                                "steps": [
+                                    {
+                                        "loop": {
+                                            "iterations": 2,
+                                            "steps": [
+                                                {
+                                                    "filter": {
+                                                        "method": "deduplicate",
+                                                        "parameters": {
+                                                            "key": "sequence_and_latent"
+                                                        },
+                                                    }
+                                                }
+                                            ],
+                                        }
+                                    }
+                                ],
+                            },
+                        ],
+                    }
+                }
+            ]
+        }
+    }
+
+    result = PepCompassCore(_EncoderDecoder()).build_runner(config).run(["A", "A"])
+
+    assert result.candidates.sequences == ("A", "A", "A")
+
+
+def test_mutang_preserves_parent_latent_origin_for_every_product_candidate() -> None:
+    batch = _batch()
+    batch = batch.with_field(
+        "walker.singular_values",
+        TensorField(torch.ones((2, 1))),
+    )
+    batch = batch.with_field(
+        "walker.left_vectors",
+        TensorField(torch.ones((2, 1, 1))),
+    )
+
+    result = MutangGenerator(_MutationEnumerator())(
+        batch,
+        OptimizationContext(_EncoderDecoder()),
+    )
+
+    assert result.sequences == ("A", "X", "B", "X")
+    assert result.latent_origins.tolist() == [
+        [1.0, 2.0],
+        [1.0, 2.0],
+        [3.0, 4.0],
+        [3.0, 4.0],
+    ]
+
+
+def test_oracle_adds_scores_without_replacing_candidates_or_latents() -> None:
+    def black_box(sequences):
+        return [[len(sequence)] for sequence in sequences]
+
+    batch = _batch()
+    result = BlackBoxOracle(black_box, field_name="oracle.test.score")(
+        batch,
+        OptimizationContext(_EncoderDecoder()),
+    )
+
+    assert result.sequences == batch.sequences
+    assert result.latent_origins.data_ptr() == batch.latent_origins.data_ptr()
+    scores = result.fields["oracle.test.score"]
+    assert isinstance(scores, TensorField)
+    assert scores.values.tolist() == [1, 1]
+
+
+def test_runner_summarizes_oracle_but_not_filter_scores() -> None:
+    def black_box(sequences):
+        return [[2.0], [1.0]]
+
+    runner = OptimizationRunner(
+        _EncoderDecoder(),
+        BlackBoxOracle(black_box, field_name="oracle.test.score"),
+    )
+
+    result = runner.run(["AA", "B"])
+
+    assert result.best_candidate is not None
+    assert result.best_candidate.sequence == "B"
+    assert result.best_score == 1.0
+    assert result.objective_name == "test"
+    assert result.objective_direction == "minimize"
+
+
+@pytest.mark.parametrize(
+    ("registry", "base"),
+    [
+        (WalkerManager._registry, Walker),
+        (MutationGeneratorManager._registry, MutationGenerator),
+        (FilterManager._registry, Filter),
+    ],
+)
+def test_every_registered_component_implements_its_universal_contract(
+    registry,
+    base,
+) -> None:
+    assert registry
+    assert all(isinstance(name, str) and name for name in registry)
+    assert all(
+        isinstance(factory, type) and issubclass(factory, base)
+        for factory in registry.values()
+    )
