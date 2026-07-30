@@ -11,8 +11,7 @@ było porównać wyniki przed usunięciem starej struktury.
 Predyktor aktywności przeciwdrobnoustrojowej agregujący przewidywane wartości
 MIC dla wybranych modeli patogenów.
 
-Kod: [`optimization/black_box/apex_black_box.py`](../../optimization/black_box/apex_black_box.py),
-[`models/apex/`](../../models/apex/).
+Kod: [`apex/oracle.py`](apex/oracle.py), [`apex/`](apex/).
 
 #### Co sprawdzić
 
@@ -32,8 +31,7 @@ znalezione różnice i ich wpływ na użytkownika.
 
 Model przewidujący aktywność przeciwdrobnoustrojową peptydu.
 
-Kod: [`optimization/black_box/battleamp_black_box.py`](../../optimization/black_box/battleamp_black_box.py),
-[`models/battleamp/`](../../models/battleamp/).
+Kod: [`battleamp/oracle.py`](battleamp/oracle.py), [`battleamp/`](battleamp/).
 
 #### Co sprawdzić
 
@@ -52,8 +50,7 @@ różnicę względem publikowanej implementacji.
 
 Model oceniający toksyczność sekwencji peptydowej.
 
-Kod: [`optimization/black_box/toxipep_black_box.py`](../../optimization/black_box/toxipep_black_box.py),
-[`models/toxipep/`](../../models/toxipep/).
+Kod: [`toxipep/oracle.py`](toxipep/oracle.py), [`toxipep/`](toxipep/).
 
 #### Co sprawdzić
 
@@ -72,8 +69,8 @@ jak powinien być interpretowany w konfiguracji filtrów i oracle.
 
 Deterministyczna funkcja obliczająca hydrofobowość peptydu na wybranej skali.
 
-Kod: [`optimization/black_box/hydrophobicity_black_box.py`](../../optimization/black_box/hydrophobicity_black_box.py),
-[`models/hydrophobicity/`](../../models/hydrophobicity/).
+Kod: [`hydrophobicity/oracle.py`](hydrophobicity/oracle.py),
+[`hydrophobicity/`](hydrophobicity/).
 
 #### Co sprawdzić
 
@@ -91,8 +88,8 @@ Należy podać wzór lub źródło skali i wyjaśnić jednostkę zwracanego wyni
 Dodatkowe predyktory biologiczne obecne w starym kodzie, ale jeszcze niewłączone
 do nowego buildera.
 
-Kod: [`optimization/black_box/eipred_black_box.py`](../../optimization/black_box/eipred_black_box.py),
-[`optimization/black_box/mbc_attention_black_box.py`](../../optimization/black_box/mbc_attention_black_box.py).
+Kod: [`eipred/oracle.py`](eipred/oracle.py),
+[`mbc_attention/oracle.py`](mbc_attention/oracle.py).
 
 #### Co sprawdzić
 

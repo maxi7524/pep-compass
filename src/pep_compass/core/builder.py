@@ -191,23 +191,23 @@ class PepCompassCore:
 
     def _build_black_box(self, method: str, parameters: dict[str, Any]):
         if method == "apex":
-            from pep_compass.optimization.black_box.apex_black_box import APEXBlackBox
+            from pep_compass.oracles.strategies.apex.oracle import APEXBlackBox
 
             return APEXBlackBox(**parameters)
         if method == "battleamp":
-            from pep_compass.optimization.black_box.battleamp_black_box import (
+            from pep_compass.oracles.strategies.battleamp.oracle import (
                 BattleAMPBlackBox,
             )
 
             return BattleAMPBlackBox(**parameters)
         if method == "hydrophobicity":
-            from pep_compass.optimization.black_box.hydrophobicity_black_box import (
+            from pep_compass.oracles.strategies.hydrophobicity.oracle import (
                 HydrophobicityBlackBox,
             )
 
             return HydrophobicityBlackBox(**parameters)
         if method == "toxipep":
-            from pep_compass.optimization.black_box.toxipep_black_box import (
+            from pep_compass.oracles.strategies.toxipep.oracle import (
                 ToxiPepBlackBox,
             )
 

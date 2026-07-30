@@ -18,8 +18,8 @@ from torch.utils.data import DataLoader, Dataset
 current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(current_dir)
 
-from model import ToxiPep_Model
-from atom_feature import convert_to_graph_channel
+from pep_compass.oracles.strategies.toxipep.atom_feature import convert_to_graph_channel
+from pep_compass.oracles.strategies.toxipep.model import ToxiPep_Model
 
 # Peptide residue mapping - same as in original ToxiPep
 Pep_residue2idx = {

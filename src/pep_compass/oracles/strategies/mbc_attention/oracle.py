@@ -5,7 +5,9 @@ from poli.core.black_box_information import BlackBoxInformation
 import torch.nn.functional as F
 from einops import rearrange
 
-from pep_compass.models.mbc_attention.MBC_Attention_Predictor import PredictorMBCAttention
+from pep_compass.oracles.strategies.mbc_attention.MBC_Attention_Predictor import (
+    PredictorMBCAttention,
+)
 
 class MBCAttentionBlackBox(AbstractBlackBox):
     def __init__(

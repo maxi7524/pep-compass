@@ -15,7 +15,7 @@ _battleamp_predictor = None
 def _predict_in_isolated_process(sequences: list[str]) -> np.ndarray:
     global _battleamp_predictor
     if _battleamp_predictor is None:
-        from pep_compass.models.battleamp.BattleAMPPredictor import (
+        from pep_compass.oracles.strategies.battleamp.BattleAMPPredictor import (
             PredictorBattleAMP,
         )
 
@@ -52,7 +52,7 @@ class BattleAMPBlackBox(AbstractBlackBox):
             )
             self.battleamp_predictor = None
         else:
-            from pep_compass.models.battleamp.BattleAMPPredictor import (
+            from pep_compass.oracles.strategies.battleamp.BattleAMPPredictor import (
                 PredictorBattleAMP,
             )
 

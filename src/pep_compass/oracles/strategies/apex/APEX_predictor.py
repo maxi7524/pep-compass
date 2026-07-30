@@ -8,8 +8,8 @@ import numpy as np
 import torch
 from tqdm import tqdm
 
-from pep_compass.models.apex.APEX_models import AMP_model
-from pep_compass.models.apex.utils import make_vocab, onehot_encoding
+from pep_compass.oracles.strategies.apex.APEX_models import AMP_model
+from pep_compass.oracles.strategies.apex.utils import make_vocab, onehot_encoding
 
 
 class APEXUnpickler(pickle.Unpickler):
@@ -18,9 +18,9 @@ class APEXUnpickler(pickle.Unpickler):
     def find_class(self, module, name):
         # Map old top-level module names to the correct package paths
         if module == "APEX_models":
-            module = "pep_compass.models.apex.APEX_models"
+            module = "pep_compass.oracles.strategies.apex.APEX_models"
         elif module == "AMP_DL_model_twohead":
-            module = "pep_compass.models.apex.APEX_models"
+            module = "pep_compass.oracles.strategies.apex.APEX_models"
         return super().find_class(module, name)
 
 

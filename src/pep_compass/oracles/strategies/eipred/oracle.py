@@ -2,7 +2,7 @@ import numpy as np
 from poli_baselines.core.abstract_solver import AbstractBlackBox
 from poli.core.black_box_information import BlackBoxInformation
 
-from pep_compass.models.EIPred.eippred import EIPredPredictor
+from pep_compass.oracles.strategies.eipred.eippred import EIPredPredictor
 
 class EIPredBlackBox(AbstractBlackBox):
     def __init__(

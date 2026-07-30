@@ -5,8 +5,6 @@ This module provides a black box interface for the ToxiPep toxicity prediction m
 allowing it to be used with optimization frameworks like POLI for peptide design tasks.
 """
 
-import os
-import sys
 import numpy as np
 from typing import Optional
 
@@ -20,13 +18,7 @@ except ImportError:
             pass
     BlackBoxInformation = dict
 
-# Add the toxipep directory to path for imports
-current_dir = os.path.dirname(os.path.abspath(__file__))
-models_dir = os.path.dirname(os.path.dirname(current_dir))
-toxipep_dir = os.path.join(models_dir, "models", "toxipep")
-sys.path.append(toxipep_dir)
-
-from ToxiPepPredictor import PredictorToxiPep
+from pep_compass.oracles.strategies.toxipep.ToxiPepPredictor import PredictorToxiPep
 
 class ToxiPepBlackBox(AbstractBlackBox):
     """

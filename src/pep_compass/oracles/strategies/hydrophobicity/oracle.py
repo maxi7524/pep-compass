@@ -3,7 +3,9 @@ import torch
 from poli_baselines.core.abstract_solver import AbstractBlackBox
 from poli.core.black_box_information import BlackBoxInformation
 
-from pep_compass.models.hydrophobicity.HydrophobicityPredictor import HydrophobicityPredictor
+from pep_compass.oracles.strategies.hydrophobicity.HydrophobicityPredictor import (
+    HydrophobicityPredictor,
+)
 from pep_compass.models.encoder_decoder.hydramp_encoder_decoder import HydrAMPEncoderDecoder
 
 class HydrophobicityBlackBox(AbstractBlackBox):
