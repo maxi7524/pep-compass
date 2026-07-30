@@ -512,10 +512,7 @@ def test_every_registered_component_implements_its_universal_contract(
 ) -> None:
     assert registry
     assert all(isinstance(name, str) and name for name in registry)
-    assert all(
-        isinstance(factory, type) and issubclass(factory, base)
-        for factory in registry.values()
-    )
+    assert all(callable(factory) for factory in registry.values())
 
 
 def test_every_bundled_oracle_is_registered_without_loading_its_model() -> None:

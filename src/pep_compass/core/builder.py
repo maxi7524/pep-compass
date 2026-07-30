@@ -125,71 +125,32 @@ class PepCompassCore:
         )
 
     def _build_walker(self, settings: Mapping[str, Any]) -> Step:
-        from pep_compass.walkers.strategies.subriemannian import (
-            SecondOrderRiemannianBrownianEfficientSampling,
-        )
         from pep_compass.walkers.manager import WalkerManager
 
         method, parameters = self._method_and_parameters(settings)
-        if method != "sorbes":
-            return WalkerManager.build(method, **parameters)
-        sampling_walker = SecondOrderRiemannianBrownianEfficientSampling(
-            encoder_decoder=self.encoder_decoder,
+        return WalkerManager.build(
+            method,
+            services={"encoder_decoder": self.encoder_decoder},
             **parameters,
         )
-        return WalkerManager.build(method, sampling_walker=sampling_walker)
 
     def _build_mutation_generator(self, settings: Mapping[str, Any]) -> Step:
-        from pep_compass.mutation_generators.strategies.tangent_space import (
-            MutationEnumerationInTangentSpace,
-        )
         from pep_compass.mutation_generators.manager import MutationGeneratorManager
 
         method, parameters = self._method_and_parameters(settings)
-        if method != "mutang":
-            return MutationGeneratorManager.build(method, **parameters)
-        enumerator = MutationEnumerationInTangentSpace(**parameters)
-        return MutationGeneratorManager.build(method, mutation_enumerator=enumerator)
+        return MutationGeneratorManager.build(
+            method,
+            services={"encoder_decoder": self.encoder_decoder},
+            **parameters,
+        )
 
     def _build_filter(self, settings: Mapping[str, Any]) -> Step:
         method, parameters = self._method_and_parameters(settings)
-        if method in {
-            "lpbebo",
-            "lams",
-            "tandem",
-            "move",
-            "random_walker",
-            "random_mutang",
-        }:
-            return self._build_legacy_mutation_filter(method, parameters)
-        return FilterManager.build(method, **parameters)
-
-    def _build_legacy_mutation_filter(
-        self,
-        method: str,
-        parameters: dict[str, Any],
-    ) -> Step:
-        from pep_compass.filters.strategies.mutation_choice import MutationChoiceFilter
-        from pep_compass.filters.strategies.mutation_filters import (
-            LamsFilter,
-            LpbeboFilter,
-            MoveFilter,
-            RandomLeBoFilter,
-            TandemFilter,
+        return FilterManager.build(
+            method,
+            services={"encoder_decoder": self.encoder_decoder},
+            **parameters,
         )
-
-        if method == "lpbebo":
-            implementation = LpbeboFilter(self.encoder_decoder, **parameters)
-        elif method == "lams":
-            implementation = LamsFilter(self.encoder_decoder, **parameters)
-        elif method == "tandem":
-            implementation = TandemFilter(self.encoder_decoder, **parameters)
-        elif method == "move":
-            implementation = MoveFilter(self.encoder_decoder, **parameters)
-        else:
-            mode = "walker" if method == "random_walker" else "mutang_random"
-            implementation = RandomLeBoFilter(mode=mode, **parameters)
-        return MutationChoiceFilter(implementation)
 
     def _build_oracle(self, settings: Mapping[str, Any]) -> Step:
         from pep_compass.oracles.manager import OracleManager

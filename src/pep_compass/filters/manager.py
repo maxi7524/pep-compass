@@ -3,6 +3,7 @@
 from typing import Callable
 
 from pep_compass.filters.base import Filter
+from pep_compass.utils.strategy_factory import build_with_services
 
 
 class FilterManager:
@@ -23,10 +24,10 @@ class FilterManager:
         return decorator
 
     @classmethod
-    def build(cls, method: str, **parameters) -> Filter:
+    def build(cls, method: str, *, services=None, **parameters) -> Filter:
         """Construct a registered filter strategy."""
         try:
             factory = cls._registry[method]
         except KeyError as error:
             raise ValueError(f"Unknown filter method: {method}") from error
-        return factory(**parameters)
+        return build_with_services(factory, parameters, services)

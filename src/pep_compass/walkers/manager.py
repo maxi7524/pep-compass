@@ -3,6 +3,7 @@
 from typing import Callable
 
 from pep_compass.walkers.base import Walker
+from pep_compass.utils.strategy_factory import build_with_services
 
 
 class WalkerManager:
@@ -23,10 +24,10 @@ class WalkerManager:
         return decorator
 
     @classmethod
-    def build(cls, method: str, **parameters) -> Walker:
+    def build(cls, method: str, *, services=None, **parameters) -> Walker:
         """Construct a registered walker strategy."""
         try:
             factory = cls._registry[method]
         except KeyError as error:
             raise ValueError(f"Unknown walker method: {method}") from error
-        return factory(**parameters)
+        return build_with_services(factory, parameters, services)

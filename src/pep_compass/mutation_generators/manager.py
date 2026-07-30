@@ -3,6 +3,7 @@
 from typing import Callable
 
 from pep_compass.mutation_generators.base import MutationGenerator
+from pep_compass.utils.strategy_factory import build_with_services
 
 
 class MutationGeneratorManager:
@@ -26,10 +27,10 @@ class MutationGeneratorManager:
         return decorator
 
     @classmethod
-    def build(cls, method: str, **parameters) -> MutationGenerator:
+    def build(cls, method: str, *, services=None, **parameters) -> MutationGenerator:
         """Construct a registered mutation generator."""
         try:
             factory = cls._registry[method]
         except KeyError as error:
             raise ValueError(f"Unknown mutation generator method: {method}") from error
-        return factory(**parameters)
+        return build_with_services(factory, parameters, services)
