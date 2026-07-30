@@ -33,7 +33,7 @@ class PepCompassCore:
             raise ValueError(f"Unknown encoder-decoder method: {method}")
         import torch
 
-        from pep_compass.models.encoder_decoder.hydramp_encoder_decoder import (
+        from pep_compass.core.encoder_decoder.strategies.hydramp.adapter import (
             HydrAMPEncoderDecoder,
         )
 

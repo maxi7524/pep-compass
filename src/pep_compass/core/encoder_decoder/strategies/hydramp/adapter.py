@@ -1,8 +1,11 @@
 import torch
 from typing import Literal
 from torch import nn
-from pep_compass.models.hydramp.hydramp import HydrAMPDecoder, HydrAMPEncoder
-from pep_compass.models.encoder_decoder.encoder_decoder import EncoderDecoder
+from pep_compass.core.encoder_decoder.base import EncoderDecoder
+from pep_compass.core.encoder_decoder.strategies.hydramp.model import (
+    HydrAMPDecoder,
+    HydrAMPEncoder,
+)
 from pep_compass.utils.sequence_utils import to_one_hot, translate_generated_peptide
 from einops import repeat, rearrange
 import os
@@ -45,7 +48,7 @@ class HydrAMPEncoderDecoder(EncoderDecoder, nn.Module):
 
     def _load_weights(self):
         file_dir = os.path.dirname(os.path.abspath(__file__))
-        weights_dir = f"{file_dir}/../hydramp/weights"
+        weights_dir = f"{file_dir}/weights"
 
         if not os.path.exists(weights_dir):
             raise FileNotFoundError(

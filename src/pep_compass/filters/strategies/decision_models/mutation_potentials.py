@@ -31,7 +31,7 @@ import numpy as np
 import torch
 
 from pep_compass.walkers.strategies.subriemannian import SubRiemannianTangentSpace
-from pep_compass.models.encoder_decoder.hydramp_encoder_decoder import (
+from pep_compass.core.encoder_decoder.strategies.hydramp.adapter import (
     HydrAMPEncoderDecoder,
 )
 

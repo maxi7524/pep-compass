@@ -5,7 +5,7 @@ from poli.core.abstract_black_box import AbstractBlackBox
 from poli.core.black_box_information import BlackBoxInformation
 
 from pep_compass.oracles.strategies.apex.APEX_predictor import PredictorAPEX
-from pep_compass.models.encoder_decoder.hydramp_encoder_decoder import \
+from pep_compass.core.encoder_decoder.strategies.hydramp.adapter import \
     HydrAMPEncoderDecoder
 
 

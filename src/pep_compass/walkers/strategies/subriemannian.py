@@ -3,7 +3,7 @@ import math
 
 import torch
 
-from pep_compass.models.encoder_decoder.encoder_decoder import EncoderDecoder
+from pep_compass.core.encoder_decoder.base import EncoderDecoder
 
 
 class SubRiemannianTangentSpace:
