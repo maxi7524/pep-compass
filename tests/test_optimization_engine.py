@@ -19,7 +19,7 @@ from pep_compass.optimization.context import OptimizationContext
 from pep_compass.optimization.flow import Flow, Loop, Parallel
 from pep_compass.optimization.runner import OptimizationRunner
 from pep_compass.optimization.step import Step
-from pep_compass.optimization.tracking import InMemoryStepTracker
+from pep_compass.optimization.tracking import CSVStepTracker, InMemoryStepTracker
 from pep_compass.mutation_generators.strategies.mutang import MutangGenerator
 from pep_compass.mutation_generators.base import MutationGenerator
 from pep_compass.mutation_generators.manager import MutationGeneratorManager
@@ -128,6 +128,43 @@ def test_tracking_depth_disables_deeper_steps_without_changing_results() -> None
 
     assert result.sequences == ("AX", "BX")
     assert [record.step_name for record in tracker.records] == ["Flow"]
+
+
+def test_csv_tracking_respects_depth_and_persists_loop_indices(tmp_path) -> None:
+    tracker = CSVStepTracker(tmp_path, level="normal", max_depth=3)
+    runner = OptimizationRunner(
+        _EncoderDecoder(),
+        Loop(Flow([_SuffixStep("X")]), iterations=2),
+        tracker,
+    )
+
+    runner.run(["A"])
+
+    steps = (tmp_path / "steps.csv").read_text(encoding="utf-8")
+    assert "iteration[0]" in steps
+    assert "iteration[1]" in steps
+    assert "suffix_X" not in steps
+
+
+def test_short_csv_tracking_only_records_oracle_candidates(tmp_path) -> None:
+    tracker = CSVStepTracker(tmp_path, level="short")
+    root = Flow(
+        [
+            _SuffixStep("X"),
+            BlackBoxOracle(
+                lambda sequences: [[1.0]],
+                field_name="oracle.test.score",
+            ),
+        ]
+    )
+
+    OptimizationRunner(_EncoderDecoder(), root, tracker).run(["A"])
+
+    steps = (tmp_path / "steps.csv").read_text(encoding="utf-8")
+    candidates = (tmp_path / "candidates.csv").read_text(encoding="utf-8")
+    assert "BlackBoxOracle" in steps
+    assert "suffix_X" not in steps
+    assert "AX" in candidates
 
 
 def test_deduplication_is_explicit_and_preserves_distinct_latents_by_default() -> None:

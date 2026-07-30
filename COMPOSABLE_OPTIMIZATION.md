@@ -35,6 +35,21 @@ and cannot enlarge or alter the optimization batch. The `Step.__call__` template
 adds tracking around every concrete or composite step. A disabled tracker or a
 scope below the configured depth performs no serialization or tensor transfer.
 
+The CLI creates normalized `tracking/steps.csv` and
+`tracking/candidates.csv` files below the experiment output directory. `short`
+records oracle evaluations, `normal` adds summaries for every step, and `all`
+adds candidates for every recorded step. Latent origins and reusable runtime
+fields are controlled independently because serializing them can be expensive:
+
+```yaml
+experiment:
+  tracking:
+    level: all
+    max_depth: 4
+    store_latents: true
+    store_fields: false
+```
+
 ## Experiments without an oracle
 
 Oracle is optional. A finite configured tree can test an individual filter,

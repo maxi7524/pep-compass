@@ -64,11 +64,16 @@ class OptimizationRunner:
             seed=seed,
             rng=np.random.default_rng(seed),
         )
-        logger.info("Precomputing configured optimization steps.")
-        self.root_step.precompute(context)
-        logger.info("Executing optimization for %s starting sequences.", len(sequences))
-        result = self.root_step(batch, context)
-        return self._summarize(result)
+        try:
+            logger.info("Precomputing configured optimization steps.")
+            self.root_step.precompute(context)
+            logger.info(
+                "Executing optimization for %s starting sequences.", len(sequences)
+            )
+            result = self.root_step(batch, context)
+            return self._summarize(result)
+        finally:
+            self.tracker.close()
 
     @staticmethod
     def _summarize(batch: CandidateBatch) -> OptimizationResult:

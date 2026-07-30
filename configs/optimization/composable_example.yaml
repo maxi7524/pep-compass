@@ -4,9 +4,13 @@ experiment:
   input:
     sequences:
       - FLYKWWIRIGRLKL
+  output:
+    directory: results/composable_example
   tracking:
     level: short
     max_depth: null
+    store_latents: true
+    store_fields: false
 
 encoder_decoder:
   method: hydramp

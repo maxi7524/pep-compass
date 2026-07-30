@@ -41,7 +41,10 @@ class ComposableExperiment:
         output = experiment.get("output", {})
         directory = output.get("directory")
         if directory is not None:
-            self._persist(result, Path(directory))
+            resolved_directory = Path(directory)
+            if not resolved_directory.is_absolute() and self.config_directory is not None:
+                resolved_directory = self.config_directory / resolved_directory
+            self._persist(result, resolved_directory)
         return result
 
     def _persist(self, result: OptimizationResult, directory: Path) -> None:
