@@ -6,8 +6,9 @@
 
 Model językowy białek używany do odrzucania mało prawdopodobnych mutacji.
 
-Kod: [`esm.py`](esm.py). Integracja ESM jako samodzielnego filtra pozostaje do
-zaimplementowania i walidacji.
+Kod: [`esm.py`](esm.py) oraz [`esm_filter.py`](esm_filter.py). Filtr zapisuje
+`filter.esm_plausibility.score` i wybiera kandydatów przez próg albo stabilne
+`top_k` (wyższy pseudo-log-likelihood jest lepszy).
 
 #### Co sprawdzić
 

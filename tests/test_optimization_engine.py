@@ -10,6 +10,7 @@ import torch
 import pytest
 
 from pep_compass.filters.strategies.selectors.deduplicate import DeduplicateFilter
+from pep_compass.filters.strategies.decision_models.esm_filter import ESMDecisionFilter
 from pep_compass.filters.base import Filter
 from pep_compass.filters.manager import FilterManager
 from pep_compass.experiments.composable import ComposableExperiment
@@ -72,6 +73,11 @@ class _MutationEnumerator:
 
     def mutate_peptide(self, sequence, mutations):
         return [sequence, f"X{sequence[1:]}"]
+
+
+class _ESMScorer:
+    def pll(self, sequence):
+        return {"A": -3.0, "B": -1.0, "C": -2.0}[sequence]
 
 
 def _batch() -> CandidateBatch:
@@ -205,6 +211,24 @@ def test_deduplication_is_explicit_and_preserves_distinct_latents_by_default() -
 
     assert len(by_sequence) == 1
     assert len(by_pair) == 2
+
+
+def test_esm_decision_filter_preserves_columns_and_selects_stable_top_k() -> None:
+    batch = CandidateBatch(
+        ["A", "B", "C"],
+        torch.tensor([[1.0], [2.0], [3.0]]),
+    )
+
+    result = ESMDecisionFilter(top_k=2, scorer=_ESMScorer())(
+        batch,
+        OptimizationContext(_EncoderDecoder()),
+    )
+
+    assert result.sequences == ("B", "C")
+    assert result.latent_origins.tolist() == [[2.0], [3.0]]
+    score = result.fields["filter.esm_plausibility.score"]
+    assert isinstance(score, TensorField)
+    assert score.values.tolist() == [-1.0, -2.0]
 
 
 def test_runner_supports_experiment_without_oracle() -> None:
