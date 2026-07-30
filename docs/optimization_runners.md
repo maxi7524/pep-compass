@@ -103,6 +103,25 @@ optimization:
 Dodatkowe pola obliczeniowe są wyrównane do kandydatów. Tracking jest osobnym
 strumieniem danych i nie zanieczyszcza batcha.
 
+## Referencyjna pętla LEBO
+
+Kompletny przykład znajduje się w
+`configs/optimization/reference_lebo.yaml`. Pętla wykonuje:
+
+```text
+SORBES → MUTANG → LPBEBO → deduplicate → ROBOT → APEX
+```
+
+SORBES zwraca nową sekwencję i rzeczywistą pozycję spaceru w latent space.
+MUTANG tworzy iloczyn kartezjański sekwencji, kopiując do każdego produktu tę
+samą pozycję latentową rodzica. Filtry i selektory zachowują wyrównanie kolumn,
+a oracle dopisuje score. Następna iteracja rozpoczyna się od zachowanej pozycji
+latentowej; sekwencja nie jest ponownie kodowana do średniej encodera.
+
+LPBEBO można zastąpić zarejestrowanymi metodami `lams`, `tandem`, `move`,
+`random_walker` lub `random_mutang`. Parametry metod pozostają jawne w YAML,
+żeby każdą przeniesioną implementację można było walidować niezależnie.
+
 ## Równoległe gałęzie
 
 `parallel` przekazuje ten sam wejściowy batch do każdej gałęzi. Gałąź może

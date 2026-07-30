@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 import json
+from pathlib import Path
 
 import torch
 import pytest
@@ -415,6 +416,27 @@ def test_configuration_validation_accepts_nested_registered_tree() -> None:
     }
 
     validate_configuration(config)
+
+
+def test_reference_lebo_configuration_materializes_complete_loop() -> None:
+    from pep_compass.core.configuration import load_configuration
+
+    repository_root = Path(__file__).resolve().parents[1]
+    config = load_configuration(
+        repository_root / "configs" / "optimization" / "reference_lebo.yaml"
+    )
+
+    validate_configuration(config)
+    loop = config["optimization"]["steps"][0]["loop"]
+    operations = [next(iter(step)) for step in loop["steps"]]
+    assert operations == [
+        "walker",
+        "mutation_generator",
+        "filter",
+        "filter",
+        "filter",
+        "oracle",
+    ]
 
 
 def test_core_builds_nested_loop_and_parallel_without_oracle() -> None:
