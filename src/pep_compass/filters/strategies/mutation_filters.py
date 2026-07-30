@@ -30,14 +30,14 @@ from typing import ClassVar
 import numpy as np
 import torch
 
-from pep_compass.local_enumeration.mutation.mutation_potentials import (
+from pep_compass.filters.strategies.decision_models.mutation_potentials import (
     DEFAULT_ALPHABET,
     DecoderLogProbabilityPotential,
     LamsAnchorSimilarityPotential,
     ProjectedDirectionPairwiseSimilarityPotential,
     compose_mutant_distribution,
 )
-from pep_compass.local_enumeration.sampling_walker import SubRiemannianTangentSpace
+from pep_compass.walkers.strategies.subriemannian import SubRiemannianTangentSpace
 from pep_compass.models.encoder_decoder.hydramp_encoder_decoder import (
     HydrAMPEncoderDecoder,
 )

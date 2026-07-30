@@ -30,8 +30,7 @@ import itertools
 import numpy as np
 import torch
 
-# NOTE: Nie przenosiłem `sampling/sorbes.py`; całość jest zaimplementowana w `pep_compass.local_enumeration.sampling_walker`.
-from pep_compass.local_enumeration.sampling_walker import SubRiemannianTangentSpace
+from pep_compass.walkers.strategies.subriemannian import SubRiemannianTangentSpace
 from pep_compass.models.encoder_decoder.hydramp_encoder_decoder import (
     HydrAMPEncoderDecoder,
 )

@@ -111,7 +111,7 @@ class PepCompassCore:
         )
 
     def _build_walker(self, settings: Mapping[str, Any]) -> Step:
-        from pep_compass.local_enumeration.sampling_walker import (
+        from pep_compass.walkers.strategies.subriemannian import (
             SecondOrderRiemannianBrownianEfficientSampling,
         )
         from pep_compass.walkers.manager import WalkerManager
@@ -126,7 +126,7 @@ class PepCompassCore:
         return WalkerManager.build(method, sampling_walker=sampling_walker)
 
     def _build_mutation_generator(self, settings: Mapping[str, Any]) -> Step:
-        from pep_compass.local_enumeration.mutation_enumerator import (
+        from pep_compass.mutation_generators.strategies.tangent_space import (
             MutationEnumerationInTangentSpace,
         )
         from pep_compass.mutation_generators.manager import MutationGeneratorManager
@@ -155,8 +155,8 @@ class PepCompassCore:
         method: str,
         parameters: dict[str, Any],
     ) -> Step:
-        from pep_compass.filters.strategies.legacy_mutation import LegacyMutationFilter
-        from pep_compass.local_enumeration.mutation.mutation_filters import (
+        from pep_compass.filters.strategies.mutation_choice import MutationChoiceFilter
+        from pep_compass.filters.strategies.mutation_filters import (
             LamsFilter,
             LpbeboFilter,
             MoveFilter,
@@ -175,7 +175,7 @@ class PepCompassCore:
         else:
             mode = "walker" if method == "random_walker" else "mutang_random"
             implementation = RandomLeBoFilter(mode=mode, **parameters)
-        return LegacyMutationFilter(implementation)
+        return MutationChoiceFilter(implementation)
 
     def _build_oracle(self, settings: Mapping[str, Any]) -> Step:
         from pep_compass.oracles.strategies.black_box import BlackBoxOracle

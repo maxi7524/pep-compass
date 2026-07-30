@@ -11,8 +11,8 @@ from pep_compass.optimization.batch import CandidateBatch, ObjectField, TensorFi
 from pep_compass.optimization.context import OptimizationContext
 
 
-class LegacyMutationFilter(Filter):
-    """Apply an existing mutation filter to candidate groups from one parent."""
+class MutationChoiceFilter(Filter):
+    """Apply a mutation-choice strategy to candidate groups from one parent."""
 
     def __init__(self, candidate_filter) -> None:
         self.candidate_filter = candidate_filter
