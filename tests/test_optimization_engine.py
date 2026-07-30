@@ -16,6 +16,7 @@ from pep_compass.experiments.input import (
     load_input_sequences,
     materialize_input_tasks,
 )
+from pep_compass.experiments.variants import materialize_variants
 from pep_compass.core.builder import PepCompassCore
 from pep_compass.optimization.batch import (
     CandidateBatch,
@@ -285,6 +286,81 @@ def test_composable_experiment_isolates_repetitions_and_writes_manifest(
     ]
     assert (tmp_path / "results" / "run_manifest.csv").exists()
     assert (tmp_path / "results" / "runs" / "run_00003" / "result.json").exists()
+
+
+def test_grid_materializes_cartesian_optimization_variants() -> None:
+    config = {
+        "experiment": {
+            "grid": {
+                "optimization.limits.oracle_calls": [10, 20],
+                "optimization.limits.generated_candidates": [100, 200],
+            }
+        },
+        "optimization": {
+            "limits": {"oracle_calls": None, "generated_candidates": None},
+            "steps": [],
+        },
+    }
+
+    variants = materialize_variants(config)
+
+    assert len(variants) == 4
+    assert [variant.values for variant in variants] == [
+        {
+            "optimization.limits.oracle_calls": 10,
+            "optimization.limits.generated_candidates": 100,
+        },
+        {
+            "optimization.limits.oracle_calls": 10,
+            "optimization.limits.generated_candidates": 200,
+        },
+        {
+            "optimization.limits.oracle_calls": 20,
+            "optimization.limits.generated_candidates": 100,
+        },
+        {
+            "optimization.limits.oracle_calls": 20,
+            "optimization.limits.generated_candidates": 200,
+        },
+    ]
+
+
+def test_grid_and_repetitions_create_isolated_variant_run_directories(tmp_path) -> None:
+    config = {
+        "experiment": {
+            "seed": 5,
+            "input": {"sequences": ["AAAA"], "repetitions": 2},
+            "output": {"directory": "results"},
+            "grid": {"optimization.limits.generated_candidates": [10, 20]},
+        },
+        "optimization": {
+            "limits": {"generated_candidates": None},
+            "steps": [],
+        },
+    }
+
+    result = ComposableExperiment(
+        config,
+        PepCompassCore(_EncoderDecoder()),
+        config_directory=tmp_path,
+    ).run()
+
+    assert [run.seed for run in result.runs] == [5, 6, 7, 8]
+    assert [run.variant.variant_id for run in result.runs] == [
+        "variant_00000",
+        "variant_00000",
+        "variant_00001",
+        "variant_00001",
+    ]
+    assert (
+        tmp_path
+        / "results"
+        / "variants"
+        / "variant_00001"
+        / "runs"
+        / "run_00001"
+        / "result.json"
+    ).exists()
 
 
 def test_core_builds_nested_loop_and_parallel_without_oracle() -> None:

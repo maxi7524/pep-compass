@@ -13,6 +13,7 @@ import torch
 
 from pep_compass.core.builder import PepCompassCore
 from pep_compass.experiments.input import ExperimentTask, materialize_input_tasks
+from pep_compass.experiments.variants import ExperimentVariant, materialize_variants
 from pep_compass.optimization.result import OptimizationResult
 from pep_compass.optimization.tracking import StepTracker
 from pep_compass.utils.logger import get_custom_logger
@@ -27,6 +28,7 @@ class ExperimentRun:
     """Result and identity of one independent optimization run."""
 
     task: ExperimentTask
+    variant: ExperimentVariant
     seed: int | None
     result: OptimizationResult
     output_directory: Path | None
@@ -64,29 +66,42 @@ class ComposableExperiment:
         )
         output_root = self._resolve_output_directory(experiment.get("output", {}))
         base_seed = experiment.get("seed")
+        variants = materialize_variants(self.config)
         runs: list[ExperimentRun] = []
-        for task in tasks:
+        for variant, task in (
+            (variant, task) for variant in variants for task in tasks
+        ):
+            multiple_variants = len(variants) > 1
+            variant_directory = (
+                output_root / "variants" / variant.variant_id
+                if output_root is not None and multiple_variants
+                else output_root
+            )
             run_directory = (
-                output_root / "runs" / task.run_id if output_root is not None else None
+                variant_directory / "runs" / task.run_id
+                if variant_directory is not None
+                else None
             )
             tracker = (
                 self.tracker_factory(run_directory)
                 if self.tracker_factory is not None and run_directory is not None
                 else None
             )
-            seed = base_seed + task.index if base_seed is not None else None
+            run_index = variant.index * len(tasks) + task.index
+            seed = base_seed + run_index if base_seed is not None else None
             logger.info(
-                "Executing task %s for source %s repetition %s.",
+                "Executing variant %s task %s for source %s repetition %s.",
+                variant.variant_id,
                 task.run_id,
                 task.source_index,
                 task.repetition,
             )
-            result = self.core.build_runner(self.config, tracker=tracker).run(
+            result = self.core.build_runner(variant.config, tracker=tracker).run(
                 [task.sequence], seed=seed
             )
             if run_directory is not None:
-                self._persist_run(result, task, seed, run_directory)
-            runs.append(ExperimentRun(task, seed, result, run_directory))
+                self._persist_run(result, task, variant, seed, run_directory)
+            runs.append(ExperimentRun(task, variant, seed, result, run_directory))
         experiment_result = ExperimentResult(tuple(runs))
         if output_root is not None:
             self._persist_manifest(experiment_result, output_root)
@@ -107,6 +122,7 @@ class ComposableExperiment:
     def _persist_run(
         result: OptimizationResult,
         task: ExperimentTask,
+        variant: ExperimentVariant,
         seed: int | None,
         directory: Path,
     ) -> None:
@@ -124,6 +140,8 @@ class ComposableExperiment:
         summary = {
             "status": "completed",
             "run_id": task.run_id,
+            "variant_id": variant.variant_id,
+            "variant_values": dict(variant.values),
             "source_index": task.source_index,
             "repetition": task.repetition,
             "seed": seed,
@@ -151,6 +169,8 @@ class ComposableExperiment:
             writer.writerow(
                 (
                     "run_id",
+                    "variant_id",
+                    "variant_values",
                     "source_index",
                     "repetition",
                     "seed",
@@ -166,6 +186,8 @@ class ComposableExperiment:
                 writer.writerow(
                     (
                         run.task.run_id,
+                        run.variant.variant_id,
+                        json.dumps(dict(run.variant.values), separators=(",", ":")),
                         run.task.source_index,
                         run.task.repetition,
                         run.seed,

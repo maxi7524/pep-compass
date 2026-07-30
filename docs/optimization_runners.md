@@ -48,6 +48,23 @@ Runner zapisuje `run_manifest.csv` oraz katalogi `runs/run_XXXXX`. Ciężki
 encoder-decoder jest inicjalizowany raz i współdzielony tylko jako model;
 zmienny stan optymalizacji nie jest współdzielony między runami.
 
+## Grid parametrów
+
+`experiment.grid` tworzy iloczyn kartezjański list wartości. Klucze są
+kropkowanymi ścieżkami i muszą zaczynać się od `optimization.`, ponieważ
+encoder-decoder jest inicjalizowany raz dla całego eksperymentu.
+
+```yaml
+experiment:
+  grid:
+    optimization.limits.oracle_calls: [100, 500]
+    optimization.steps.0.loop.iterations: [5, 10]
+```
+
+Każdy wariant ma katalog `variants/variant_XXXXX`, a manifest przechowuje
+identyfikator i komplet wybranych wartości. Kolejność jest deterministyczna:
+wariant, sekwencja źródłowa, repetition.
+
 ## Kroki
 
 Każdy element `optimization.steps` ma dokładnie jeden klucz operacji:
