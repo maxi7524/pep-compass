@@ -13,6 +13,7 @@ from pep_compass.optimization.batch import (
 )
 from pep_compass.optimization.context import OptimizationContext
 from pep_compass.optimization.result import OptimizationResult
+from pep_compass.optimization.state import OptimizationLimits, OptimizationState
 from pep_compass.optimization.step import Step
 from pep_compass.optimization.tracking import NullStepTracker, StepTracker
 from pep_compass.utils.logger import get_custom_logger
@@ -28,10 +29,12 @@ class OptimizationRunner:
         encoder_decoder,
         root_step: Step,
         tracker: StepTracker | None = None,
+        limits: OptimizationLimits | None = None,
     ) -> None:
         self.encoder_decoder = encoder_decoder
         self.root_step = root_step
         self.tracker = tracker or NullStepTracker()
+        self.limits = limits or OptimizationLimits()
 
     def run(
         self,
@@ -63,6 +66,7 @@ class OptimizationRunner:
             tracker=self.tracker,
             seed=seed,
             rng=np.random.default_rng(seed),
+            state=OptimizationState(limits=self.limits),
         )
         try:
             logger.info("Precomputing configured optimization steps.")

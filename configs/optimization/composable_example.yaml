@@ -20,6 +20,9 @@ encoder_decoder:
     field_eps: 0.001
 
 optimization:
+  limits:
+    oracle_calls: null
+    generated_candidates: 1000000
   steps:
     - loop:
         iterations: 10

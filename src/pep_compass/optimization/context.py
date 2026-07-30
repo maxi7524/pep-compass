@@ -12,6 +12,7 @@ from pep_compass.optimization.tracking import (
     NullStepTracker,
     StepTracker,
 )
+from pep_compass.optimization.state import OptimizationState
 
 
 @dataclass(frozen=True)
@@ -23,6 +24,7 @@ class OptimizationContext:
     scope: ExecutionScope = field(default_factory=ExecutionScope)
     seed: int | None = None
     rng: np.random.Generator = field(default_factory=np.random.default_rng)
+    state: OptimizationState = field(default_factory=OptimizationState)
 
     def enter_step(self, name: str) -> "OptimizationContext":
         """Return a context nested below a named step."""

@@ -129,6 +129,8 @@ class Loop(Step):
     ) -> CandidateBatch:
         result = batch
         for index in range(self.iterations):
+            if context.state.stop_requested:
+                break
             result = self.body(result, context.enter_iteration(index))
         return result
 

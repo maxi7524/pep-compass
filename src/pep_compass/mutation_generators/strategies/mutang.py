@@ -62,6 +62,7 @@ class MutangGenerator(MutationGenerator):
         )
         expanded = batch.repeat_from_parents(indices)
         result = expanded.with_sequences(sequences)
+        context.state.record_generated_candidates(len(result))
         result = result.with_field(
             "mutation.parent_sequence",
             ObjectField(parent_sequences),

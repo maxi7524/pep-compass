@@ -8,6 +8,7 @@ from typing import Any
 from pep_compass.filters.manager import FilterManager
 from pep_compass.optimization.flow import Flow, Loop, Parallel, build_merger
 from pep_compass.optimization.runner import OptimizationRunner
+from pep_compass.optimization.state import OptimizationLimits
 from pep_compass.optimization.step import Step
 
 
@@ -59,7 +60,12 @@ class PepCompassCore:
         if not isinstance(raw_steps, Sequence) or isinstance(raw_steps, (str, bytes)):
             raise ValueError("optimization.steps must be a sequence.")
         root = self._build_flow(raw_steps)
-        return OptimizationRunner(self.encoder_decoder, root, self.tracker)
+        limits_config = optimization.get("limits", {})
+        limits = OptimizationLimits(
+            oracle_calls=limits_config.get("oracle_calls"),
+            generated_candidates=limits_config.get("generated_candidates"),
+        )
+        return OptimizationRunner(self.encoder_decoder, root, self.tracker, limits)
 
     def _build_flow(self, configurations: Sequence[Mapping[str, Any]]) -> Flow:
         return Flow(

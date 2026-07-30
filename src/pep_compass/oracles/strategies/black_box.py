@@ -25,21 +25,33 @@ class BlackBoxOracle(Oracle):
         batch: CandidateBatch,
         context: OptimizationContext,
     ) -> CandidateBatch:
+        remaining = context.state.remaining_oracle_calls()
+        if remaining == 0:
+            context.state.stop_requested = True
+            return batch.select([])
+        evaluated_batch = batch if remaining is None else batch.select(range(min(len(batch), remaining)))
         if self.batch_size is None:
-            raw = self.black_box(np.asarray(batch.sequences))
+            raw = self.black_box(np.asarray(evaluated_batch.sequences))
         else:
             values = []
-            for start in range(0, len(batch), self.batch_size):
+            for start in range(0, len(evaluated_batch), self.batch_size):
                 values.append(
                     self.black_box(
-                        np.asarray(batch.sequences[start : start + self.batch_size])
+                        np.asarray(
+                            evaluated_batch.sequences[start : start + self.batch_size]
+                        )
                     )
                 )
             raw = np.concatenate(values, axis=0)
-        scores = torch.as_tensor(raw, device=batch.latent_origins.device)
+        scores = torch.as_tensor(raw, device=evaluated_batch.latent_origins.device)
         if scores.ndim == 2 and scores.shape[1] == 1:
             scores = scores[:, 0]
-        result = batch.with_field(self.field_name, TensorField(scores))
+        context.state.record_observations(
+            self.field_name.removesuffix(".score").removeprefix("oracle."),
+            evaluated_batch.sequences,
+            [float(score) for score in scores.detach().cpu().tolist()],
+        )
+        result = evaluated_batch.with_field(self.field_name, TensorField(scores))
         direction = (
             "maximize" if getattr(self.black_box, "maximize", False) else "minimize"
         )

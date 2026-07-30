@@ -21,6 +21,7 @@ from pep_compass.optimization.batch import (
 from pep_compass.optimization.context import OptimizationContext
 from pep_compass.optimization.flow import Flow, Loop, Parallel
 from pep_compass.optimization.runner import OptimizationRunner
+from pep_compass.optimization.state import OptimizationLimits
 from pep_compass.optimization.step import Step
 from pep_compass.optimization.tracking import CSVStepTracker, InMemoryStepTracker
 from pep_compass.mutation_generators.strategies.mutang import MutangGenerator
@@ -342,6 +343,28 @@ def test_runner_summarizes_oracle_but_not_filter_scores() -> None:
     assert result.best_score == 1.0
     assert result.objective_name == "test"
     assert result.objective_direction == "minimize"
+
+
+def test_oracle_budget_stops_loop_and_limits_evaluated_batch() -> None:
+    calls: list[list[str]] = []
+
+    def black_box(sequences):
+        calls.append(list(sequences))
+        return [[1.0] for _ in sequences]
+
+    runner = OptimizationRunner(
+        _EncoderDecoder(),
+        Loop(
+            BlackBoxOracle(black_box, field_name="oracle.test.score"),
+            iterations=10,
+        ),
+        limits=OptimizationLimits(oracle_calls=3),
+    )
+
+    result = runner.run(["A", "B"])
+
+    assert calls == [["A", "B"], ["A"]]
+    assert result.candidates.sequences == ("A",)
 
 
 @pytest.mark.parametrize(
