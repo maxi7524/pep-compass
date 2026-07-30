@@ -19,6 +19,12 @@ Przed załadowaniem wag można zwalidować pełne drzewo i policzyć runy:
   --dry-run
 ```
 
+`--resume` pomija runy z trwałym statusem `completed`. `--continue-on-error`
+izoluje awarię pojedynczego taska i wykonuje pozostałe; bez tej flagi pierwszy
+błąd zapisuje częściowy manifest i jest ponownie zgłaszany. Każdy katalog runu
+ma atomowo aktualizowany `result.json` ze statusem `running`, `completed` albo
+`failed`.
+
 Wymagane są tylko sekwencje wejściowe oraz encoder-decoder. Walker, generator
 mutacji, filtry, pętla i oracle są opcjonalne. Eksperyment bez oracle zapisuje
 końcowy batch, a pola `best_score`, `objective_name` i `objective_direction`

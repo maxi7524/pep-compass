@@ -80,6 +80,27 @@ class _ESMScorer:
         return {"A": -3.0, "B": -1.0, "C": -2.0}[sequence]
 
 
+class _ConditionalExperimentRunner:
+    def __init__(self, calls, fail_sequence=None):
+        self.calls = calls
+        self.fail_sequence = fail_sequence
+
+    def run(self, sequences, *, seed=None):
+        self.calls.append((tuple(sequences), seed))
+        if sequences[0] == self.fail_sequence:
+            raise RuntimeError("mock run failure")
+        return OptimizationRunner(_EncoderDecoder(), Flow([])).run(sequences, seed=seed)
+
+
+class _ConditionalExperimentCore:
+    def __init__(self, fail_sequence=None):
+        self.calls = []
+        self.fail_sequence = fail_sequence
+
+    def build_runner(self, config, *, tracker=None):
+        return _ConditionalExperimentRunner(self.calls, self.fail_sequence)
+
+
 def _batch() -> CandidateBatch:
     return CandidateBatch(
         ["A", "B"],
@@ -388,6 +409,55 @@ def test_grid_and_repetitions_create_isolated_variant_run_directories(tmp_path) 
         / "run_00001"
         / "result.json"
     ).exists()
+
+
+def test_experiment_continues_after_failed_run_and_persists_status(tmp_path) -> None:
+    config = {
+        "experiment": {
+            "seed": 4,
+            "input": {"sequences": ["A", "B", "C"]},
+            "output": {"directory": "results"},
+        },
+        "optimization": {"steps": []},
+    }
+    core = _ConditionalExperimentCore(fail_sequence="B")
+
+    result = ComposableExperiment(
+        config,
+        core,
+        config_directory=tmp_path,
+        on_error="continue",
+    ).run()
+
+    assert [run.status for run in result.runs] == ["completed", "failed", "completed"]
+    failed = json.loads(
+        (tmp_path / "results" / "runs" / "run_00001" / "result.json").read_text()
+    )
+    assert failed["status"] == "failed"
+    assert failed["error"] == "RuntimeError: mock run failure"
+
+
+def test_experiment_resume_skips_completed_runs_without_calling_runner(tmp_path) -> None:
+    config = {
+        "experiment": {
+            "input": {"sequences": ["A", "B"]},
+            "output": {"directory": "results"},
+        },
+        "optimization": {"steps": []},
+    }
+    first_core = _ConditionalExperimentCore()
+    ComposableExperiment(config, first_core, config_directory=tmp_path).run()
+    resumed_core = _ConditionalExperimentCore(fail_sequence="A")
+
+    resumed = ComposableExperiment(
+        config,
+        resumed_core,
+        config_directory=tmp_path,
+        resume=True,
+    ).run()
+
+    assert resumed_core.calls == []
+    assert [run.status for run in resumed.runs] == ["skipped", "skipped"]
 
 
 def test_configuration_validation_rejects_unknown_strategy_before_building() -> None:

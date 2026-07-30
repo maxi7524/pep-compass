@@ -20,6 +20,8 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--config", type=Path, required=True)
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--resume", action="store_true")
+    parser.add_argument("--continue-on-error", action="store_true")
     return parser.parse_args()
 
 
@@ -68,6 +70,8 @@ def main() -> None:
         core,
         config_directory=config_path.parent,
         tracker_factory=tracker_factory,
+        resume=args.resume,
+        on_error="continue" if args.continue_on_error else "stop",
     ).run()
 
 
