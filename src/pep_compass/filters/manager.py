@@ -31,3 +31,8 @@ class FilterManager:
         except KeyError as error:
             raise ValueError(f"Unknown filter method: {method}") from error
         return build_with_services(factory, parameters, services)
+
+    @classmethod
+    def methods(cls) -> tuple[str, ...]:
+        """Return registered filter method names."""
+        return tuple(sorted(cls._registry))

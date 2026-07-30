@@ -18,6 +18,7 @@ from pep_compass.experiments.input import (
 )
 from pep_compass.experiments.variants import materialize_variants
 from pep_compass.core.builder import PepCompassCore
+from pep_compass.core.validation import validate_configuration
 from pep_compass.optimization.batch import (
     CandidateBatch,
     OptionalField,
@@ -362,6 +363,58 @@ def test_grid_and_repetitions_create_isolated_variant_run_directories(tmp_path) 
         / "run_00001"
         / "result.json"
     ).exists()
+
+
+def test_configuration_validation_rejects_unknown_strategy_before_building() -> None:
+    config = {
+        "encoder_decoder": {"method": "hydramp"},
+        "optimization": {
+            "steps": [{"oracle": {"method": "missing", "parameters": {}}}]
+        },
+    }
+
+    with pytest.raises(ValueError, match="Unknown oracle method"):
+        validate_configuration(config)
+
+
+def test_configuration_validation_accepts_nested_registered_tree() -> None:
+    config = {
+        "encoder_decoder": {"method": "hydramp"},
+        "optimization": {
+            "limits": {"oracle_calls": None, "generated_candidates": 100},
+            "steps": [
+                {
+                    "loop": {
+                        "iterations": 2,
+                        "steps": [
+                            {
+                                "parallel": {
+                                    "execution": "concurrent",
+                                    "merge": "concatenate",
+                                    "branches": [
+                                        {
+                                            "name": "left",
+                                            "steps": [
+                                                {
+                                                    "filter": {
+                                                        "method": "deduplicate",
+                                                        "parameters": {"key": "sequence"},
+                                                    }
+                                                }
+                                            ],
+                                        },
+                                        {"name": "right", "steps": []},
+                                    ],
+                                }
+                            }
+                        ],
+                    }
+                }
+            ],
+        },
+    }
+
+    validate_configuration(config)
 
 
 def test_core_builds_nested_loop_and_parallel_without_oracle() -> None:

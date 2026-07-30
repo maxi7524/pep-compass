@@ -11,6 +11,14 @@ niezależnymi krokami, które można składać w dowolnej kolejności.
   --config configs/optimization/composable_example.yaml
 ```
 
+Przed załadowaniem wag można zwalidować pełne drzewo i policzyć runy:
+
+```bash
+.venv/bin/python scripts/runner/run_composable_optimization.py \
+  --config configs/optimization/composable_example.yaml \
+  --dry-run
+```
+
 Wymagane są tylko sekwencje wejściowe oraz encoder-decoder. Walker, generator
 mutacji, filtry, pętla i oracle są opcjonalne. Eksperyment bez oracle zapisuje
 końcowy batch, a pola `best_score`, `objective_name` i `objective_direction`

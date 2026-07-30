@@ -34,3 +34,8 @@ class MutationGeneratorManager:
         except KeyError as error:
             raise ValueError(f"Unknown mutation generator method: {method}") from error
         return build_with_services(factory, parameters, services)
+
+    @classmethod
+    def methods(cls) -> tuple[str, ...]:
+        """Return registered mutation-generator method names."""
+        return tuple(sorted(cls._registry))

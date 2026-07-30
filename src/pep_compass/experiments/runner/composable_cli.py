@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 from pathlib import Path
 
-from pep_compass.core import PepCompassCore, load_configuration
+from pep_compass.core import PepCompassCore, load_configuration, validate_configuration
 from pep_compass.experiments.composable import ComposableExperiment
+from pep_compass.experiments.input import materialize_input_tasks
+from pep_compass.experiments.variants import materialize_variants
 from pep_compass.optimization.tracking import CSVStepTracker
 
 
@@ -16,6 +19,7 @@ def _parse_args() -> argparse.Namespace:
         description="Run a composable PepCompass optimization experiment."
     )
     parser.add_argument("--config", type=Path, required=True)
+    parser.add_argument("--dry-run", action="store_true")
     return parser.parse_args()
 
 
@@ -25,9 +29,27 @@ def main() -> None:
         level=logging.INFO,
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     )
-    config_path = _parse_args().config.resolve()
+    args = _parse_args()
+    config_path = args.config.resolve()
     config = load_configuration(config_path)
+    validate_configuration(config)
     experiment = config.get("experiment", {})
+    if args.dry_run:
+        tasks = materialize_input_tasks(
+            experiment.get("input", {}), base_directory=config_path.parent
+        )
+        variants = materialize_variants(config)
+        print(
+            json.dumps(
+                {
+                    "variants": len(variants),
+                    "tasks_per_variant": len(tasks),
+                    "total_runs": len(variants) * len(tasks),
+                },
+                indent=2,
+            )
+        )
+        return
     tracking = experiment.get("tracking")
 
     def tracker_factory(run_directory: Path):

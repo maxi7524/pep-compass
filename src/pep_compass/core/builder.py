@@ -25,6 +25,9 @@ class PepCompassCore:
         cls, config: Mapping[str, Any], *, tracker=None
     ) -> "PepCompassCore":
         """Construct the composition root and encoder-decoder from configuration."""
+        from pep_compass.core.validation import validate_configuration
+
+        validate_configuration(config)
         encoder_config = config.get("encoder_decoder")
         if not isinstance(encoder_config, Mapping):
             raise ValueError("encoder_decoder configuration is required.")
