@@ -51,6 +51,7 @@ class PepCompassCore:
     def _ensure_builtin_strategies() -> None:
         import pep_compass.filters.strategies  # noqa: F401
         import pep_compass.mutation_generators.strategies  # noqa: F401
+        import pep_compass.oracles.strategies  # noqa: F401
         import pep_compass.walkers.strategies  # noqa: F401
 
     def build_runner(
@@ -191,41 +192,10 @@ class PepCompassCore:
         return MutationChoiceFilter(implementation)
 
     def _build_oracle(self, settings: Mapping[str, Any]) -> Step:
-        from pep_compass.oracles.strategies.black_box import BlackBoxOracle
+        from pep_compass.oracles.manager import OracleManager
 
         method, parameters = self._method_and_parameters(settings)
-        batch_size = parameters.pop("batch_size", None)
-        black_box = self._build_black_box(method, parameters)
-        return BlackBoxOracle(
-            black_box,
-            field_name=f"oracle.{method}.score",
-            batch_size=batch_size,
-        )
-
-    def _build_black_box(self, method: str, parameters: dict[str, Any]):
-        if method == "apex":
-            from pep_compass.oracles.strategies.apex.oracle import APEXBlackBox
-
-            return APEXBlackBox(**parameters)
-        if method == "battleamp":
-            from pep_compass.oracles.strategies.battleamp.oracle import (
-                BattleAMPBlackBox,
-            )
-
-            return BattleAMPBlackBox(**parameters)
-        if method == "hydrophobicity":
-            from pep_compass.oracles.strategies.hydrophobicity.oracle import (
-                HydrophobicityBlackBox,
-            )
-
-            return HydrophobicityBlackBox(**parameters)
-        if method == "toxipep":
-            from pep_compass.oracles.strategies.toxipep.oracle import (
-                ToxiPepBlackBox,
-            )
-
-            return ToxiPepBlackBox(**parameters)
-        raise ValueError(f"Unknown oracle method: {method}")
+        return OracleManager.build(method, **parameters)
 
     @staticmethod
     def _method_and_parameters(

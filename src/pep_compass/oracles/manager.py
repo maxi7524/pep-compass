@@ -30,3 +30,12 @@ class OracleManager:
         except KeyError as error:
             raise ValueError(f"Unknown oracle method: {method}") from error
         return factory(**parameters)
+
+    @classmethod
+    def methods(cls) -> tuple[str, ...]:
+        """Return registered method names in deterministic order.
+
+        :return: Registered oracle method names.
+        :rtype: tuple[str, ...]
+        """
+        return tuple(sorted(cls._registry))

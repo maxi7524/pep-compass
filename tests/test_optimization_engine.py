@@ -33,6 +33,7 @@ from pep_compass.mutation_generators.strategies.mutang import MutangGenerator
 from pep_compass.mutation_generators.base import MutationGenerator
 from pep_compass.mutation_generators.manager import MutationGeneratorManager
 from pep_compass.oracles.strategies.black_box import BlackBoxOracle
+from pep_compass.oracles.manager import OracleManager
 from pep_compass.walkers.base import Walker
 from pep_compass.walkers.manager import WalkerManager
 
@@ -515,3 +516,17 @@ def test_every_registered_component_implements_its_universal_contract(
         isinstance(factory, type) and issubclass(factory, base)
         for factory in registry.values()
     )
+
+
+def test_every_bundled_oracle_is_registered_without_loading_its_model() -> None:
+    import pep_compass.oracles.strategies  # noqa: F401
+
+    assert OracleManager.methods() == (
+        "apex",
+        "battleamp",
+        "eipred",
+        "hydrophobicity",
+        "mbc_attention",
+        "toxipep",
+    )
+    assert all(callable(factory) for factory in OracleManager._registry.values())
