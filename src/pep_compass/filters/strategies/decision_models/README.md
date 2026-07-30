@@ -6,8 +6,8 @@
 
 Model językowy białek używany do odrzucania mało prawdopodobnych mutacji.
 
-Kod: [`models/esm/esm2_ppl.py`](../../../models/esm/esm2_ppl.py),
-[`optimization/baselines/random_mutation.py`](../../../optimization/baselines/random_mutation.py).
+Kod: [`esm.py`](esm.py). Integracja ESM jako samodzielnego filtra pozostaje do
+zaimplementowania i walidacji.
 
 #### Co sprawdzić
 

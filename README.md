@@ -76,5 +76,5 @@ scripts/initialization/download_apex_models_article.sh
 The script downloads only
 `optimization/apex_oracle/APEX_pathogen_models` from
 [APEXGo](https://github.com/Yimeng-Zeng/APEXGo) and installs it in
-`src/pep_compass/models/apex/APEX_pathogen_models`. Existing weights are never
+`src/pep_compass/oracles/strategies/apex/APEX_pathogen_models`. Existing weights are never
 overwritten.
