@@ -11,6 +11,7 @@ from typing import Any, Mapping
 import torch
 
 from pep_compass.core.builder import PepCompassCore
+from pep_compass.experiments.input import load_input_sequences
 from pep_compass.optimization.result import OptimizationResult
 from pep_compass.utils.logger import get_custom_logger
 
@@ -23,16 +24,16 @@ class ComposableExperiment:
 
     config: Mapping[str, Any]
     core: PepCompassCore
+    config_directory: Path | None = None
 
     def run(self) -> OptimizationResult:
         """Execute configured steps and persist their final candidate batch."""
         experiment = self.config.get("experiment", {})
         input_config = experiment.get("input", {})
-        sequences = input_config.get("sequences")
-        if not isinstance(sequences, list) or not all(
-            isinstance(sequence, str) for sequence in sequences
-        ):
-            raise ValueError("experiment.input.sequences must be a list of strings.")
+        sequences = load_input_sequences(
+            input_config,
+            base_directory=self.config_directory,
+        )
         result = self.core.build_runner(self.config).run(
             sequences,
             seed=experiment.get("seed"),

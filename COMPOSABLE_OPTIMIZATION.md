@@ -41,6 +41,39 @@ Oracle is optional. A finite configured tree can test an individual filter,
 walker, generator, loop, or branch composition. Such a result contains final
 candidates and latent origins, while objective and best-score fields are null.
 
+## Input
+
+For small experiments and tests, configure sequences directly:
+
+```yaml
+experiment:
+  input:
+    sequences:
+      - FLYKWWIRIGRLKL
+      - ACDEFGHIK
+```
+
+For reproducible experiment tables, use a CSV source. Relative paths are
+resolved against the YAML or JSON configuration file:
+
+```yaml
+experiment:
+  input:
+    csv:
+      path: peptides/peptides.csv
+      sequence_column: sequence
+      repetitions_column: repetitions
+```
+
+```csv
+name,sequence,repetitions
+middle-1,FLYKWWIRIGRLKL,4
+small-test,ACDEFGHIK,1
+```
+
+Exactly one input source is required. Repeated rows intentionally remain
+separate optimization starting points.
+
 Run the example configuration with:
 
 ```bash

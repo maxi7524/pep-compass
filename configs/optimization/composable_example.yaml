@@ -1,6 +1,9 @@
 experiment:
   name: composable_sorbes_mutang
   seed: 1234
+  input:
+    sequences:
+      - FLYKWWIRIGRLKL
   tracking:
     level: short
     max_depth: null

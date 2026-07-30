@@ -24,9 +24,10 @@ def main() -> None:
         level=logging.INFO,
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     )
-    config = load_configuration(_parse_args().config)
+    config_path = _parse_args().config.resolve()
+    config = load_configuration(config_path)
     core = PepCompassCore.from_config(config)
-    ComposableExperiment(config, core).run()
+    ComposableExperiment(config, core, config_directory=config_path.parent).run()
 
 
 if __name__ == "__main__":

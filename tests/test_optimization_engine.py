@@ -8,6 +8,7 @@ import pytest
 from pep_compass.filters.strategies.selectors.deduplicate import DeduplicateFilter
 from pep_compass.filters.base import Filter
 from pep_compass.filters.manager import FilterManager
+from pep_compass.experiments.input import load_input_sequences
 from pep_compass.core.builder import PepCompassCore
 from pep_compass.optimization.batch import (
     CandidateBatch,
@@ -152,6 +153,29 @@ def test_runner_supports_experiment_without_oracle() -> None:
     assert result.best_candidate is None
     assert result.best_score is None
     assert result.objective_name is None
+
+
+def test_inline_mock_sequences_are_loaded_without_transformation() -> None:
+    mock_sequences = ["AAAA", "CCCC", "ACDE"]
+
+    result = load_input_sequences({"sequences": mock_sequences})
+
+    assert result == mock_sequences
+
+
+def test_csv_input_expands_repetitions_relative_to_configuration(tmp_path) -> None:
+    input_path = tmp_path / "peptides.csv"
+    input_path.write_text(
+        "name,sequence,repetitions\nfirst,AAAA,2\nsecond,CCCC,1\n",
+        encoding="utf-8",
+    )
+
+    result = load_input_sequences(
+        {"csv": {"path": "peptides.csv"}},
+        base_directory=tmp_path,
+    )
+
+    assert result == ["AAAA", "AAAA", "CCCC"]
 
 
 def test_core_builds_nested_loop_and_parallel_without_oracle() -> None:
