@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import csv
+import json
+
 import torch
 import pytest
 
@@ -165,6 +168,20 @@ def test_short_csv_tracking_only_records_oracle_candidates(tmp_path) -> None:
     assert "BlackBoxOracle" in steps
     assert "suffix_X" not in steps
     assert "AX" in candidates
+
+
+def test_all_csv_tracking_serializes_only_each_candidate_field_value(tmp_path) -> None:
+    tracker = CSVStepTracker(tmp_path, level="all", store_fields=True)
+    root = _SuffixStep("X", field_name="candidate.score")
+
+    OptimizationRunner(_EncoderDecoder(), root, tracker).run(["A", "B"])
+
+    with (tmp_path / "candidates.csv").open(encoding="utf-8") as stream:
+        rows = list(csv.DictReader(stream))
+    assert [json.loads(row["fields"])["candidate.score"] for row in rows] == [
+        1.0,
+        1.0,
+    ]
 
 
 def test_deduplication_is_explicit_and_preserves_distinct_latents_by_default() -> None:

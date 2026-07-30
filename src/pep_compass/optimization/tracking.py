@@ -242,7 +242,6 @@ class CSVStepTracker(StepTracker):
         batch: "CandidateBatch",
     ) -> list[dict[str, Any]]:
         rows = []
-        serialized_fields = self._serialize_fields(batch) if self.store_fields else ""
         for index, sequence in enumerate(batch.sequences):
             latent_origin = ""
             if self.store_latents:
@@ -256,13 +255,17 @@ class CSVStepTracker(StepTracker):
                     "candidate_index": index,
                     "sequence": sequence,
                     "latent_origin": latent_origin,
-                    "fields": serialized_fields,
+                    "fields": (
+                        self._serialize_fields(batch, index)
+                        if self.store_fields
+                        else ""
+                    ),
                 }
             )
         return rows
 
     @staticmethod
-    def _serialize_fields(batch: "CandidateBatch") -> str:
+    def _serialize_fields(batch: "CandidateBatch", index: int) -> str:
         from pep_compass.optimization.batch import (
             ObjectField,
             OptionalField,
@@ -273,13 +276,13 @@ class CSVStepTracker(StepTracker):
         values: dict[str, Any] = {}
         for name, field_value in batch.fields.items():
             if isinstance(field_value, TensorField):
-                values[name] = field_value.values.detach().cpu().tolist()
+                values[name] = field_value.values[index].detach().cpu().tolist()
             elif isinstance(field_value, ObjectField):
-                values[name] = [repr(value) for value in field_value.values]
+                values[name] = repr(field_value.values[index])
             elif isinstance(field_value, SharedField):
                 values[name] = repr(field_value.value)
             elif isinstance(field_value, OptionalField):
-                values[name] = {"valid": field_value.valid.detach().cpu().tolist()}
+                values[name] = {"valid": bool(field_value.valid[index].item())}
         return json.dumps(values, separators=(",", ":"))
 
     def close(self) -> None:
