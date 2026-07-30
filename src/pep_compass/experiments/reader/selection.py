@@ -128,6 +128,48 @@ class ExperimentSelection:
         chunks = list(self.scan(table, columns=columns, chunk_size=chunk_size))
         return pd.concat(chunks, ignore_index=True) if chunks else pd.DataFrame()
 
+    def count_rows(self, table: str, chunk_size: int = 500_000) -> int:
+        """Count selected rows without materializing a tracker table.
+
+        A newline count is used when no deferred filter applies to the table.
+        Filtered selections are counted through projected chunks containing
+        only the filter columns.
+
+        :param table: Logical table name registered in ``data_schemas``.
+        :param chunk_size: Rows per chunk when deferred filters require parsing.
+        :return: Number of selected data rows across all runs.
+        """
+        schema = get_schema(table)
+        total = 0
+        for run in self.runs:
+            path = run.tracking_path / schema.filename
+            if not path.exists():
+                continue
+            available = schema.inspect(path)
+            applicable_filters = {
+                key: value
+                for key, value in self.row_filters.items()
+                if key in available
+            }
+            if applicable_filters:
+                total += sum(
+                    len(chunk)
+                    for chunk in schema.scan(
+                        path,
+                        columns=list(applicable_filters),
+                        filters=applicable_filters,
+                        chunk_size=chunk_size,
+                    )
+                )
+                continue
+            with path.open("rb") as source:
+                row_count = sum(
+                    block.count(b"\n")
+                    for block in iter(lambda: source.read(8 * 1024 * 1024), b"")
+                )
+            total += max(0, row_count - 1)
+        return total
+
     def paths(self, table: str) -> tuple[Path, ...]:
         """Return existing source paths for one logical table."""
         schema = get_schema(table)
@@ -139,8 +181,22 @@ class ExperimentSelection:
 
     def specification(self) -> dict[str, Any]:
         """Return stable selection metadata used as an analysis-cache key."""
+        input_files = []
+        for run in self.runs:
+            for path in sorted(run.tracking_path.glob("*")):
+                if not path.is_file():
+                    continue
+                stat = path.stat()
+                input_files.append(
+                    {
+                        "path": str(path),
+                        "size": stat.st_size,
+                        "mtime_ns": stat.st_mtime_ns,
+                    }
+                )
         return {
             "run_ids": sorted(run.run_id for run in self.runs),
             "tracking_paths": sorted(str(run.tracking_path) for run in self.runs),
             "row_filters": dict(self.row_filters),
+            "input_files": input_files,
         }

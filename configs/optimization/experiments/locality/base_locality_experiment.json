@@ -11,12 +11,12 @@
     "start_sequence_length": null
   },
   "local_enumeration": {
-    "walker_trajectories": 100,
+    "walker_trajectories": 10,
     "max_neighbour_levenshtein": 4,
     "stop_walker_at_levenshtein_limit": false
   },
   "filter": {
-    "maximum_candidates": 30000
+    "maximum_candidates": 20000
   },
   "optimizer": {
     "lebo": {

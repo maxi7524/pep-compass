@@ -37,8 +37,11 @@ class LocalityAnalysis:
     ) -> AnalysisResult:
         store = self.selection.reader.metrics
         specification = self.selection.specification()
+        analysis_version = "4"
         if self.use_cache:
-            cached = store.get_analysis(name, specification, parameters)
+            cached = store.get_analysis(
+                name, specification, parameters, analysis_version
+            )
             if cached is not None:
                 frame, metadata = cached
                 return AnalysisResult(frame, metadata, {"cache_hit": True})
@@ -49,6 +52,7 @@ class LocalityAnalysis:
             result.metadata,
             specification,
             parameters,
+            analysis_version,
         )
         return result
 

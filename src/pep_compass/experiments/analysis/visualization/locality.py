@@ -27,55 +27,159 @@ class LocalityVisualizer:
             return {"hue": column, "palette": self.theme.palette}
         return {}
 
-    def trajectory_saturation(self, result: AnalysisResult):
-        """Plot unique candidate yield against sampled trajectory count."""
-        _, axes = self._axes()
-        data = result.data
-        sns.lineplot(
-            data=data,
-            x="trajectory_count",
-            y="unique_candidates_mean",
-            **self._hue(data, "mutation.token_threshold"),
-            style="method",
-            marker="o",
-            ax=axes,
-        )
-        axes.set(title="Trajectory saturation", ylabel="Unique candidates")
+    def _saturation_grid(
+        self,
+        result: AnalysisResult,
+        x: str,
+        y: str,
+        title: str,
+        ylabel: str,
+    ):
+        """Plot per-peptide median and IQR in cumulative Levenshtein panels."""
+        data = result.data.copy()
+        if data.empty:
+            raise ValueError("Cannot visualize an empty saturation result")
+        radii = sorted(data["levenshtein_radius"].dropna().unique())[:8]
+        with sns.axes_style(self.theme.style), sns.plotting_context(
+            self.theme.context
+        ):
+            figure, axes = plt.subplots(
+                2,
+                4,
+                figsize=(
+                    self.theme.figure_size[0] * 2.0,
+                    self.theme.figure_size[1] * 1.7,
+                ),
+                dpi=self.theme.dpi,
+                sharex=True,
+                sharey=True,
+                constrained_layout=True,
+            )
+        color_values = sns.color_palette(self.theme.palette, n_colors=10)
+        legend_handles = {}
+        for axes_item, radius in zip(axes.flat, radii):
+            panel = data[data["levenshtein_radius"] == radius]
+            group_columns = ["method", "mutation.token_threshold"]
+            for color_index, (key, group) in enumerate(
+                panel.groupby(group_columns, dropna=False, sort=True)
+            ):
+                # Replicates first collapse within a peptide so that every
+                # starting sequence has equal weight in the distribution.
+                per_peptide = (
+                    group.groupby(["name", x], dropna=False)[y]
+                    .median()
+                    .reset_index()
+                )
+                summary = per_peptide.groupby(x, dropna=False)[y].agg(
+                    median="median",
+                    q25=lambda values: values.quantile(0.25),
+                    q75=lambda values: values.quantile(0.75),
+                ).reset_index()
+                method, threshold = key
+                threshold_label = (
+                    f"{threshold:g}"
+                    if isinstance(threshold, (int, float))
+                    else str(threshold)
+                )
+                label = f"{method}, threshold={threshold_label}"
+                color = color_values[color_index % len(color_values)]
+                line = axes_item.plot(
+                    summary[x],
+                    summary["median"],
+                    marker="o",
+                    markersize=3,
+                    color=color,
+                    label=label,
+                )[0]
+                axes_item.fill_between(
+                    summary[x],
+                    summary["q25"],
+                    summary["q75"],
+                    color=color,
+                    alpha=self.theme.confidence_alpha,
+                )
+                legend_handles[label] = line
+            axes_item.set_title(f"Levenshtein ≤ {int(radius)}")
+            axes_item.set_xlabel(x.replace("_", " "))
+            axes_item.set_ylabel(ylabel)
+        for axes_item in axes.flat[len(radii):]:
+            axes_item.set_visible(False)
+        figure.suptitle(title)
+        if legend_handles:
+            figure.legend(
+                legend_handles.values(),
+                legend_handles.keys(),
+                loc="outside upper center",
+                ncol=min(3, len(legend_handles)),
+            )
         return axes
 
-    def step_saturation(self, result: AnalysisResult):
-        """Plot unique candidate yield against maximum walker step."""
-        _, axes = self._axes()
-        sns.lineplot(
-            data=result.data,
-            x="max_step",
-            y="unique_candidates_mean",
-            **self._hue(result.data, "mutation.token_threshold"),
-            style="method",
-            marker="o",
-            ax=axes,
+    def trajectory_saturation(self, result: AnalysisResult):
+        """Plot trajectory rarefaction by cumulative sequence-locality radius."""
+        return self._saturation_grid(
+            result,
+            "trajectory_count",
+            "unique_candidates",
+            "SORBES trajectory saturation",
+            "Unique candidates (median and IQR)",
         )
-        axes.set(title="Step saturation", ylabel="Unique candidates")
-        return axes
+
+    def trajectory_marginal(self, result: AnalysisResult):
+        """Plot marginal candidate gain from each additional trajectory."""
+        return self._saturation_grid(
+            result,
+            "trajectory_count",
+            "marginal_per_trajectory",
+            "Marginal SORBES trajectory yield",
+            "New candidates per added trajectory",
+        )
+
+    def step_saturation(self, result: AnalysisResult):
+        """Plot exact cumulative depth curves by sequence-locality radius."""
+        return self._saturation_grid(
+            result,
+            "max_step",
+            "unique_candidates",
+            "SORBES step saturation",
+            "Unique candidates (median and IQR)",
+        )
+
+    def step_marginal(self, result: AnalysisResult):
+        """Plot new local candidates produced per active trajectory and step."""
+        return self._saturation_grid(
+            result,
+            "max_step",
+            "new_candidates_per_active_trajectory",
+            "Marginal SORBES step yield",
+            "New candidates per active trajectory",
+        )
 
     def latent_locality(self, result: AnalysisResult):
         """Plot latent distance distribution summaries by edit distance."""
         _, axes = self._axes()
-        sns.lineplot(
-            data=result.data,
-            x="levenshtein_to_center",
-            y="latent_distance_median",
-            marker="o",
-            color=sns.color_palette(self.theme.palette)[0],
-            ax=axes,
+        colors = sns.color_palette(self.theme.palette, n_colors=3)
+        metrics = (
+            ("walker_candidate_distance", "candidate to generating walker"),
+            ("origin_candidate_distance", "candidate to trajectory origin"),
+            ("walker_origin_distance", "walker drift from origin"),
         )
-        axes.fill_between(
-            result.data["levenshtein_to_center"],
-            result.data["latent_distance_q25"],
-            result.data["latent_distance_q75"],
-            alpha=self.theme.confidence_alpha,
-        )
-        axes.set(title="Latent locality", ylabel="Walker-to-candidate distance")
+        for color, (metric, label) in zip(colors, metrics):
+            axes.plot(
+                result.data["levenshtein_to_center"],
+                result.data[f"{metric}_median"],
+                marker="o",
+                color=color,
+                label=label,
+            )
+            axes.fill_between(
+                result.data["levenshtein_to_center"],
+                result.data[f"{metric}_q25"],
+                result.data[f"{metric}_q75"],
+                color=color,
+                alpha=self.theme.confidence_alpha,
+            )
+        axes.legend()
+        axes.set(title="Latent locality", ylabel="Euclidean latent distance")
         return axes
 
     def mutang_selectivity(self, result: AnalysisResult):
