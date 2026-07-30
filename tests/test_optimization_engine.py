@@ -19,6 +19,7 @@ from pep_compass.experiments.input import (
     materialize_input_tasks,
 )
 from pep_compass.experiments.variants import materialize_variants
+from pep_compass.experiments.plan import materialize_execution_plan
 from pep_compass.core.builder import PepCompassCore
 from pep_compass.core.validation import validate_configuration
 from pep_compass.optimization.batch import (
@@ -371,6 +372,23 @@ def test_grid_materializes_cartesian_optimization_variants() -> None:
             "optimization.limits.generated_candidates": 200,
         },
     ]
+
+
+def test_execution_plan_assigns_stable_global_indices_and_seeds() -> None:
+    config = {
+        "experiment": {
+            "seed": 10,
+            "input": {"sequences": ["A", "B"]},
+            "grid": {"optimization.limits.oracle_calls": [1, 2]},
+        },
+        "optimization": {"limits": {"oracle_calls": None}, "steps": []},
+    }
+
+    plan = materialize_execution_plan(config)
+
+    assert [entry.index for entry in plan] == [0, 1, 2, 3]
+    assert [entry.seed for entry in plan] == [10, 11, 12, 13]
+    assert [entry.task.sequence for entry in plan] == ["A", "B", "A", "B"]
 
 
 def test_grid_and_repetitions_create_isolated_variant_run_directories(tmp_path) -> None:

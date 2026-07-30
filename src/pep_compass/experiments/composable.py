@@ -12,7 +12,8 @@ from typing import Any, Literal
 import torch
 
 from pep_compass.core.builder import PepCompassCore
-from pep_compass.experiments.input import ExperimentTask, materialize_input_tasks
+from pep_compass.experiments.input import ExperimentTask
+from pep_compass.experiments.plan import materialize_execution_plan
 from pep_compass.experiments.variants import ExperimentVariant, materialize_variants
 from pep_compass.optimization.result import OptimizationResult
 from pep_compass.optimization.tracking import StepTracker
@@ -54,6 +55,7 @@ class ComposableExperiment:
     tracker_factory: TrackerFactory | None = None
     resume: bool = False
     on_error: Literal["stop", "continue"] = "stop"
+    run_indices: set[int] | None = None
 
     def run(self) -> ExperimentResult:
         """Execute every input repetition as an independent optimization run.
@@ -67,17 +69,19 @@ class ComposableExperiment:
         if self.on_error not in {"stop", "continue"}:
             raise ValueError("Experiment on_error must be stop or continue.")
         experiment = self.config.get("experiment", {})
-        tasks = materialize_input_tasks(
-            experiment.get("input", {}),
-            base_directory=self.config_directory,
+        plan = materialize_execution_plan(
+            self.config, base_directory=self.config_directory
         )
+        if self.run_indices is not None:
+            missing = self.run_indices - {entry.index for entry in plan}
+            if missing:
+                raise ValueError(f"Run indices are outside the execution plan: {sorted(missing)}")
+            plan = tuple(entry for entry in plan if entry.index in self.run_indices)
         output_root = self._resolve_output_directory(experiment.get("output", {}))
-        base_seed = experiment.get("seed")
         variants = materialize_variants(self.config)
         runs: list[ExperimentRun] = []
-        for variant, task in (
-            (variant, task) for variant in variants for task in tasks
-        ):
+        for entry in plan:
+            variant, task, seed = entry.variant, entry.task, entry.seed
             multiple_variants = len(variants) > 1
             variant_directory = (
                 output_root / "variants" / variant.variant_id
@@ -89,8 +93,6 @@ class ComposableExperiment:
                 if variant_directory is not None
                 else None
             )
-            run_index = variant.index * len(tasks) + task.index
-            seed = base_seed + run_index if base_seed is not None else None
             if self.resume and run_directory is not None and self._is_completed(run_directory):
                 logger.info("Skipping completed run %s/%s.", variant.variant_id, task.run_id)
                 runs.append(

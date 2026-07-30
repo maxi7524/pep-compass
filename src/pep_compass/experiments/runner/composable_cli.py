@@ -9,8 +9,7 @@ from pathlib import Path
 
 from pep_compass.core import PepCompassCore, load_configuration, validate_configuration
 from pep_compass.experiments.composable import ComposableExperiment
-from pep_compass.experiments.input import materialize_input_tasks
-from pep_compass.experiments.variants import materialize_variants
+from pep_compass.experiments.plan import materialize_execution_plan
 from pep_compass.optimization.tracking import CSVStepTracker
 
 
@@ -22,6 +21,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--continue-on-error", action="store_true")
+    parser.add_argument("--run-index", type=int, action="append")
     return parser.parse_args()
 
 
@@ -37,16 +37,21 @@ def main() -> None:
     validate_configuration(config)
     experiment = config.get("experiment", {})
     if args.dry_run:
-        tasks = materialize_input_tasks(
-            experiment.get("input", {}), base_directory=config_path.parent
-        )
-        variants = materialize_variants(config)
+        plan = materialize_execution_plan(config, base_directory=config_path.parent)
         print(
             json.dumps(
                 {
-                    "variants": len(variants),
-                    "tasks_per_variant": len(tasks),
-                    "total_runs": len(variants) * len(tasks),
+                    "total_runs": len(plan),
+                    "runs": [
+                        {
+                            "index": entry.index,
+                            "variant_id": entry.variant.variant_id,
+                            "run_id": entry.task.run_id,
+                            "seed": entry.seed,
+                            "sequence": entry.task.sequence,
+                        }
+                        for entry in plan
+                    ],
                 },
                 indent=2,
             )
@@ -72,6 +77,7 @@ def main() -> None:
         tracker_factory=tracker_factory,
         resume=args.resume,
         on_error="continue" if args.continue_on_error else "stop",
+        run_indices=set(args.run_index) if args.run_index is not None else None,
     ).run()
 
 

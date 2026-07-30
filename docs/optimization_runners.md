@@ -25,6 +25,11 @@ błąd zapisuje częściowy manifest i jest ponownie zgłaszany. Każdy katalog 
 ma atomowo aktualizowany `result.json` ze statusem `running`, `completed` albo
 `failed`.
 
+Dry-run wypisuje pełny, stabilny plan z globalnym indeksem każdego runu.
+`--run-index N` wykonuje wyłącznie wskazaną pozycję; flagę można powtórzyć.
+Jest to granica dla backendów procesowych i Slurm array: każdy proces ładuje
+własne modele i nie współdzieli globalnego RNG ani kontekstu CUDA z innym runem.
+
 Wymagane są tylko sekwencje wejściowe oraz encoder-decoder. Walker, generator
 mutacji, filtry, pętla i oracle są opcjonalne. Eksperyment bez oracle zapisuje
 końcowy batch, a pola `best_score`, `objective_name` i `objective_direction`
