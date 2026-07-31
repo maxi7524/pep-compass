@@ -66,6 +66,13 @@ optimization:
                 key: sequence_and_latent
 
           - filter:
+              method: trust_region
+              parameters:
+                objective: apex
+                geometry: sequence
+                initial_radius: 4
+
+          - filter:
               method: robot
               parameters:
                 objective: apex
@@ -83,3 +90,16 @@ optimization:
                 mic_bacteria: all
                 device: cpu
                 evaluation_batch_size: 128
+
+          - filter:
+              method: trust_region_update
+              parameters:
+                objective: apex
+                initial_radius: 4
+                minimum_radius: 1
+                maximum_radius: 12
+                expand_factor: 2.0
+                shrink_factor: 0.5
+                success_tolerance: 3
+                failure_tolerance: 3
+                maximize: false

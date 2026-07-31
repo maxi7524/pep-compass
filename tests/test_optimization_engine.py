@@ -11,6 +11,10 @@ import pytest
 
 from pep_compass.filters.strategies.selectors.deduplicate import DeduplicateFilter
 from pep_compass.filters.strategies.decision_models.esm_filter import ESMDecisionFilter
+from pep_compass.filters.strategies.selectors.trust_region import (
+    TrustRegionSelector,
+    TrustRegionUpdater,
+)
 from pep_compass.filters.base import Filter
 from pep_compass.filters.manager import FilterManager
 from pep_compass.experiments.composable import ComposableExperiment
@@ -256,6 +260,63 @@ def test_esm_decision_filter_preserves_columns_and_selects_stable_top_k() -> Non
     score = result.fields["filter.esm_plausibility.score"]
     assert isinstance(score, TensorField)
     assert score.values.tolist() == [-1.0, -2.0]
+
+
+def test_trust_region_updates_center_and_expands_then_shrinks_radius() -> None:
+    context = OptimizationContext(_EncoderDecoder())
+    updater = TrustRegionUpdater(
+        objective="test",
+        initial_radius=2,
+        minimum_radius=1,
+        maximum_radius=8,
+        success_tolerance=2,
+        failure_tolerance=2,
+    )
+
+    first = CandidateBatch(["AAAA"], torch.tensor([[1.0, 2.0]])).with_field(
+        "oracle.test.score", TensorField(torch.tensor([5.0]))
+    )
+    second = CandidateBatch(["AAAB"], torch.tensor([[2.0, 3.0]])).with_field(
+        "oracle.test.score", TensorField(torch.tensor([4.0]))
+    )
+    worse = CandidateBatch(["CCCC"], torch.tensor([[9.0, 9.0]])).with_field(
+        "oracle.test.score", TensorField(torch.tensor([7.0]))
+    )
+
+    updater(first, context)
+    updater(second, context)
+    region = context.state.trust_regions["test"]
+    assert region.center_sequence == "AAAB"
+    assert region.center_latent.tolist() == [2.0, 3.0]
+    assert region.radius == 4
+    updater(worse, context)
+    updater(worse, context)
+    assert region.radius == 2
+    assert region.center_sequence == "AAAB"
+
+
+def test_trust_region_selector_filters_without_reencoding_latent_origins() -> None:
+    context = OptimizationContext(_EncoderDecoder())
+    updater = TrustRegionUpdater(
+        objective="test",
+        initial_radius=1,
+        minimum_radius=1,
+        maximum_radius=3,
+    )
+    center = CandidateBatch(["AAAA"], torch.tensor([[4.0, 5.0]])).with_field(
+        "oracle.test.score", TensorField(torch.tensor([1.0]))
+    )
+    updater(center, context)
+    candidates = CandidateBatch(
+        ["AAAB", "CCCC"], torch.tensor([[4.5, 5.5], [8.0, 9.0]])
+    )
+
+    selected = TrustRegionSelector(
+        objective="test", geometry="sequence", initial_radius=1
+    )(candidates, context)
+
+    assert selected.sequences == ("AAAB",)
+    assert selected.latent_origins.tolist() == [[4.5, 5.5]]
 
 
 def test_runner_supports_experiment_without_oracle() -> None:
@@ -627,7 +688,9 @@ def test_reference_lebo_configuration_materializes_complete_loop() -> None:
         "filter",
         "filter",
         "filter",
+        "filter",
         "oracle",
+        "filter",
     ]
 
 

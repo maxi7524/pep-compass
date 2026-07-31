@@ -143,7 +143,7 @@ Kompletny przykład znajduje się w
 `configs/optimization/reference_lebo.yaml`. Pętla wykonuje:
 
 ```text
-SORBES → MUTANG → LPBEBO → deduplicate → ROBOT → APEX
+SORBES → MUTANG → LPBEBO → deduplicate → trust region → ROBOT → APEX → center update
 ```
 
 SORBES zwraca nową sekwencję i rzeczywistą pozycję spaceru w latent space.
@@ -151,6 +151,11 @@ MUTANG tworzy iloczyn kartezjański sekwencji, kopiując do każdego produktu t�
 samą pozycję latentową rodzica. Filtry i selektory zachowują wyrównanie kolumn,
 a oracle dopisuje score. Następna iteracja rozpoczyna się od zachowanej pozycji
 latentowej; sekwencja nie jest ponownie kodowana do średniej encodera.
+
+`trust_region` ogranicza kandydatów względem aktualnego centrum w geometrii
+sekwencji albo latentu. `trust_region_update` działa po oracle: poprawa score
+przenosi centrum na dokładny wiersz `(sequence, latent_origin)`, a serie sukcesów
+i porażek rozszerzają lub zwężają promień w skonfigurowanych granicach.
 
 LPBEBO można zastąpić zarejestrowanymi metodami `lams`, `tandem`, `move`,
 `random_walker` lub `random_mutang`. Parametry metod pozostają jawne w YAML,

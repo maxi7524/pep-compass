@@ -3,6 +3,10 @@
 from pep_compass.filters.strategies.selectors.deduplicate import DeduplicateFilter
 from pep_compass.filters.strategies.selectors.robot import RobotSelector
 from pep_compass.filters.strategies.decision_models.esm_filter import ESMDecisionFilter
+from pep_compass.filters.strategies.selectors.trust_region import (
+    TrustRegionSelector,
+    TrustRegionUpdater,
+)
 from pep_compass.filters.manager import FilterManager
 from pep_compass.filters.strategies.mutation_choice import MutationChoiceFilter
 from pep_compass.filters.strategies.mutation_filters import (
@@ -58,4 +62,10 @@ def build_random_mutang(**parameters):
     """Build random MUTANG-mode mutation selection."""
     return MutationChoiceFilter(RandomLeBoFilter(mode="mutang_random", **parameters))
 
-__all__ = ["DeduplicateFilter", "ESMDecisionFilter", "RobotSelector"]
+__all__ = [
+    "DeduplicateFilter",
+    "ESMDecisionFilter",
+    "RobotSelector",
+    "TrustRegionSelector",
+    "TrustRegionUpdater",
+]

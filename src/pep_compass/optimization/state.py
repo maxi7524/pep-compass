@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+import torch
+
 
 @dataclass
 class OptimizationLimits:
@@ -11,6 +13,18 @@ class OptimizationLimits:
 
     oracle_calls: int | None = None
     generated_candidates: int | None = None
+
+
+@dataclass
+class TrustRegionState:
+    """Mutable center and radius of one objective-specific trust region."""
+
+    radius: float
+    center_sequence: str | None = None
+    center_latent: torch.Tensor | None = None
+    best_score: float | None = None
+    successes: int = 0
+    failures: int = 0
 
 
 @dataclass
@@ -22,6 +36,7 @@ class OptimizationState:
     oracle_calls: int = 0
     generated_candidates: int = 0
     stop_requested: bool = False
+    trust_regions: dict[str, TrustRegionState] = field(default_factory=dict)
 
     def remaining_oracle_calls(self) -> int | None:
         """Return remaining oracle calls, or ``None`` for an unlimited run."""
