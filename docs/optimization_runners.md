@@ -53,6 +53,19 @@ python -m pep_compass.experiments.runner.composable_cli \
   --config experiment.yaml --backend slurm --slurm-script run.slurm
 ```
 
+Po wykonaniu dowolnej części planu wyniki można odbudować bez wspólnego stanu
+workerów:
+
+```bash
+.venv/bin/python scripts/runner/aggregate_composable_results.py \
+  path/to/experiment/results
+```
+
+Agregator skanuje atomowe `result.json`, zapisuje `aggregate_runs.csv` i
+`aggregate_summary.json`, podsumowuje statusy per wariant oraz wybiera najlepszą
+sekwencję zgodnie z `objective_direction`. Dzięki temu równoległe workery nie
+nadpisują wspólnego manifestu.
+
 Wymagane są tylko sekwencje wejściowe oraz encoder-decoder. Walker, generator
 mutacji, filtry, pętla i oracle są opcjonalne. Eksperyment bez oracle zapisuje
 końcowy batch, a pola `best_score`, `objective_name` i `objective_direction`

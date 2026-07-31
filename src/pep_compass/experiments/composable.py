@@ -56,6 +56,7 @@ class ComposableExperiment:
     resume: bool = False
     on_error: Literal["stop", "continue"] = "stop"
     run_indices: set[int] | None = None
+    persist_manifest: bool = True
 
     def run(self) -> ExperimentResult:
         """Execute every input repetition as an independent optimization run.
@@ -133,7 +134,7 @@ class ComposableExperiment:
                 )
                 if self.on_error == "stop":
                     partial = ExperimentResult(tuple(runs))
-                    if output_root is not None:
+                    if output_root is not None and self.persist_manifest:
                         self._persist_manifest(partial, output_root)
                     raise
                 continue
@@ -145,7 +146,7 @@ class ComposableExperiment:
                 )
             )
         experiment_result = ExperimentResult(tuple(runs))
-        if output_root is not None:
+        if output_root is not None and self.persist_manifest:
             self._persist_manifest(experiment_result, output_root)
         return experiment_result
 

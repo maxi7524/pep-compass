@@ -116,6 +116,7 @@ def main() -> None:
         resume=args.resume,
         on_error="continue" if args.continue_on_error else "stop",
         run_indices=set(args.run_index) if args.run_index is not None else None,
+        persist_manifest=not args.worker,
     ).run()
 
 

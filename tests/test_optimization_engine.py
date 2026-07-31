@@ -28,6 +28,7 @@ from pep_compass.experiments.backends import (
     execute_subprocess_plan,
     write_slurm_array_script,
 )
+from pep_compass.experiments.aggregation import aggregate_experiment
 from pep_compass.core.builder import PepCompassCore
 from pep_compass.core.validation import validate_configuration
 from pep_compass.core.encoder_decoder.manager import EncoderDecoderManager
@@ -623,6 +624,48 @@ def test_experiment_resume_skips_completed_runs_without_calling_runner(tmp_path)
 
     assert resumed_core.calls == []
     assert [run.status for run in resumed.runs] == ["skipped", "skipped"]
+
+
+def test_aggregation_rebuilds_statuses_from_atomic_worker_results(tmp_path) -> None:
+    root = tmp_path / "results"
+    completed = root / "runs" / "run_00000"
+    failed = root / "runs" / "run_00001"
+    completed.mkdir(parents=True)
+    failed.mkdir(parents=True)
+    (completed / "result.json").write_text(
+        json.dumps(
+            {
+                "status": "completed",
+                "variant_id": "variant_00000",
+                "run_id": "run_00000",
+                "best_sequence": "AAAA",
+                "best_score": 1.5,
+                "objective_name": "mock",
+                "objective_direction": "minimize",
+                "variant_values": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+    (failed / "result.json").write_text(
+        json.dumps(
+            {
+                "status": "failed",
+                "variant_id": "variant_00000",
+                "run_id": "run_00001",
+                "error": "RuntimeError: mock",
+                "variant_values": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    summary = aggregate_experiment(root)
+
+    assert summary["statuses"] == {"completed": 1, "failed": 1}
+    assert summary["variants"]["variant_00000"]["best_sequence"] == "AAAA"
+    assert (root / "aggregate_runs.csv").exists()
+    assert (root / "aggregate_summary.json").exists()
 
 
 def test_configuration_validation_rejects_unknown_strategy_before_building() -> None:
