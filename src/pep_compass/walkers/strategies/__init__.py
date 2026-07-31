@@ -6,9 +6,11 @@ from pep_compass.walkers.strategies.subriemannian import (
     SubRiemannianTangentSpace,
 )
 from pep_compass.walkers.manager import WalkerManager
+from pep_compass.utils.strategy_factory import parameter_contract
 
 
 @WalkerManager.register("sorbes")
+@parameter_contract(source=SecondOrderRiemannianBrownianEfficientSampling)
 def build_sorbes(encoder_decoder, **parameters):
     """Build SORBES from the core-owned encoder-decoder service."""
     sampling_walker = SecondOrderRiemannianBrownianEfficientSampling(

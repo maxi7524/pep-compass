@@ -527,7 +527,10 @@ def test_experiment_resume_skips_completed_runs_without_calling_runner(tmp_path)
 
 def test_configuration_validation_rejects_unknown_strategy_before_building() -> None:
     config = {
-        "encoder_decoder": {"method": "hydramp"},
+        "encoder_decoder": {
+            "method": "hydramp",
+            "parameters": {"jacobian_eps": 0.1, "field_eps": 0.1},
+        },
         "optimization": {
             "steps": [{"oracle": {"method": "missing", "parameters": {}}}]
         },
@@ -537,9 +540,39 @@ def test_configuration_validation_rejects_unknown_strategy_before_building() -> 
         validate_configuration(config)
 
 
+def test_configuration_validation_rejects_parameter_typo_before_building() -> None:
+    config = {
+        "encoder_decoder": {
+            "method": "hydramp",
+            "parameters": {"jacobian_eps": 0.1, "field_eps": 0.1},
+        },
+        "optimization": {
+            "steps": [
+                {
+                    "walker": {
+                        "method": "sorbes",
+                        "parameters": {
+                            "horizontal_threshold": 0.1,
+                            "time_step": 0.1,
+                            "max_horizontal_update_norm": 0.1,
+                            "vertical_movment": False,
+                        },
+                    }
+                }
+            ]
+        },
+    }
+
+    with pytest.raises(ValueError, match="vertical_movment"):
+        validate_configuration(config)
+
+
 def test_configuration_validation_accepts_nested_registered_tree() -> None:
     config = {
-        "encoder_decoder": {"method": "hydramp"},
+        "encoder_decoder": {
+            "method": "hydramp",
+            "parameters": {"jacobian_eps": 0.1, "field_eps": 0.1},
+        },
         "optimization": {
             "limits": {"oracle_calls": None, "generated_candidates": 100},
             "steps": [

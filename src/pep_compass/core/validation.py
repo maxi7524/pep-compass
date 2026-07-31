@@ -6,6 +6,7 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 
 from pep_compass.experiments.variants import materialize_variants
+from pep_compass.utils.strategy_factory import validate_factory_parameters
 
 
 def validate_configuration(config: Mapping[str, Any]) -> None:
@@ -24,6 +25,11 @@ def validate_configuration(config: Mapping[str, Any]) -> None:
     method = encoder.get("method")
     if method not in EncoderDecoderManager.methods():
         raise ValueError(f"Unknown encoder-decoder method: {method}")
+    encoder_parameters = dict(encoder.get("parameters", {}))
+    encoder_parameters["device"] = encoder.get("device", "cpu")
+    validate_factory_parameters(
+        EncoderDecoderManager.factory(method), encoder_parameters
+    )
     experiment = config.get("experiment", {})
     execution = experiment.get("execution", {}) if isinstance(experiment, Mapping) else {}
     if not isinstance(execution, Mapping):
@@ -118,3 +124,18 @@ def _validate_strategy(operation: str, settings: Mapping[str, Any], path: str) -
     if method not in methods:
         available = ", ".join(methods)
         raise ValueError(f"Unknown {operation} method at {path}: {method}. Available: {available}")
+    managers = {
+        "walker": WalkerManager,
+        "mutation_generator": MutationGeneratorManager,
+        "filter": FilterManager,
+        "oracle": OracleManager,
+    }
+    factory = managers[operation]._registry[method]
+    try:
+        validate_factory_parameters(
+            factory,
+            settings.get("parameters", {}),
+            service_names={"encoder_decoder"},
+        )
+    except ValueError as error:
+        raise ValueError(f"Invalid parameters at {path}: {error}") from error

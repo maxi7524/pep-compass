@@ -12,39 +12,48 @@ from pep_compass.filters.strategies.mutation_filters import (
     RandomLeBoFilter,
     TandemFilter,
 )
+from pep_compass.utils.strategy_factory import parameter_contract
 
 
 @FilterManager.register("lpbebo")
+@parameter_contract(source=LpbeboFilter)
 def build_lpbebo(encoder_decoder, **parameters):
     """Build the LPBEBO mutation-choice filter."""
     return MutationChoiceFilter(LpbeboFilter(encoder_decoder, **parameters))
 
 
 @FilterManager.register("lams")
+@parameter_contract(
+    accepted={"horizontal_threshold", "maximum_candidates", "alphabet", "similarity_threshold"}
+)
 def build_lams(encoder_decoder, **parameters):
     """Build the LAMS mutation-choice filter."""
     return MutationChoiceFilter(LamsFilter(encoder_decoder, **parameters))
 
 
 @FilterManager.register("tandem")
+@parameter_contract(source=TandemFilter)
 def build_tandem(encoder_decoder, **parameters):
     """Build the TANDEM mutation-choice filter."""
     return MutationChoiceFilter(TandemFilter(encoder_decoder, **parameters))
 
 
 @FilterManager.register("move")
+@parameter_contract(source=MoveFilter)
 def build_move(encoder_decoder, **parameters):
     """Build the MOVE mutation-choice filter."""
     return MutationChoiceFilter(MoveFilter(encoder_decoder, **parameters))
 
 
 @FilterManager.register("random_walker")
+@parameter_contract(source=RandomLeBoFilter)
 def build_random_walker(**parameters):
     """Build random walker-mode mutation selection."""
     return MutationChoiceFilter(RandomLeBoFilter(mode="walker", **parameters))
 
 
 @FilterManager.register("random_mutang")
+@parameter_contract(source=RandomLeBoFilter)
 def build_random_mutang(**parameters):
     """Build random MUTANG-mode mutation selection."""
     return MutationChoiceFilter(RandomLeBoFilter(mode="mutang_random", **parameters))

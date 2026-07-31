@@ -5,6 +5,12 @@ from typing import Any
 
 from pep_compass.oracles.manager import OracleManager
 from pep_compass.oracles.strategies.black_box import BlackBoxOracle
+from pep_compass.utils.strategy_factory import parameter_contract
+
+_COMMON = {
+    "batch_size", "parallelize", "num_workers", "evaluation_budget",
+    "force_isolation", "evaluation_batch_size",
+}
 
 
 def _black_box_oracle(
@@ -25,6 +31,7 @@ def _black_box_oracle(
 
 
 @OracleManager.register("apex")
+@parameter_contract(accepted=_COMMON | {"mic_aggregate", "mic_bacteria", "device"})
 def build_apex(**parameters: Any) -> BlackBoxOracle:
     """Build the APEX oracle strategy."""
     return _black_box_oracle(
@@ -36,6 +43,7 @@ def build_apex(**parameters: Any) -> BlackBoxOracle:
 
 
 @OracleManager.register("battleamp")
+@parameter_contract(accepted=_COMMON | {"device"})
 def build_battleamp(**parameters: Any) -> BlackBoxOracle:
     """Build the BattleAMP oracle strategy."""
     return _black_box_oracle(
@@ -47,6 +55,7 @@ def build_battleamp(**parameters: Any) -> BlackBoxOracle:
 
 
 @OracleManager.register("eipred")
+@parameter_contract(accepted=_COMMON | {"mic_aggregate", "model_path"})
 def build_eipred(**parameters: Any) -> BlackBoxOracle:
     """Build the EIPred oracle strategy."""
     return _black_box_oracle(
@@ -58,6 +67,7 @@ def build_eipred(**parameters: Any) -> BlackBoxOracle:
 
 
 @OracleManager.register("hydrophobicity")
+@parameter_contract(accepted=_COMMON | {"scale"})
 def build_hydrophobicity(**parameters: Any) -> BlackBoxOracle:
     """Build the hydrophobicity oracle strategy."""
     return _black_box_oracle(
@@ -69,6 +79,7 @@ def build_hydrophobicity(**parameters: Any) -> BlackBoxOracle:
 
 
 @OracleManager.register("mbc_attention")
+@parameter_contract(accepted=_COMMON | {"device"})
 def build_mbc_attention(**parameters: Any) -> BlackBoxOracle:
     """Build the MBC-Attention oracle strategy."""
     return _black_box_oracle(
@@ -80,6 +91,7 @@ def build_mbc_attention(**parameters: Any) -> BlackBoxOracle:
 
 
 @OracleManager.register("toxipep")
+@parameter_contract(accepted=_COMMON | {"device"})
 def build_toxipep(**parameters: Any) -> BlackBoxOracle:
     """Build the ToxiPep oracle strategy."""
     return _black_box_oracle(
