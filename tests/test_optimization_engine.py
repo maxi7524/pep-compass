@@ -20,6 +20,10 @@ from pep_compass.experiments.input import (
 )
 from pep_compass.experiments.variants import materialize_variants
 from pep_compass.experiments.plan import materialize_execution_plan
+from pep_compass.experiments.backends import (
+    execute_subprocess_plan,
+    write_slurm_array_script,
+)
 from pep_compass.core.builder import PepCompassCore
 from pep_compass.core.validation import validate_configuration
 from pep_compass.optimization.batch import (
@@ -389,6 +393,48 @@ def test_execution_plan_assigns_stable_global_indices_and_seeds() -> None:
     assert [entry.index for entry in plan] == [0, 1, 2, 3]
     assert [entry.seed for entry in plan] == [10, 11, 12, 13]
     assert [entry.task.sequence for entry in plan] == ["A", "B", "A", "B"]
+
+
+def test_subprocess_backend_executes_one_isolated_worker_per_plan_entry(tmp_path) -> None:
+    config = {
+        "experiment": {"input": {"sequences": ["A", "B"]}},
+        "optimization": {"steps": []},
+    }
+    plan = materialize_execution_plan(config)
+    calls = []
+
+    def command_runner(command, *, check):
+        calls.append((command, check))
+
+    execute_subprocess_plan(
+        plan,
+        tmp_path / "config.yaml",
+        max_workers=2,
+        command_runner=command_runner,
+    )
+
+    assert [call[0][call[0].index("--run-index") + 1] for call in calls] == ["0", "1"]
+    assert all(call[1] for call in calls)
+
+
+def test_slurm_backend_writes_array_script_without_submitting(tmp_path) -> None:
+    config = {
+        "experiment": {"input": {"sequences": ["A", "B"]}},
+        "optimization": {"steps": []},
+    }
+    script = write_slurm_array_script(
+        materialize_execution_plan(config),
+        tmp_path / "config with spaces.yaml",
+        tmp_path / "run.slurm",
+        settings={"job_name": "pep-validation", "time": "01:00:00"},
+        resume=True,
+    )
+
+    content = script.read_text(encoding="utf-8")
+    assert content.splitlines()[1] == "#SBATCH --array=0,1"
+    assert "#SBATCH --job-name=pep-validation" in content
+    assert '"$SLURM_ARRAY_TASK_ID"' in content
+    assert "--resume" in content
 
 
 def test_grid_and_repetitions_create_isolated_variant_run_directories(tmp_path) -> None:

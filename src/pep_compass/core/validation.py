@@ -20,6 +20,15 @@ def validate_configuration(config: Mapping[str, Any]) -> None:
         raise ValueError("encoder_decoder configuration is required.")
     if encoder.get("method") != "hydramp":
         raise ValueError(f"Unknown encoder-decoder method: {encoder.get('method')}")
+    experiment = config.get("experiment", {})
+    execution = experiment.get("execution", {}) if isinstance(experiment, Mapping) else {}
+    if not isinstance(execution, Mapping):
+        raise ValueError("experiment.execution must be a mapping.")
+    if execution.get("backend", "local") not in {"local", "subprocess", "slurm"}:
+        raise ValueError("experiment.execution.backend must be local, subprocess, or slurm.")
+    workers = execution.get("max_workers", 1)
+    if not isinstance(workers, int) or workers < 1:
+        raise ValueError("experiment.execution.max_workers must be positive.")
     _load_registries()
     for variant in materialize_variants(config):
         optimization = variant.config.get("optimization")

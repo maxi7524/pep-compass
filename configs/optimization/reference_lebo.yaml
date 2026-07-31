@@ -12,6 +12,14 @@ experiment:
     max_depth: null
     store_latents: false
     store_fields: false
+  execution:
+    backend: local
+    max_workers: 1
+    slurm:
+      job_name: pep-reference-lebo
+      time: "24:00:00"
+      cpus_per_task: 4
+      mem: 16G
 
 encoder_decoder:
   method: hydramp

@@ -30,6 +30,29 @@ Dry-run wypisuje pełny, stabilny plan z globalnym indeksem każdego runu.
 Jest to granica dla backendów procesowych i Slurm array: każdy proces ładuje
 własne modele i nie współdzieli globalnego RNG ani kontekstu CUDA z innym runem.
 
+Backend można ustawić w YAML lub nadpisać w CLI:
+
+```yaml
+experiment:
+  execution:
+    backend: subprocess
+    max_workers: 2
+    slurm:
+      job_name: pep-lebo
+      time: "24:00:00"
+      gres: gpu:1
+```
+
+```bash
+# Izolowane procesy lokalne
+python -m pep_compass.experiments.runner.composable_cli \
+  --config experiment.yaml --backend subprocess --max-workers 2
+
+# Tylko wygenerowanie skryptu; bez sbatch
+python -m pep_compass.experiments.runner.composable_cli \
+  --config experiment.yaml --backend slurm --slurm-script run.slurm
+```
+
 Wymagane są tylko sekwencje wejściowe oraz encoder-decoder. Walker, generator
 mutacji, filtry, pętla i oracle są opcjonalne. Eksperyment bez oracle zapisuje
 końcowy batch, a pola `best_score`, `objective_name` i `objective_direction`
