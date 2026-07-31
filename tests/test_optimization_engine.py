@@ -72,6 +72,12 @@ class _SuffixStep(Step):
         return result
 
 
+class _FailingStep(Step):
+    def _execute(self, batch, context):
+        context.state.record_generated_candidates(3)
+        raise RuntimeError("tracked failure")
+
+
 class _EncoderDecoder:
     def encode_peptides(self, sequences):
         return torch.arange(len(sequences) * 2, dtype=torch.float32).reshape(-1, 2)
@@ -179,6 +185,21 @@ def test_tracking_depth_disables_deeper_steps_without_changing_results() -> None
     assert [record.step_name for record in tracker.records] == ["Flow"]
 
 
+def test_tracking_records_duration_budgets_and_propagated_step_failure() -> None:
+    tracker = InMemoryStepTracker()
+    context = OptimizationContext(_EncoderDecoder(), tracker=tracker)
+
+    with pytest.raises(RuntimeError, match="tracked failure"):
+        _FailingStep()(_batch(), context)
+
+    record = tracker.records[0]
+    assert record.status == "failed"
+    assert record.duration_seconds >= 0
+    assert record.generated_candidates_before == 0
+    assert record.generated_candidates_after == 3
+    assert record.error == "RuntimeError: tracked failure"
+
+
 def test_csv_tracking_respects_depth_and_persists_loop_indices(tmp_path) -> None:
     tracker = CSVStepTracker(tmp_path, level="normal", max_depth=3)
     runner = OptimizationRunner(
@@ -193,6 +214,24 @@ def test_csv_tracking_respects_depth_and_persists_loop_indices(tmp_path) -> None
     assert "iteration[0]" in steps
     assert "iteration[1]" in steps
     assert "suffix_X" not in steps
+
+
+def test_csv_tracking_persists_run_identity_timing_and_budget_columns(tmp_path) -> None:
+    tracker = CSVStepTracker(
+        tmp_path,
+        level="normal",
+        run_id="run_00007",
+        variant_id="variant_00003",
+    )
+    OptimizationRunner(_EncoderDecoder(), _SuffixStep("X"), tracker).run(["A"])
+
+    with (tmp_path / "steps.csv").open(encoding="utf-8") as stream:
+        row = next(csv.DictReader(stream))
+    assert row["run_id"] == "run_00007"
+    assert row["variant_id"] == "variant_00003"
+    assert row["status"] == "completed"
+    assert float(row["duration_seconds"]) >= 0
+    assert row["oracle_calls_before"] == "0"
 
 
 def test_short_csv_tracking_only_records_oracle_candidates(tmp_path) -> None:

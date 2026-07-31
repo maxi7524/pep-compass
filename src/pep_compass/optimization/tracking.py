@@ -8,11 +8,13 @@ from dataclasses import dataclass
 import json
 from pathlib import Path
 from threading import Lock
+from time import perf_counter
 from typing import TYPE_CHECKING, Any, Literal
 
 if TYPE_CHECKING:
     from pep_compass.optimization.batch import CandidateBatch
     from pep_compass.optimization.step import Step
+    from pep_compass.optimization.context import OptimizationContext
 
 TrackingLevel = Literal["short", "normal", "all"]
 
@@ -70,6 +72,7 @@ class StepTracker(ABC):
         step: "Step",
         batch: "CandidateBatch",
         scope: ExecutionScope,
+        context: "OptimizationContext",
     ) -> Any:
         """Start one tracked execution and return an opaque handle."""
         return None
@@ -81,8 +84,20 @@ class StepTracker(ABC):
         input_batch: "CandidateBatch",
         output_batch: "CandidateBatch",
         scope: ExecutionScope,
+        context: "OptimizationContext",
     ) -> None:
         """Finish one tracked execution."""
+
+    def fail_step(
+        self,
+        handle: Any,
+        step: "Step",
+        input_batch: "CandidateBatch",
+        scope: ExecutionScope,
+        context: "OptimizationContext",
+        error: BaseException,
+    ) -> None:
+        """Record a failed step before its exception propagates."""
 
     def close(self) -> None:
         """Flush and close tracker resources after one optimization run."""
@@ -105,6 +120,13 @@ class StepExecutionRecord:
     branch_names: tuple[str, ...]
     input_size: int
     output_size: int
+    status: str = "completed"
+    duration_seconds: float = 0.0
+    oracle_calls_before: int = 0
+    oracle_calls_after: int = 0
+    generated_candidates_before: int = 0
+    generated_candidates_after: int = 0
+    error: str | None = None
 
 
 class InMemoryStepTracker(StepTracker):
@@ -121,6 +143,13 @@ class InMemoryStepTracker(StepTracker):
         self.records: list[StepExecutionRecord] = []
         self._lock = Lock()
 
+    def begin_step(self, step, batch, scope, context):
+        return (
+            perf_counter(),
+            context.state.oracle_calls,
+            context.state.generated_candidates,
+        )
+
     def end_step(
         self,
         handle: Any,
@@ -128,6 +157,7 @@ class InMemoryStepTracker(StepTracker):
         input_batch: "CandidateBatch",
         output_batch: "CandidateBatch",
         scope: ExecutionScope,
+        context: "OptimizationContext",
     ) -> None:
         record = StepExecutionRecord(
             step_name=step.name,
@@ -136,6 +166,30 @@ class InMemoryStepTracker(StepTracker):
             branch_names=scope.branch_names,
             input_size=len(input_batch),
             output_size=len(output_batch),
+            duration_seconds=perf_counter() - handle[0],
+            oracle_calls_before=handle[1],
+            oracle_calls_after=context.state.oracle_calls,
+            generated_candidates_before=handle[2],
+            generated_candidates_after=context.state.generated_candidates,
+        )
+        with self._lock:
+            self.records.append(record)
+
+    def fail_step(self, handle, step, input_batch, scope, context, error):
+        record = StepExecutionRecord(
+            step_name=step.name,
+            path=scope.path,
+            loop_indices=scope.loop_indices,
+            branch_names=scope.branch_names,
+            input_size=len(input_batch),
+            output_size=0,
+            status="failed",
+            duration_seconds=perf_counter() - handle[0],
+            oracle_calls_before=handle[1],
+            oracle_calls_after=context.state.oracle_calls,
+            generated_candidates_before=handle[2],
+            generated_candidates_after=context.state.generated_candidates,
+            error=f"{type(error).__name__}: {error}",
         )
         with self._lock:
             self.records.append(record)
@@ -152,6 +206,8 @@ class CSVStepTracker(StepTracker):
         max_depth: int | None = None,
         store_latents: bool = False,
         store_fields: bool = False,
+        run_id: str | None = None,
+        variant_id: str | None = None,
     ) -> None:
         if level not in {"short", "normal", "all"}:
             raise ValueError("Tracking level must be short, normal, or all.")
@@ -159,6 +215,8 @@ class CSVStepTracker(StepTracker):
         self.max_depth = max_depth
         self.store_latents = store_latents
         self.store_fields = store_fields
+        self.run_id = run_id
+        self.variant_id = variant_id
         self.output_directory = Path(output_directory)
         self.output_directory.mkdir(parents=True, exist_ok=True)
         self._lock = Lock()
@@ -173,6 +231,8 @@ class CSVStepTracker(StepTracker):
             self._step_stream,
             fieldnames=(
                 "execution_id",
+                "run_id",
+                "variant_id",
                 "step_name",
                 "path",
                 "depth",
@@ -180,6 +240,13 @@ class CSVStepTracker(StepTracker):
                 "branch_names",
                 "input_size",
                 "output_size",
+                "status",
+                "duration_seconds",
+                "oracle_calls_before",
+                "oracle_calls_after",
+                "generated_candidates_before",
+                "generated_candidates_after",
+                "error",
             ),
         )
         self._candidate_writer = csv.DictWriter(
@@ -200,11 +267,17 @@ class CSVStepTracker(StepTracker):
         step: "Step",
         batch: "CandidateBatch",
         scope: ExecutionScope,
-    ) -> int:
+        context: "OptimizationContext",
+    ) -> tuple[int, float, int, int]:
         with self._lock:
             execution_id = self._next_execution_id
             self._next_execution_id += 1
-        return execution_id
+        return (
+            execution_id,
+            perf_counter(),
+            context.state.oracle_calls,
+            context.state.generated_candidates,
+        )
 
     def end_step(
         self,
@@ -213,6 +286,7 @@ class CSVStepTracker(StepTracker):
         input_batch: "CandidateBatch",
         output_batch: "CandidateBatch",
         scope: ExecutionScope,
+        context: "OptimizationContext",
     ) -> None:
         from pep_compass.oracles.base import Oracle
 
@@ -220,7 +294,9 @@ class CSVStepTracker(StepTracker):
         if self.level == "short" and not is_oracle:
             return
         step_row = {
-            "execution_id": handle,
+            "execution_id": handle[0],
+            "run_id": self.run_id,
+            "variant_id": self.variant_id,
             "step_name": step.name,
             "path": "/".join(scope.path),
             "depth": scope.depth,
@@ -228,13 +304,43 @@ class CSVStepTracker(StepTracker):
             "branch_names": json.dumps(scope.branch_names),
             "input_size": len(input_batch),
             "output_size": len(output_batch),
+            "status": "completed",
+            "duration_seconds": perf_counter() - handle[1],
+            "oracle_calls_before": handle[2],
+            "oracle_calls_after": context.state.oracle_calls,
+            "generated_candidates_before": handle[3],
+            "generated_candidates_after": context.state.generated_candidates,
+            "error": "",
         }
         candidate_rows = []
         if self.level == "all" or is_oracle:
-            candidate_rows = self._candidate_rows(handle, output_batch)
+            candidate_rows = self._candidate_rows(handle[0], output_batch)
         with self._lock:
             self._step_writer.writerow(step_row)
             self._candidate_writer.writerows(candidate_rows)
+
+    def fail_step(self, handle, step, input_batch, scope, context, error):
+        row = {
+            "execution_id": handle[0],
+            "run_id": self.run_id,
+            "variant_id": self.variant_id,
+            "step_name": step.name,
+            "path": "/".join(scope.path),
+            "depth": scope.depth,
+            "loop_indices": json.dumps(scope.loop_indices),
+            "branch_names": json.dumps(scope.branch_names),
+            "input_size": len(input_batch),
+            "output_size": 0,
+            "status": "failed",
+            "duration_seconds": perf_counter() - handle[1],
+            "oracle_calls_before": handle[2],
+            "oracle_calls_after": context.state.oracle_calls,
+            "generated_candidates_before": handle[3],
+            "generated_candidates_after": context.state.generated_candidates,
+            "error": f"{type(error).__name__}: {error}",
+        }
+        with self._lock:
+            self._step_writer.writerow(row)
 
     def _candidate_rows(
         self,

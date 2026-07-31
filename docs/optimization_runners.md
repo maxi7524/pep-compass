@@ -189,3 +189,7 @@ z `TODO`, dopóki nie zostaną ustalone ich kontrakty.
 kandydatów. `max_depth` ogranicza głębokość zbierania bez zmiany wykonania.
 Indeksy iteracji i nazwy gałęzi są zapisywane osobno. `store_latents` i
 `store_fields` włączają kosztowniejsze dane tylko wtedy, gdy są potrzebne.
+Każdy rekord kroku zawiera również `run_id`, `variant_id`, status, czas
+wykonania, błąd oraz liczniki oracle calls i wygenerowanych kandydatów przed i
+po wykonaniu. Błąd jest rejestrowany przez bazowy `Step`, a następnie normalnie
+propagowany do polityki `stop/continue` eksperymentu.

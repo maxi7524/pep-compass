@@ -41,8 +41,17 @@ class Step(ABC):
         enabled = step_context.tracker.is_enabled(step_context.scope)
         handle = None
         if enabled:
-            handle = step_context.tracker.begin_step(self, batch, step_context.scope)
-        result = self._execute(batch, step_context)
+            handle = step_context.tracker.begin_step(
+                self, batch, step_context.scope, step_context
+            )
+        try:
+            result = self._execute(batch, step_context)
+        except Exception as error:
+            if enabled:
+                step_context.tracker.fail_step(
+                    handle, self, batch, step_context.scope, step_context, error
+                )
+            raise
         if enabled:
             step_context.tracker.end_step(
                 handle,
@@ -50,6 +59,7 @@ class Step(ABC):
                 batch,
                 result,
                 step_context.scope,
+                step_context,
             )
         return result
 

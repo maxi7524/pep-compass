@@ -95,7 +95,7 @@ def main() -> None:
         return
     tracking = experiment.get("tracking")
 
-    def tracker_factory(run_directory: Path):
+    def tracker_factory(run_directory: Path, task, variant):
         if tracking is None:
             return None
         return CSVStepTracker(
@@ -104,6 +104,8 @@ def main() -> None:
             max_depth=tracking.get("max_depth"),
             store_latents=tracking.get("store_latents", False),
             store_fields=tracking.get("store_fields", False),
+            run_id=task.run_id,
+            variant_id=variant.variant_id,
         )
     core = PepCompassCore.from_config(config)
     ComposableExperiment(

@@ -21,7 +21,7 @@ from pep_compass.utils.logger import get_custom_logger
 
 logger = get_custom_logger(__name__)
 
-TrackerFactory = Callable[[Path], StepTracker | None]
+TrackerFactory = Callable[[Path, ExperimentTask, ExperimentVariant], StepTracker | None]
 RunStatus = Literal["completed", "failed", "skipped"]
 
 
@@ -102,7 +102,7 @@ class ComposableExperiment:
                 )
                 continue
             tracker = (
-                self.tracker_factory(run_directory)
+                self.tracker_factory(run_directory, task, variant)
                 if self.tracker_factory is not None and run_directory is not None
                 else None
             )
