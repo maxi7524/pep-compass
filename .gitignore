@@ -228,3 +228,6 @@ data/*
 
 # Trash
 logs/
+
+
+tmp
