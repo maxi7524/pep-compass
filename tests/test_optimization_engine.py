@@ -597,6 +597,87 @@ def test_reference_lebo_configuration_materializes_complete_loop() -> None:
     ]
 
 
+def test_core_executes_complete_mock_strategy_tree_across_loop_iterations() -> None:
+    class MockWalker(Walker):
+        def _execute(self, batch, context):
+            return CandidateBatch(
+                [f"{sequence}W" for sequence in batch.sequences],
+                batch.latent_origins + 1,
+                batch.fields,
+            )
+
+    class MockGenerator(MutationGenerator):
+        def _execute(self, batch, context):
+            parents = torch.arange(len(batch)).repeat_interleave(2)
+            expanded = batch.repeat_from_parents(parents)
+            sequences = [
+                f"{sequence}{suffix}"
+                for sequence in batch.sequences
+                for suffix in ("0", "1")
+            ]
+            context.state.record_generated_candidates(len(sequences))
+            return expanded.with_sequences(sequences)
+
+    class MockSelector(Filter):
+        def _execute(self, batch, context):
+            return batch.select(
+                [index for index, sequence in enumerate(batch.sequences) if sequence.endswith("1")]
+            )
+
+    previous = {
+        "walker": WalkerManager._registry.get("mock_tree"),
+        "generator": MutationGeneratorManager._registry.get("mock_tree"),
+        "filter": FilterManager._registry.get("mock_tree"),
+        "oracle": OracleManager._registry.get("mock_tree"),
+    }
+    WalkerManager._registry["mock_tree"] = MockWalker
+    MutationGeneratorManager._registry["mock_tree"] = MockGenerator
+    FilterManager._registry["mock_tree"] = MockSelector
+    OracleManager._registry["mock_tree"] = lambda: BlackBoxOracle(
+        lambda sequences: [[float(len(sequence))] for sequence in sequences],
+        field_name="oracle.mock_tree.score",
+    )
+    tracker = InMemoryStepTracker()
+    config = {
+        "optimization": {
+            "limits": {"oracle_calls": 10, "generated_candidates": 100},
+            "steps": [
+                {
+                    "loop": {
+                        "iterations": 2,
+                        "steps": [
+                            {"walker": {"method": "mock_tree"}},
+                            {"mutation_generator": {"method": "mock_tree"}},
+                            {"filter": {"method": "mock_tree"}},
+                            {"oracle": {"method": "mock_tree"}},
+                        ],
+                    }
+                }
+            ],
+        }
+    }
+    try:
+        result = PepCompassCore(_EncoderDecoder(), tracker=tracker).build_runner(config).run(["A"])
+    finally:
+        registries = (
+            (WalkerManager._registry, "walker"),
+            (MutationGeneratorManager._registry, "generator"),
+            (FilterManager._registry, "filter"),
+            (OracleManager._registry, "oracle"),
+        )
+        for registry, key in registries:
+            if previous[key] is None:
+                registry.pop("mock_tree", None)
+            else:
+                registry["mock_tree"] = previous[key]
+
+    assert result.candidates.sequences == ("AW1W1",)
+    assert result.candidates.latent_origins.tolist() == [[2.0, 3.0]]
+    assert result.best_score == 5.0
+    oracle_records = [record for record in tracker.records if record.step_name == "BlackBoxOracle"]
+    assert [record.loop_indices for record in oracle_records] == [(0,), (1,)]
+
+
 def test_core_builds_nested_loop_and_parallel_without_oracle() -> None:
     config = {
         "optimization": {
