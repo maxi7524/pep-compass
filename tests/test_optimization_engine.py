@@ -26,6 +26,7 @@ from pep_compass.experiments.backends import (
 )
 from pep_compass.core.builder import PepCompassCore
 from pep_compass.core.validation import validate_configuration
+from pep_compass.core.encoder_decoder.manager import EncoderDecoderManager
 from pep_compass.optimization.batch import (
     CandidateBatch,
     OptionalField,
@@ -841,3 +842,10 @@ def test_every_bundled_oracle_is_registered_without_loading_its_model() -> None:
         "toxipep",
     )
     assert all(callable(factory) for factory in OracleManager._registry.values())
+
+
+def test_hydramp_is_exposed_through_encoder_decoder_manager() -> None:
+    import pep_compass.core.encoder_decoder.strategies  # noqa: F401
+
+    assert EncoderDecoderManager.methods() == ("hydramp",)
+    assert callable(EncoderDecoderManager.factory("hydramp"))

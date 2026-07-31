@@ -31,23 +31,14 @@ class PepCompassCore:
         encoder_config = config.get("encoder_decoder")
         if not isinstance(encoder_config, Mapping):
             raise ValueError("encoder_decoder configuration is required.")
-        method = encoder_config.get("method")
-        if method != "hydramp":
-            raise ValueError(f"Unknown encoder-decoder method: {method}")
-        import torch
-
-        from pep_compass.core.encoder_decoder.strategies.hydramp.adapter import (
-            HydrAMPEncoderDecoder,
-        )
+        from pep_compass.core.encoder_decoder.manager import EncoderDecoderManager
+        import pep_compass.core.encoder_decoder.strategies  # noqa: F401
 
         parameters = dict(encoder_config.get("parameters", {}))
         device = encoder_config.get("device", "cpu")
-        if "default_condition" in parameters:
-            parameters["default_condition"] = torch.as_tensor(
-                parameters["default_condition"],
-                device=device,
-            )
-        encoder_decoder = HydrAMPEncoderDecoder(device=device, **parameters)
+        encoder_decoder = EncoderDecoderManager.build(
+            encoder_config.get("method"), device=device, **parameters
+        )
         return cls(encoder_decoder, tracker=tracker)
 
     @staticmethod

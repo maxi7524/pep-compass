@@ -18,8 +18,12 @@ def validate_configuration(config: Mapping[str, Any]) -> None:
     encoder = config.get("encoder_decoder")
     if not isinstance(encoder, Mapping):
         raise ValueError("encoder_decoder configuration is required.")
-    if encoder.get("method") != "hydramp":
-        raise ValueError(f"Unknown encoder-decoder method: {encoder.get('method')}")
+    import pep_compass.core.encoder_decoder.strategies  # noqa: F401
+    from pep_compass.core.encoder_decoder.manager import EncoderDecoderManager
+
+    method = encoder.get("method")
+    if method not in EncoderDecoderManager.methods():
+        raise ValueError(f"Unknown encoder-decoder method: {method}")
     experiment = config.get("experiment", {})
     execution = experiment.get("execution", {}) if isinstance(experiment, Mapping) else {}
     if not isinstance(execution, Mapping):
