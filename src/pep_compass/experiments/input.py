@@ -41,18 +41,18 @@ class ExperimentTask:
 def load_input_sequences(
     configuration: Mapping[str, Any],
     *,
-    base_directory: Path | None = None,
+    working_directory: Path | None = None,
 ) -> list[str]:
     """Load starting sequences from an inline list or CSV file.
 
     Exactly one of ``sequences`` and ``csv`` must be configured. CSV paths are
-    resolved relative to the source configuration file when ``base_directory``
-    is supplied.
+    resolved relative to the process working directory, or the explicit
+    ``working_directory`` supplied by an embedding application.
 
     :param configuration: ``experiment.input`` configuration mapping.
     :type configuration: Mapping[str, Any]
-    :param base_directory: Directory used to resolve a relative CSV path.
-    :type base_directory: pathlib.Path | None
+    :param working_directory: Root used to resolve relative data paths.
+    :type working_directory: pathlib.Path | None
     :return: Starting sequences, expanded by optional CSV repetitions.
     :rtype: list[str]
     :raises ValueError: If the input source or its values are invalid.
@@ -65,13 +65,16 @@ def load_input_sequences(
         return _validate_inline_sequences(inline)
     if not isinstance(csv_configuration, Mapping):
         raise ValueError("experiment.input.csv must be a mapping.")
-    return _load_csv_sequences(csv_configuration, base_directory=base_directory)
+    return _load_csv_sequences(
+        csv_configuration,
+        working_directory=working_directory or Path.cwd(),
+    )
 
 
 def materialize_input_tasks(
     configuration: Mapping[str, Any],
     *,
-    base_directory: Path | None = None,
+    working_directory: Path | None = None,
 ) -> list[ExperimentTask]:
     """Materialize independent tasks from inline or CSV input.
 
@@ -81,8 +84,8 @@ def materialize_input_tasks(
 
     :param configuration: ``experiment.input`` configuration mapping.
     :type configuration: Mapping[str, Any]
-    :param base_directory: Directory used to resolve a relative CSV path.
-    :type base_directory: pathlib.Path | None
+    :param working_directory: Root used to resolve relative data paths.
+    :type working_directory: pathlib.Path | None
     :return: Independently executable tasks in deterministic order.
     :rtype: list[ExperimentTask]
     :raises ValueError: If input or repetitions are invalid.
@@ -101,7 +104,10 @@ def materialize_input_tasks(
     else:
         if not isinstance(csv_configuration, Mapping):
             raise ValueError("experiment.input.csv must be a mapping.")
-        sources = _load_csv_sources(csv_configuration, base_directory=base_directory)
+        sources = _load_csv_sources(
+            csv_configuration,
+            working_directory=working_directory or Path.cwd(),
+        )
     tasks: list[ExperimentTask] = []
     for source_index, (sequence, repetitions) in enumerate(sources):
         for repetition in range(repetitions):
@@ -129,25 +135,28 @@ def _validate_inline_sequences(value: Any) -> list[str]:
 def _load_csv_sequences(
     configuration: Mapping[str, Any],
     *,
-    base_directory: Path | None,
+    working_directory: Path,
 ) -> list[str]:
     """Read and expand peptide sequences from a configured CSV file."""
-    sources = _load_csv_sources(configuration, base_directory=base_directory)
+    sources = _load_csv_sources(
+        configuration,
+        working_directory=working_directory,
+    )
     return [sequence for sequence, repetitions in sources for _ in range(repetitions)]
 
 
 def _load_csv_sources(
     configuration: Mapping[str, Any],
     *,
-    base_directory: Path | None,
+    working_directory: Path,
 ) -> list[tuple[str, int]]:
     """Read sequence and repetition pairs from CSV input."""
     raw_path = configuration.get("path")
     if not isinstance(raw_path, str) or not raw_path:
         raise ValueError("experiment.input.csv.path must be a non-empty string.")
     path = Path(raw_path)
-    if not path.is_absolute() and base_directory is not None:
-        path = base_directory / path
+    if not path.is_absolute():
+        path = working_directory / path
     sequence_column = configuration.get("sequence_column", "sequence")
     repetitions_column = configuration.get("repetitions_column", "repetitions")
     sources: list[tuple[str, int]] = []

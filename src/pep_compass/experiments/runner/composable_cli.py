@@ -27,6 +27,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--max-workers", type=int)
     parser.add_argument("--slurm-script", type=Path)
     parser.add_argument("--worker", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--working-directory", type=Path)
     return parser.parse_args()
 
 
@@ -37,12 +38,19 @@ def main() -> None:
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     )
     args = _parse_args()
+    working_directory = (
+        Path.cwd()
+        if args.working_directory is None
+        else args.working_directory.resolve()
+    )
     config_path = args.config.resolve()
     config = load_configuration(config_path)
     validate_configuration(config)
     experiment = config.get("experiment", {})
     if args.dry_run:
-        plan = materialize_execution_plan(config, base_directory=config_path.parent)
+        plan = materialize_execution_plan(
+            config, working_directory=working_directory
+        )
         print(
             json.dumps(
                 {
@@ -62,7 +70,9 @@ def main() -> None:
             )
         )
         return
-    plan = materialize_execution_plan(config, base_directory=config_path.parent)
+    plan = materialize_execution_plan(
+        config, working_directory=working_directory
+    )
     execution = experiment.get("execution", {})
     backend = args.backend or execution.get("backend", "local")
     max_workers = args.max_workers or execution.get("max_workers", 1)
@@ -75,6 +85,7 @@ def main() -> None:
         execute_subprocess_plan(
             plan,
             config_path,
+            working_directory=working_directory,
             max_workers=max_workers,
             resume=args.resume,
             continue_on_error=args.continue_on_error,
@@ -87,6 +98,7 @@ def main() -> None:
             plan,
             config_path,
             args.slurm_script,
+            working_directory=working_directory,
             settings=execution.get("slurm", {}),
             resume=args.resume,
             continue_on_error=args.continue_on_error,
@@ -111,7 +123,7 @@ def main() -> None:
     ComposableExperiment(
         config,
         core,
-        config_directory=config_path.parent,
+        working_directory=working_directory,
         tracker_factory=tracker_factory,
         resume=args.resume,
         on_error="continue" if args.continue_on_error else "stop",

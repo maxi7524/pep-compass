@@ -17,6 +17,7 @@ def worker_command(
     config_path: Path,
     run_index: int | str,
     *,
+    working_directory: Path,
     resume: bool = False,
     continue_on_error: bool = False,
 ) -> list[str]:
@@ -30,6 +31,8 @@ def worker_command(
         "--run-index",
         str(run_index),
         "--worker",
+        "--working-directory",
+        str(working_directory),
     ]
     if resume:
         command.append("--resume")
@@ -42,6 +45,7 @@ def execute_subprocess_plan(
     plan: Sequence[PlannedRun],
     config_path: Path,
     *,
+    working_directory: Path,
     max_workers: int = 1,
     resume: bool = False,
     continue_on_error: bool = False,
@@ -56,10 +60,12 @@ def execute_subprocess_plan(
             worker_command(
                 config_path,
                 entry.index,
+                working_directory=working_directory,
                 resume=resume,
                 continue_on_error=continue_on_error,
             ),
             check=True,
+            cwd=working_directory,
         )
 
     if max_workers == 1:
@@ -75,6 +81,7 @@ def write_slurm_array_script(
     config_path: Path,
     output_path: Path,
     *,
+    working_directory: Path,
     settings: Mapping[str, Any] | None = None,
     resume: bool = False,
     continue_on_error: bool = False,
@@ -84,7 +91,14 @@ def write_slurm_array_script(
         raise ValueError("Cannot create a Slurm script for an empty plan.")
     indices = ",".join(str(entry.index) for entry in plan)
     options = dict(settings or {})
-    directives = ["#!/usr/bin/env bash", f"#SBATCH --array={indices}"]
+    working_directory = working_directory.resolve()
+    if "\n" in str(working_directory) or "\r" in str(working_directory):
+        raise ValueError("Invalid newline in working directory.")
+    directives = [
+        "#!/usr/bin/env bash",
+        f"#SBATCH --array={indices}",
+        f"#SBATCH --chdir={working_directory}",
+    ]
     for key in ("job_name", "partition", "time", "gres", "cpus_per_task", "mem"):
         value = options.get(key)
         if value is None:
@@ -97,6 +111,7 @@ def write_slurm_array_script(
     command = worker_command(
         config_path,
         "$SLURM_ARRAY_TASK_ID",
+        working_directory=working_directory,
         resume=resume,
         continue_on_error=continue_on_error,
     )

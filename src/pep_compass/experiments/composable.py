@@ -51,12 +51,20 @@ class ComposableExperiment:
 
     config: Mapping[str, Any]
     core: PepCompassCore
-    config_directory: Path | None = None
+    working_directory: Path | None = None
     tracker_factory: TrackerFactory | None = None
     resume: bool = False
     on_error: Literal["stop", "continue"] = "stop"
     run_indices: set[int] | None = None
     persist_manifest: bool = True
+
+    def __post_init__(self) -> None:
+        """Capture one absolute working directory for every relative path."""
+        self.working_directory = (
+            Path.cwd()
+            if self.working_directory is None
+            else Path(self.working_directory).resolve()
+        )
 
     def run(self) -> ExperimentResult:
         """Execute every input repetition as an independent optimization run.
@@ -71,7 +79,7 @@ class ComposableExperiment:
             raise ValueError("Experiment on_error must be stop or continue.")
         experiment = self.config.get("experiment", {})
         plan = materialize_execution_plan(
-            self.config, base_directory=self.config_directory
+            self.config, working_directory=self.working_directory
         )
         if self.run_indices is not None:
             missing = self.run_indices - {entry.index for entry in plan}
@@ -157,8 +165,8 @@ class ComposableExperiment:
         if directory is None:
             return None
         resolved = Path(directory)
-        if not resolved.is_absolute() and self.config_directory is not None:
-            resolved = self.config_directory / resolved
+        if not resolved.is_absolute():
+            resolved = self.working_directory / resolved
         return resolved
 
     @staticmethod

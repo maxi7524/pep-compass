@@ -23,12 +23,13 @@ class PlannedRun:
 def materialize_execution_plan(
     config: Mapping[str, Any],
     *,
-    base_directory: Path | None = None,
+    working_directory: Path | None = None,
 ) -> tuple[PlannedRun, ...]:
     """Create deterministic ``variant × input task`` execution entries."""
     experiment = config.get("experiment", {})
     tasks = materialize_input_tasks(
-        experiment.get("input", {}), base_directory=base_directory
+        experiment.get("input", {}),
+        working_directory=working_directory or Path.cwd(),
     )
     variants = materialize_variants(config)
     base_seed = experiment.get("seed")
