@@ -1,0 +1,20 @@
+experiment:
+  name: esm_filter_smoke
+  seed: 303
+  input:
+    sequences: [FLYKWWIRIGRLKL]
+  output:
+    directory: results/validation/esm
+  tracking: {level: all, store_latents: false, store_fields: true}
+  execution: {backend: local, max_workers: 1}
+encoder_decoder:
+  method: hydramp
+  device: cpu
+  parameters: {jacobian_mode: approx, jacobian_eps: 0.001, field_eps: 0.001}
+optimization:
+  limits: {oracle_calls: 1, generated_candidates: null}
+  steps:
+    - filter:
+        method: esm_plausibility
+        parameters: {model_name: esm2_t6_8M_UR50D, device: cpu, top_k: 1}
+    - oracle: {method: hydrophobicity, parameters: {}}

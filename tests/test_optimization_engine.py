@@ -776,6 +776,21 @@ def test_reference_lebo_configuration_materializes_complete_loop() -> None:
     ]
 
 
+def test_every_validation_yaml_materializes_without_loading_models() -> None:
+    from pep_compass.core.configuration import load_configuration
+
+    repository_root = Path(__file__).resolve().parents[1]
+    paths = sorted(
+        (repository_root / "configs" / "optimization" / "validation").glob("*.yaml")
+    )
+
+    assert paths
+    for path in paths:
+        config = load_configuration(path)
+        validate_configuration(config)
+        assert materialize_execution_plan(config, base_directory=path.parent)
+
+
 def test_core_executes_complete_mock_strategy_tree_across_loop_iterations() -> None:
     class MockWalker(Walker):
         def _execute(self, batch, context):
