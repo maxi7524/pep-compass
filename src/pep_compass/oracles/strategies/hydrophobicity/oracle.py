@@ -6,7 +6,7 @@ from poli.core.black_box_information import BlackBoxInformation
 from pep_compass.oracles.strategies.hydrophobicity.HydrophobicityPredictor import (
     HydrophobicityPredictor,
 )
-from pep_compass.core.encoder_decoder.strategies.hydramp.adapter import HydrAMPEncoderDecoder
+from pep_compass.encoder_decoder.strategies.hydramp.adapter import HydrAMPEncoderDecoder
 
 class HydrophobicityBlackBox(AbstractBlackBox):
     def __init__(

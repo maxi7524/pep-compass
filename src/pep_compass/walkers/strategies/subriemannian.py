@@ -3,7 +3,8 @@ import math
 
 import torch
 
-from pep_compass.core.encoder_decoder.base import EncoderDecoder
+from pep_compass.encoder_decoder.base import EncoderDecoder
+from pep_compass.core.latent_geometry import compute_tangent_space_svd
 
 
 class SubRiemannianTangentSpace:
@@ -102,16 +103,17 @@ class SubRiemannianManifold:
         self, latent_position
     ) -> SubRiemannianTangentSpace:
 
-        # TODO: try to remove this check
-        if latent_position.ndim == 1:
-            latent_position = latent_position.unsqueeze(0)
-
-        decoder_jacobian = self.encoder_decoder.decoder_jacobian(latent_position)[0]
-
-        U, S, V = torch.linalg.svd(decoder_jacobian, full_matrices=False)
+        U, S, V = compute_tangent_space_svd(
+            self.encoder_decoder,
+            latent_position,
+        )
 
         return SubRiemannianTangentSpace(
-            U, S, V, self.horizontal_threshold, device=self.encoder_decoder.device
+            U[0],
+            S[0],
+            V[0],
+            self.horizontal_threshold,
+            device=self.encoder_decoder.device,
         )
 
     def get_ambient_manifold_acceleration(self, latent_position, latent_velocity):

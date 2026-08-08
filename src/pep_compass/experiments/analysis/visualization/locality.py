@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import matplotlib.pyplot as plt
 import seaborn as sns
+from matplotlib.lines import Line2D
 
 from pep_compass.experiments.analysis.result import AnalysisResult
 from pep_compass.experiments.analysis.visualization.theme import PlotTheme
@@ -196,6 +197,113 @@ class LocalityVisualizer:
         axes.set_xscale("log")
         axes.set(title="MUTANG selectivity", ylabel="Retained unique candidates")
         return axes
+
+    def _method_comparison_grid(
+        self,
+        result: AnalysisResult,
+        y: str,
+        title: str,
+        ylabel: str,
+    ):
+        """Plot peptide-level method outcomes in separate locality panels."""
+        data = result.data.copy()
+        if data.empty:
+            raise ValueError("Cannot visualize an empty method comparison")
+        radii = sorted(data["levenshtein_radius"].dropna().unique())[:8]
+        methods = sorted(data["method"].dropna().astype(str).unique())
+        colors = sns.color_palette(self.theme.palette, n_colors=len(methods))
+        palette = dict(zip(methods, colors))
+        with sns.axes_style(self.theme.style), sns.plotting_context(
+            self.theme.context
+        ):
+            figure, axes = plt.subplots(
+                2,
+                4,
+                figsize=(
+                    self.theme.figure_size[0] * 2.4,
+                    self.theme.figure_size[1] * 1.8,
+                ),
+                dpi=self.theme.dpi,
+                sharey=True,
+                constrained_layout=True,
+            )
+        for axes_item, radius in zip(axes.flat, radii):
+            panel = data[data["levenshtein_radius"] == radius]
+            per_peptide = (
+                panel.groupby(
+                    ["method", "method_variant", "name"], dropna=False
+                )[y]
+                .median()
+                .reset_index()
+            )
+            order = per_peptide["method_variant"].drop_duplicates().tolist()
+            sns.stripplot(
+                data=per_peptide,
+                x="method_variant",
+                y=y,
+                hue="method",
+                order=order,
+                palette=palette,
+                jitter=0.18,
+                size=5,
+                alpha=0.8,
+                ax=axes_item,
+            )
+            medians = per_peptide.groupby("method_variant", dropna=False)[y].median()
+            for position, variant in enumerate(order):
+                axes_item.scatter(
+                    position,
+                    medians.loc[variant],
+                    marker="_",
+                    s=180,
+                    linewidth=2.5,
+                    color="black",
+                    zorder=5,
+                )
+            if axes_item.legend_ is not None:
+                axes_item.legend_.remove()
+            axes_item.set_title(f"Levenshtein ≤ {int(radius)}")
+            axes_item.set_xlabel("")
+            axes_item.set_ylabel(ylabel)
+            axes_item.tick_params(axis="x", rotation=55)
+        for axes_item in axes.flat[len(radii):]:
+            axes_item.set_visible(False)
+        handles = [
+            Line2D(
+                [],
+                [],
+                marker="o",
+                linestyle="",
+                color=palette[method],
+                label=method,
+            )
+            for method in methods
+        ]
+        figure.legend(
+            handles=handles,
+            loc="outside upper center",
+            ncol=min(5, len(handles)),
+        )
+        figure.suptitle(title)
+        return axes
+
+    def method_comparison(self, result: AnalysisResult):
+        """Plot local candidate yield for every method and random control."""
+        return self._method_comparison_grid(
+            result,
+            "post_method_local_unique",
+            "Method comparison: retained local candidates",
+            "Unique candidates after method filter",
+        )
+
+    def method_retention(self, result: AnalysisResult):
+        """Plot local pool retention for every method and random control."""
+        return self._method_comparison_grid(
+            result,
+            "method_retention_local",
+            "Method comparison: local pool retention",
+            "Post-method / pre-method unique candidates",
+        )
 
     def parameter_selection(self, result: AnalysisResult):
         """Plot candidate yield against constraint retention."""

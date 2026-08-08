@@ -39,7 +39,7 @@ class OptimizationContext:
         branch_seed = None if self.seed is None else self.seed + index + 1
         return replace(
             self,
-            scope=self.scope.branch(name),
+            scope=self.scope.branch(name, index),
             seed=branch_seed,
             rng=np.random.default_rng(branch_seed),
         )

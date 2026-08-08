@@ -38,7 +38,7 @@ from pep_compass.filters.strategies.decision_models.mutation_potentials import (
     compose_mutant_distribution,
 )
 from pep_compass.walkers.strategies.subriemannian import SubRiemannianTangentSpace
-from pep_compass.core.encoder_decoder.strategies.hydramp.adapter import (
+from pep_compass.encoder_decoder.strategies.hydramp.adapter import (
     HydrAMPEncoderDecoder,
 )
 
@@ -57,8 +57,7 @@ def _nucleus_indices(
         return np.arange(len(scores))
     order = np.argsort(scores)[::-1]
     scaled = scores[order] / temperature
-    probabilities = np.exp(scaled - scaled.max())
-    probabilities /= probabilities.sum()
+    probabilities = _stable_probabilities(scaled)
     cumulative = np.cumsum(probabilities)
     keep = np.empty(len(scores), dtype=bool)
     keep[0] = True
@@ -89,8 +88,7 @@ def _score_trace(scores: np.ndarray, temperature: float) -> CandidateFilterTrace
         return CandidateFilterTrace(empty, empty, empty, empty.astype(int))
     order = np.argsort(scores)[::-1]
     scaled = scores[order] / temperature
-    ordered_probabilities = np.exp(scaled - scaled.max())
-    ordered_probabilities /= ordered_probabilities.sum()
+    ordered_probabilities = _stable_probabilities(scaled)
     probabilities = np.empty(len(scores), dtype=float)
     cumulative = np.empty(len(scores), dtype=float)
     ranks = np.empty(len(scores), dtype=int)
@@ -98,6 +96,24 @@ def _score_trace(scores: np.ndarray, temperature: float) -> CandidateFilterTrace
     cumulative[order] = np.cumsum(ordered_probabilities)
     ranks[order] = np.arange(1, len(scores) + 1)
     return CandidateFilterTrace(scores, probabilities, cumulative, ranks)
+
+
+def _stable_probabilities(scaled_scores: np.ndarray) -> np.ndarray:
+    """Normalize log weights while handling infinite geometric potentials."""
+    if np.isnan(scaled_scores).any():
+        raise ValueError("Candidate scores cannot contain NaN values.")
+    positive_infinity = np.isposinf(scaled_scores)
+    if positive_infinity.any():
+        return positive_infinity.astype(float) / positive_infinity.sum()
+    finite = np.isfinite(scaled_scores)
+    if not finite.any():
+        return np.full(len(scaled_scores), 1.0 / len(scaled_scores))
+    probabilities = np.zeros(len(scaled_scores), dtype=float)
+    probabilities[finite] = np.exp(
+        scaled_scores[finite] - scaled_scores[finite].max()
+    )
+    probabilities /= probabilities.sum()
+    return probabilities
 
 
 def _bounded_mutations(

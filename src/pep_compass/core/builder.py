@@ -31,8 +31,8 @@ class PepCompassCore:
         encoder_config = config.get("encoder_decoder")
         if not isinstance(encoder_config, Mapping):
             raise ValueError("encoder_decoder configuration is required.")
-        from pep_compass.core.encoder_decoder.manager import EncoderDecoderManager
-        import pep_compass.core.encoder_decoder.strategies  # noqa: F401
+        from pep_compass.encoder_decoder.manager import EncoderDecoderManager
+        import pep_compass.encoder_decoder.strategies  # noqa: F401
 
         parameters = dict(encoder_config.get("parameters", {}))
         device = encoder_config.get("device", "cpu")
@@ -101,20 +101,29 @@ class PepCompassCore:
         return Loop(self._build_flow(steps), int(settings["iterations"]))
 
     def _build_parallel(self, settings: Mapping[str, Any]) -> Parallel:
+        """Build explicit branches or indexed replicas of one shared flow."""
         branch_configs = settings.get("branches")
-        if not isinstance(branch_configs, Sequence) or isinstance(
-            branch_configs, (str, bytes)
-        ):
-            raise ValueError("parallel.branches must be a sequence.")
         branches: dict[str, Step] = {}
-        for index, branch in enumerate(branch_configs):
-            name = str(branch.get("name", f"branch_{index}"))
-            if name in branches:
-                raise ValueError(f"Parallel branch name is duplicated: {name}")
-            branches[name] = self._build_flow(branch["steps"])
+        replicas = settings.get("replicas")
+        # Replica syntax expands one step definition into independently scoped
+        # branches; explicit branches retain their configured names.
+        if replicas is not None:
+            replica_steps = settings["steps"]
+            for index in range(int(replicas)):
+                branches[f"replica_{index:03d}"] = self._build_flow(replica_steps)
+        else:
+            if not isinstance(branch_configs, Sequence) or isinstance(
+                branch_configs, (str, bytes)
+            ):
+                raise ValueError("parallel.branches must be a sequence.")
+            for index, branch in enumerate(branch_configs):
+                name = str(branch.get("name", f"branch_{index}"))
+                if name in branches:
+                    raise ValueError(f"Parallel branch name is duplicated: {name}")
+                branches[name] = self._build_flow(branch["steps"])
         return Parallel(
             branches,
-            execution=settings.get("execution", "sequential"),
+            execution=settings.get("execution", "auto"),
             merger=build_merger(settings.get("merge", "concatenate")),
         )
 

@@ -1,6 +1,6 @@
 """HydrAMP encoder-decoder strategy."""
 
-from pep_compass.core.encoder_decoder.strategies.hydramp.adapter import (
+from pep_compass.encoder_decoder.strategies.hydramp.adapter import (
     HydrAMPEncoderDecoder,
 )
 

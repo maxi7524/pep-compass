@@ -14,7 +14,7 @@ from pep_compass.utils.logger import get_custom_logger
 
 logger = get_custom_logger(__name__)
 
-ParallelExecution = Literal["sequential", "concurrent"]
+ParallelExecution = Literal["auto", "sequential", "concurrent"]
 MergeMethod = Literal["concatenate", "interleave", "select_best", "weighted_sample"]
 
 
@@ -129,7 +129,7 @@ class Loop(Step):
     ) -> CandidateBatch:
         result = batch
         for index in range(self.iterations):
-            if context.state.stop_requested:
+            if context.state.stop_requested or len(result) == 0:
                 break
             result = self.body(result, context.enter_iteration(index))
         return result
@@ -142,13 +142,15 @@ class Parallel(Step):
         self,
         branches: Mapping[str, Step],
         *,
-        execution: ParallelExecution = "sequential",
+        execution: ParallelExecution = "auto",
         merger: BatchMerger | None = None,
     ) -> None:
         if not branches:
             raise ValueError("Parallel requires at least one branch.")
-        if execution not in {"sequential", "concurrent"}:
-            raise ValueError("Parallel execution must be sequential or concurrent.")
+        if execution not in {"auto", "sequential", "concurrent"}:
+            raise ValueError(
+                "Parallel execution must be auto, sequential, or concurrent."
+            )
         self.branches = dict(branches)
         self.execution = execution
         self.merger = merger or ConcatenateMerger()

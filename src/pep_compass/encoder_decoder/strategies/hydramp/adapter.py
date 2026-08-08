@@ -1,8 +1,8 @@
 import torch
 from typing import Literal
 from torch import nn
-from pep_compass.core.encoder_decoder.base import EncoderDecoder
-from pep_compass.core.encoder_decoder.strategies.hydramp.model import (
+from pep_compass.encoder_decoder.base import EncoderDecoder
+from pep_compass.encoder_decoder.strategies.hydramp.model import (
     HydrAMPDecoder,
     HydrAMPEncoder,
 )

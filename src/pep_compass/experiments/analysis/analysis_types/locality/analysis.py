@@ -9,6 +9,7 @@ from pep_compass.experiments.analysis.analysis_types.locality.latent_geometry im
     latent_locality,
 )
 from pep_compass.experiments.analysis.analysis_types.locality.mutang import (
+    method_comparison,
     mutang_selectivity,
 )
 from pep_compass.experiments.analysis.analysis_types.locality.parameters import (
@@ -37,7 +38,7 @@ class LocalityAnalysis:
     ) -> AnalysisResult:
         store = self.selection.reader.metrics
         specification = self.selection.specification()
-        analysis_version = "4"
+        analysis_version = "5"
         if self.use_cache:
             cached = store.get_analysis(
                 name, specification, parameters, analysis_version
@@ -76,6 +77,12 @@ class LocalityAnalysis:
         """Summarize threshold, dimensionality, and candidate-retention effects."""
         return self._run(
             "locality.mutang_selectivity", mutang_selectivity, parameters
+        )
+
+    def method_comparison(self, **parameters: Any) -> AnalysisResult:
+        """Compare method-retained local pools against random controls."""
+        return self._run(
+            "locality.method_comparison", method_comparison, parameters
         )
 
     def parameter_selection(self, **parameters: Any) -> AnalysisResult:

@@ -116,6 +116,7 @@ def main() -> None:
             max_depth=tracking.get("max_depth"),
             store_latents=tracking.get("store_latents", False),
             store_fields=tracking.get("store_fields", False),
+            field_names=tracking.get("field_names"),
             run_id=task.run_id,
             variant_id=variant.variant_id,
         )

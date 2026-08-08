@@ -19,8 +19,8 @@ def validate_configuration(config: Mapping[str, Any]) -> None:
     encoder = config.get("encoder_decoder")
     if not isinstance(encoder, Mapping):
         raise ValueError("encoder_decoder configuration is required.")
-    import pep_compass.core.encoder_decoder.strategies  # noqa: F401
-    from pep_compass.core.encoder_decoder.manager import EncoderDecoderManager
+    import pep_compass.encoder_decoder.strategies  # noqa: F401
+    from pep_compass.encoder_decoder.manager import EncoderDecoderManager
 
     method = encoder.get("method")
     if method not in EncoderDecoderManager.methods():
@@ -31,6 +31,9 @@ def validate_configuration(config: Mapping[str, Any]) -> None:
         EncoderDecoderManager.factory(method), encoder_parameters
     )
     experiment = config.get("experiment", {})
+    seed_scope = experiment.get("seed_scope", "run")
+    if seed_scope not in {"run", "task"}:
+        raise ValueError("experiment.seed_scope must be run or task.")
     execution = experiment.get("execution", {}) if isinstance(experiment, Mapping) else {}
     if not isinstance(execution, Mapping):
         raise ValueError("experiment.execution must be a mapping.")
@@ -85,14 +88,35 @@ def _validate_steps(value: Any, path: str) -> None:
 
 
 def _validate_parallel(settings: Mapping[str, Any], path: str) -> None:
-    execution = settings.get("execution", "sequential")
-    if execution not in {"sequential", "concurrent"}:
-        raise ValueError(f"{path}.execution must be sequential or concurrent.")
+    """Validate one parallel node and its mutually exclusive input forms."""
+    execution = settings.get("execution", "auto")
+    if execution not in {"auto", "sequential", "concurrent"}:
+        raise ValueError(
+            f"{path}.execution must be auto, sequential, or concurrent."
+        )
     if settings.get("merge", "concatenate") != "concatenate":
         raise ValueError(f"{path}.merge is not implemented.")
     branches = settings.get("branches")
+    replicas = settings.get("replicas")
+    replica_steps = settings.get("steps")
+    # A parallel node uses either named branches or replicated shared steps.
+    if branches is not None and (replicas is not None or replica_steps is not None):
+        raise ValueError(
+            f"{path} must configure branches or replicas with steps, not both."
+        )
+    if replicas is not None or replica_steps is not None:
+        if (
+            not isinstance(replicas, int)
+            or isinstance(replicas, bool)
+            or replicas < 1
+        ):
+            raise ValueError(f"{path}.replicas must be a positive integer.")
+        _validate_steps(replica_steps, f"{path}.steps")
+        return
     if not isinstance(branches, Sequence) or isinstance(branches, (str, bytes)):
-        raise ValueError(f"{path}.branches must be a sequence.")
+        raise ValueError(
+            f"{path} requires either branches or replicas with shared steps."
+        )
     names: set[str] = set()
     for index, branch in enumerate(branches):
         if not isinstance(branch, Mapping):

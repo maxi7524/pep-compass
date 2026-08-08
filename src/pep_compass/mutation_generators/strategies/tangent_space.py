@@ -57,7 +57,7 @@ class MutationEnumerationInTangentSpace(MutationEnumerator):
     ):
         super().__init__()
         self.max_len = max_len
-        self.direction_significance_threshold = direction_significance_threshold
+        self.direction_significance_threshold = float(direction_significance_threshold)
         self.min_number_of_directions = min_number_of_directions
         self.token_threshold = token_threshold
         self.alphabet = alphabet or list(" ACDEFGHIKLMNPQRSTVWY")
@@ -185,11 +185,13 @@ class MutationEnumerationInTangentSpace(MutationEnumerator):
             A list of mutated peptide sequences.
         """
         padded_peptide = peptide + "".join([" "] * (self.max_len - len(peptide)))
-        new_mutations = deepcopy(mutations)
+        new_mutations = {
+            position: set(amino_acids)
+            for position, amino_acids in deepcopy(mutations).items()
+        }
 
         for aa_pos, aa in enumerate(padded_peptide):
-            new_mutations[aa_pos].append(self.alphabet.index(aa))
-            new_mutations[aa_pos] = set(new_mutations[aa_pos])
+            new_mutations.setdefault(aa_pos, set()).add(self.alphabet.index(aa))
 
         result_list = []
         self.aux_mutate("", new_mutations, result_list)

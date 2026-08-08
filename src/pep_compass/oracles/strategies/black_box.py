@@ -30,6 +30,13 @@ class BlackBoxOracle(Oracle):
             context.state.stop_requested = True
             return batch.select([])
         evaluated_batch = batch if remaining is None else batch.select(range(min(len(batch), remaining)))
+        if len(evaluated_batch) == 0:
+            scores = torch.empty(
+                0,
+                dtype=torch.get_default_dtype(),
+                device=evaluated_batch.latent_origins.device,
+            )
+            return self._attach_result(evaluated_batch, scores)
         if self.batch_size is None:
             raw = self.black_box(np.asarray(evaluated_batch.sequences))
         else:
@@ -51,7 +58,15 @@ class BlackBoxOracle(Oracle):
             evaluated_batch.sequences,
             [float(score) for score in scores.detach().cpu().tolist()],
         )
-        result = evaluated_batch.with_field(self.field_name, TensorField(scores))
+        return self._attach_result(evaluated_batch, scores)
+
+    def _attach_result(
+        self,
+        batch: CandidateBatch,
+        scores: torch.Tensor,
+    ) -> CandidateBatch:
+        """Attach score and oracle metadata fields to an evaluated batch."""
+        result = batch.with_field(self.field_name, TensorField(scores))
         direction = (
             "maximize" if getattr(self.black_box, "maximize", False) else "minimize"
         )

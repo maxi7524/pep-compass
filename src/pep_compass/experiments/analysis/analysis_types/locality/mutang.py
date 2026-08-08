@@ -13,6 +13,10 @@ from pep_compass.experiments.analysis.analysis_types.locality._streaming import 
     Reservoir,
     RunningMoments,
 )
+from pep_compass.experiments.analysis.analysis_types.locality.sorbes import (
+    CardinalitySketch,
+    _as_boolean,
+)
 from pep_compass.experiments.analysis.result import AnalysisResult
 from pep_compass.experiments.reader.selection import ExperimentSelection
 
@@ -20,6 +24,165 @@ from pep_compass.experiments.reader.selection import ExperimentSelection
 def _group_key(values: tuple[object, ...]) -> tuple[object, ...]:
     """Normalize missing grouping values into stable dictionary keys."""
     return tuple(None if pd.isna(value) else value for value in values)
+
+
+def _method_variant(metadata: dict[str, object]) -> str:
+    """Return a compact label for one method-specific parameter variant."""
+    method = str(metadata.get("method"))
+    token = metadata.get("mutation.token_threshold")
+    suffix = f", token={token}"
+    if method == "lams":
+        return f"LAMS sim={metadata.get('filter.similarity_threshold')}{suffix}"
+    if method in {"tandem", "move", "lpbebo"}:
+        return (
+            f"{method.upper()} top-p={metadata.get('filter.top_p')}, "
+            f"T={metadata.get('filter.temperature')}{suffix}"
+        )
+    if method == "random_mutang":
+        return (
+            "random MUTANG "
+            f"fraction={metadata.get('filter.selection_fraction')}, "
+            f"T={metadata.get('filter.temperature')}{suffix}"
+        )
+    if method == "random_walker":
+        return (
+            "random walker "
+            f"positions={metadata.get('filter.maximum_positions')}{suffix}"
+        )
+    return f"{method}{suffix}"
+
+
+def method_comparison(
+    selection: ExperimentSelection,
+    levenshtein_radii: tuple[int, ...] = tuple(range(1, 9)),
+    sketch_precision: int = 12,
+    chunk_size: int = 100_000,
+    progress: bool = True,
+    progress_every_batches: int = 10,
+) -> AnalysisResult:
+    """Compare method filtering per peptide and retrospective locality radius.
+
+    :param selection: Runs and deferred row filters to analyze.
+    :param levenshtein_radii: Cumulative Levenshtein radii plotted separately.
+    :param sketch_precision: HyperLogLog precision controlling count error/RAM.
+    :param chunk_size: Maximum candidate-occurrence rows loaded at once.
+    :param progress: Print scan progress, throughput, and ETA.
+    :param progress_every_batches: Batches between progress messages.
+    :return: One row per run and radius with pre/post-method unique counts.
+    """
+    radii = tuple(sorted({int(value) for value in levenshtein_radii if value > 0}))
+    if not radii:
+        raise ValueError("At least one positive Levenshtein radius is required")
+    if chunk_size < 1 or progress_every_batches < 1:
+        raise ValueError("Processing bounds must be positive")
+
+    rows: list[dict[str, object]] = []
+    maximum_radius = max(radii)
+    # Per-run streaming cardinality collection
+    for run in selection.runs:
+        run_selection = ExperimentSelection(
+            selection.reader, (run,), selection.row_filters
+        )
+        total = run_selection.count_rows("candidate_occurrences")
+        reporter = ProgressReporter(
+            f"method_comparison:{run.run_id}",
+            total,
+            every_batches=progress_every_batches,
+            enabled=progress,
+        )
+        exact = {
+            stage: {
+                distance: CardinalitySketch(sketch_precision)
+                for distance in range(maximum_radius + 1)
+            }
+            for stage in ("post_cap", "post_method")
+        }
+        for chunk in run_selection.scan(
+            "candidate_occurrences",
+            columns=[
+                "candidate_id",
+                "passed_method_filter",
+                "levenshtein_to_center",
+            ],
+            chunk_size=chunk_size,
+        ):
+            batch_rows = len(chunk)
+            chunk["levenshtein_to_center"] = pd.to_numeric(
+                chunk["levenshtein_to_center"], errors="coerce"
+            )
+            chunk = chunk[
+                chunk["levenshtein_to_center"].between(0, maximum_radius)
+            ]
+            if chunk.empty:
+                reporter.update(batch_rows)
+                continue
+            chunk["levenshtein_to_center"] = chunk[
+                "levenshtein_to_center"
+            ].astype(int)
+            passed_method = _as_boolean(chunk["passed_method_filter"])
+            for distance, group in chunk.groupby(
+                "levenshtein_to_center", sort=False, observed=True
+            ):
+                exact["post_cap"][int(distance)].update(group["candidate_id"])
+                method_group = group[passed_method.loc[group.index]]
+                exact["post_method"][int(distance)].update(
+                    method_group["candidate_id"]
+                )
+            reporter.update(batch_rows)
+
+        # Cumulative locality summaries
+        cumulative = {
+            stage: CardinalitySketch(sketch_precision) for stage in exact
+        }
+        metadata = run.metadata
+        previous_radius = -1
+        for radius in radii:
+            for distance in range(previous_radius + 1, radius + 1):
+                for stage in cumulative:
+                    cumulative[stage].merge(exact[stage][distance])
+            post_cap = cumulative["post_cap"].estimate()
+            post_method = cumulative["post_method"].estimate()
+            rows.append(
+                {
+                    "run_id": run.run_id,
+                    "name": metadata.get("name"),
+                    "sequence": metadata.get("sequence"),
+                    "experiment": metadata.get("experiment"),
+                    "grid_id": metadata.get("grid_id"),
+                    "method": metadata.get("method"),
+                    "method_variant": _method_variant(metadata),
+                    "levenshtein_radius": radius,
+                    "post_cap_local_unique": post_cap,
+                    "post_method_local_unique": post_method,
+                    "method_retention_local": (
+                        post_method / post_cap if post_cap else np.nan
+                    ),
+                    "mutation.token_threshold": metadata.get(
+                        "mutation.token_threshold"
+                    ),
+                    "filter.similarity_threshold": metadata.get(
+                        "filter.similarity_threshold"
+                    ),
+                    "filter.top_p": metadata.get("filter.top_p"),
+                    "filter.temperature": metadata.get("filter.temperature"),
+                    "filter.selection_fraction": metadata.get(
+                        "filter.selection_fraction"
+                    ),
+                }
+            )
+            previous_radius = radius
+    return AnalysisResult(
+        pd.DataFrame(rows),
+        {
+            "analysis": "method_comparison",
+            "unit": "peptide run",
+            "radii_are_cumulative": True,
+            "constraint_is_retrospective": True,
+            "cardinality_method": "HyperLogLog",
+            "cardinality_relative_standard_error": 1.04
+            / np.sqrt(2**sketch_precision),
+        },
+    )
 
 
 def mutang_selectivity(

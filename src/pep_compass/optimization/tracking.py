@@ -26,6 +26,7 @@ class ExecutionScope:
     path: tuple[str, ...] = ()
     loop_indices: tuple[int, ...] = ()
     branch_names: tuple[str, ...] = ()
+    branch_indices: tuple[int, ...] = ()
 
     @property
     def depth(self) -> int:
@@ -38,6 +39,7 @@ class ExecutionScope:
             path=(*self.path, name),
             loop_indices=self.loop_indices,
             branch_names=self.branch_names,
+            branch_indices=self.branch_indices,
         )
 
     def loop_iteration(self, index: int) -> "ExecutionScope":
@@ -46,14 +48,16 @@ class ExecutionScope:
             path=(*self.path, f"iteration[{index}]"),
             loop_indices=(*self.loop_indices, index),
             branch_names=self.branch_names,
+            branch_indices=self.branch_indices,
         )
 
-    def branch(self, name: str) -> "ExecutionScope":
+    def branch(self, name: str, index: int) -> "ExecutionScope":
         """Return a scope for one logical parallel branch."""
         return ExecutionScope(
             path=(*self.path, f"branch[{name}]"),
             loop_indices=self.loop_indices,
             branch_names=(*self.branch_names, name),
+            branch_indices=(*self.branch_indices, index),
         )
 
 
@@ -118,6 +122,7 @@ class StepExecutionRecord:
     path: tuple[str, ...]
     loop_indices: tuple[int, ...]
     branch_names: tuple[str, ...]
+    branch_indices: tuple[int, ...]
     input_size: int
     output_size: int
     status: str = "completed"
@@ -164,6 +169,7 @@ class InMemoryStepTracker(StepTracker):
             path=scope.path,
             loop_indices=scope.loop_indices,
             branch_names=scope.branch_names,
+            branch_indices=scope.branch_indices,
             input_size=len(input_batch),
             output_size=len(output_batch),
             duration_seconds=perf_counter() - handle[0],
@@ -181,6 +187,7 @@ class InMemoryStepTracker(StepTracker):
             path=scope.path,
             loop_indices=scope.loop_indices,
             branch_names=scope.branch_names,
+            branch_indices=scope.branch_indices,
             input_size=len(input_batch),
             output_size=0,
             status="failed",
@@ -196,7 +203,12 @@ class InMemoryStepTracker(StepTracker):
 
 
 class CSVStepTracker(StepTracker):
-    """Stream depth-aware optimization records to normalized CSV files."""
+    """Stream depth-aware optimization records to normalized CSV files.
+
+    ``field_names`` limits serialized candidate fields when field storage is
+    enabled. Step summaries are flushed after each execution so interrupted
+    runs retain their last completed or failed step.
+    """
 
     def __init__(
         self,
@@ -206,6 +218,7 @@ class CSVStepTracker(StepTracker):
         max_depth: int | None = None,
         store_latents: bool = False,
         store_fields: bool = False,
+        field_names: list[str] | tuple[str, ...] | None = None,
         run_id: str | None = None,
         variant_id: str | None = None,
     ) -> None:
@@ -215,6 +228,7 @@ class CSVStepTracker(StepTracker):
         self.max_depth = max_depth
         self.store_latents = store_latents
         self.store_fields = store_fields
+        self.field_names = frozenset(field_names) if field_names is not None else None
         self.run_id = run_id
         self.variant_id = variant_id
         self.output_directory = Path(output_directory)
@@ -238,6 +252,7 @@ class CSVStepTracker(StepTracker):
                 "depth",
                 "loop_indices",
                 "branch_names",
+                "branch_indices",
                 "input_size",
                 "output_size",
                 "status",
@@ -302,6 +317,7 @@ class CSVStepTracker(StepTracker):
             "depth": scope.depth,
             "loop_indices": json.dumps(scope.loop_indices),
             "branch_names": json.dumps(scope.branch_names),
+            "branch_indices": json.dumps(scope.branch_indices),
             "input_size": len(input_batch),
             "output_size": len(output_batch),
             "status": "completed",
@@ -318,6 +334,8 @@ class CSVStepTracker(StepTracker):
         with self._lock:
             self._step_writer.writerow(step_row)
             self._candidate_writer.writerows(candidate_rows)
+            self._step_stream.flush()
+            self._candidate_stream.flush()
 
     def fail_step(self, handle, step, input_batch, scope, context, error):
         row = {
@@ -329,6 +347,7 @@ class CSVStepTracker(StepTracker):
             "depth": scope.depth,
             "loop_indices": json.dumps(scope.loop_indices),
             "branch_names": json.dumps(scope.branch_names),
+            "branch_indices": json.dumps(scope.branch_indices),
             "input_size": len(input_batch),
             "output_size": 0,
             "status": "failed",
@@ -341,6 +360,7 @@ class CSVStepTracker(StepTracker):
         }
         with self._lock:
             self._step_writer.writerow(row)
+            self._step_stream.flush()
 
     def _candidate_rows(
         self,
@@ -370,8 +390,7 @@ class CSVStepTracker(StepTracker):
             )
         return rows
 
-    @staticmethod
-    def _serialize_fields(batch: "CandidateBatch", index: int) -> str:
+    def _serialize_fields(self, batch: "CandidateBatch", index: int) -> str:
         from pep_compass.optimization.batch import (
             ObjectField,
             OptionalField,
@@ -381,6 +400,8 @@ class CSVStepTracker(StepTracker):
 
         values: dict[str, Any] = {}
         for name, field_value in batch.fields.items():
+            if self.field_names is not None and name not in self.field_names:
+                continue
             if isinstance(field_value, TensorField):
                 values[name] = field_value.values[index].detach().cpu().tolist()
             elif isinstance(field_value, ObjectField):

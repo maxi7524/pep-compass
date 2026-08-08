@@ -4,7 +4,7 @@ from typing import Any
 
 import torch
 
-from pep_compass.core.encoder_decoder.manager import EncoderDecoderManager
+from pep_compass.encoder_decoder.manager import EncoderDecoderManager
 from pep_compass.utils.strategy_factory import parameter_contract
 
 
@@ -15,7 +15,7 @@ from pep_compass.utils.strategy_factory import parameter_contract
 )
 def build_hydramp(*, device: str = "cpu", **parameters: Any):
     """Build HydrAMP while converting its configured condition to a tensor."""
-    from pep_compass.core.encoder_decoder.strategies.hydramp.adapter import (
+    from pep_compass.encoder_decoder.strategies.hydramp.adapter import (
         HydrAMPEncoderDecoder,
     )
 
