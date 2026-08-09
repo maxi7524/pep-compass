@@ -1,4 +1,9 @@
-"""CSV-backed runtime tracker for optimization step events."""
+"""CSV-backed consumer of lifecycle events emitted by ``Step.__call__``.
+
+``RuntimeRunner._build_tracker`` selects this implementation when a run has an
+output directory. The engine sees only the ``StepTracker`` contract and has no
+knowledge of CSV files or retention settings.
+"""
 
 from __future__ import annotations
 
@@ -13,16 +18,23 @@ from pep_compass.optimization.tracking import ExecutionScope, StepTracker, Track
 
 if TYPE_CHECKING:
     from pep_compass.data.optimization import CandidateBatch
-    from pep_compass.optimization.engine.context import OptimizationContext
-    from pep_compass.optimization.engine.step import Step
+    from pep_compass.optimization.engine.execution.context import OptimizationContext
+    from pep_compass.optimization.engine.execution.step import Step
 
 
 class CSVStepTracker(StepTracker):
     """Stream depth-aware optimization records to normalized CSV files.
 
-    ``field_names`` limits serialized candidate fields when field storage is
-    enabled. Step summaries are flushed after each execution so interrupted
-    runs retain their last completed or failed step.
+    ``short`` writes oracle summaries and candidates. ``normal`` writes scalar
+    summaries for every enabled step and candidates for oracles. ``all`` also
+    writes candidates for every enabled step. ``store_latents`` and
+    ``store_fields`` control columns within candidate rows; ``field_names``
+    restricts serialized fields further.
+
+    Rows are serialized and flushed immediately. The tracker does not retain
+    completed ``CandidateBatch`` objects, so Python and PyTorch may release
+    their storage once no operation references them. Closing is guaranteed by
+    ``PepCompassPipeline.run`` in a ``finally`` block.
     """
 
     def __init__(

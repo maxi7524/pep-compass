@@ -11,7 +11,7 @@ from typing import Any
 import torch
 
 from pep_compass.data.result_schema import CURRENT_RESULT_SCHEMA_VERSION
-from pep_compass.optimization.engine.result import OptimizationResult
+from pep_compass.optimization.engine.execution.result import OptimizationResult
 from pep_compass.optimization.stability_estimation.monitoring import MemorySnapshot
 from pep_compass.runtime.planning.plan import PlannedRun
 

@@ -27,7 +27,14 @@ class RunExecution:
 
 
 class RuntimeRunner:
-    """Execute a deterministic plan and persist each run independently."""
+    """Execute planned runs and attach runtime-owned output implementations.
+
+    The runner builds ``CSVStepTracker`` only when a ``ResultWriter`` provides
+    a run directory. Without output it injects ``NullStepTracker``. It does not
+    decide when intermediate batches are released: operations replace local
+    references as batches move through the step tree, and trackers serialize
+    rows without retaining those batches.
+    """
 
     def __init__(
         self,
@@ -76,7 +83,7 @@ class RuntimeRunner:
             return RunExecution(entry, "failed", f"{type(error).__name__}: {error}")
 
     def _build_tracker(self, entry: PlannedRun, directory: Path | None):
-        """Construct a persisted tracker or an in-memory no-output tracker."""
+        """Construct a CSV tracker or a no-output tracker for one run."""
         if directory is None:
             from pep_compass.optimization.tracking import NullStepTracker
 

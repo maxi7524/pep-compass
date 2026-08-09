@@ -14,7 +14,7 @@ from pep_compass.core.specification import (
     PipelineSpecification,
     StepSpecification,
 )
-from pep_compass.optimization.engine.state import OptimizationLimits
+from pep_compass.optimization.engine.execution.state import OptimizationLimits
 
 
 def parse_pipeline_specification(
@@ -121,7 +121,7 @@ def _parse_parallel(
             )
     return ParallelSpecification(
         tuple(branches),
-        execution=settings.get("execution", "auto"),
+        execution=settings.get("execution", "sequential"),
         merge=str(settings.get("merge", "concatenate")),
     )
 
