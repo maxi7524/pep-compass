@@ -1,1 +1,0 @@
-"""Hard candidate constraint filters."""
