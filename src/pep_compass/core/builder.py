@@ -1,174 +1,134 @@
-"""Build the composable optimization runtime from configuration."""
+"""Construct executable PepCompass pipelines from neutral specifications."""
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
-from typing import Any
+from pep_compass.autoencoder.base import Autoencoder
+from pep_compass.core.specification import (
+    ComponentSpecification,
+    FlowSpecification,
+    LoopSpecification,
+    ParallelSpecification,
+    PipelineSpecification,
+    StepSpecification,
+)
+from pep_compass.core.estimation import estimate_pipeline_stability
+from pep_compass.core.validation import validate_pipeline_specification
+from pep_compass.optimization.components.filters import FilterManager
+from pep_compass.optimization.components.mutation_generators import (
+    MutationGeneratorManager,
+)
+from pep_compass.optimization.components.oracles import OracleManager
+from pep_compass.optimization.components.walkers import WalkerManager
+from pep_compass.optimization.engine import Flow, Loop, Parallel, build_merger
+from pep_compass.optimization.pipeline import PepCompassPipeline
+from pep_compass.optimization.stability_estimation.monitoring import (
+    NullStabilityMonitor,
+    StabilityMonitor,
+)
+from pep_compass.optimization.engine.step import Step
+from pep_compass.optimization.tracking import StepTracker
+from pep_compass.utils.logger import get_custom_logger
 
-from pep_compass.filters.manager import FilterManager
-from pep_compass.optimization.flow import Flow, Loop, Parallel, build_merger
-from pep_compass.optimization.runner import OptimizationRunner
-from pep_compass.optimization.state import OptimizationLimits
-from pep_compass.optimization.step import Step
+logger = get_custom_logger(__name__)
 
 
-class PepCompassCore:
-    """Developer-facing composition root for configured optimization steps."""
+class PipelineBuilder:
+    """Build and validate a :class:`PepCompassPipeline`.
 
-    def __init__(self, encoder_decoder, *, tracker=None) -> None:
-        self.encoder_decoder = encoder_decoder
-        self.tracker = tracker
-        self._ensure_builtin_strategies()
+    :param autoencoder: Initialized autoencoder injected into components that
+        declare this service.
+    """
 
-    @classmethod
-    def from_config(
-        cls, config: Mapping[str, Any], *, tracker=None
-    ) -> "PepCompassCore":
-        """Construct the composition root and encoder-decoder from configuration."""
-        from pep_compass.core.validation import validate_configuration
+    def __init__(self, autoencoder: Autoencoder) -> None:
+        self.autoencoder = autoencoder
+        self._load_builtin_components()
 
-        validate_configuration(config)
-        encoder_config = config.get("encoder_decoder")
-        if not isinstance(encoder_config, Mapping):
-            raise ValueError("encoder_decoder configuration is required.")
-        from pep_compass.encoder_decoder.manager import EncoderDecoderManager
-        import pep_compass.encoder_decoder.strategies  # noqa: F401
+    def build(
+        self,
+        specification: PipelineSpecification,
+        *,
+        tracker: StepTracker | None = None,
+        stability_monitor: StabilityMonitor | NullStabilityMonitor | None = None,
+        initial_candidates: int | None = None,
+    ) -> PepCompassPipeline:
+        """Construct one executable pipeline from a neutral declaration.
 
-        parameters = dict(encoder_config.get("parameters", {}))
-        device = encoder_config.get("device", "cpu")
-        encoder_decoder = EncoderDecoderManager.build(
-            encoder_config.get("method"), device=device, **parameters
-        )
-        return cls(encoder_decoder, tracker=tracker)
-
-    @staticmethod
-    def _ensure_builtin_strategies() -> None:
-        import pep_compass.filters.strategies  # noqa: F401
-        import pep_compass.mutation_generators.strategies  # noqa: F401
-        import pep_compass.oracles.strategies  # noqa: F401
-        import pep_compass.walkers.strategies  # noqa: F401
-
-    def build_runner(
-        self, config: Mapping[str, Any], *, tracker=None
-    ) -> OptimizationRunner:
-        """Build an optimization runner from the ``optimization.steps`` tree."""
-        optimization = config.get("optimization", config)
-        raw_steps = optimization.get("steps")
-        if not isinstance(raw_steps, Sequence) or isinstance(raw_steps, (str, bytes)):
-            raise ValueError("optimization.steps must be a sequence.")
-        root = self._build_flow(raw_steps)
-        limits_config = optimization.get("limits", {})
-        limits = OptimizationLimits(
-            oracle_calls=limits_config.get("oracle_calls"),
-            generated_candidates=limits_config.get("generated_candidates"),
-        )
-        return OptimizationRunner(
-            self.encoder_decoder,
-            root,
-            self.tracker if tracker is None else tracker,
-            limits,
-        )
-
-    def _build_flow(self, configurations: Sequence[Mapping[str, Any]]) -> Flow:
-        return Flow(
-            [self._build_step(configuration) for configuration in configurations]
-        )
-
-    def _build_step(self, configuration: Mapping[str, Any]) -> Step:
-        if len(configuration) != 1:
-            raise ValueError(
-                "Every configured step must have exactly one operation key."
+        :param specification: Validatable computation-graph declaration.
+        :param tracker: Optional runtime tracker.
+        :param stability_monitor: Optional memory monitor.
+        :return: Fully initialized executable pipeline.
+        """
+        validate_pipeline_specification(specification)
+        root = self._build_step(specification.root)
+        if initial_candidates is not None:
+            estimate = estimate_pipeline_stability(
+                specification,
+                input_candidates=initial_candidates,
+                latent_dimension=self.autoencoder.latent_dim,
             )
-        operation, settings = next(iter(configuration.items()))
-        if operation == "loop":
-            return self._build_loop(settings)
-        if operation == "parallel":
-            return self._build_parallel(settings)
-        if operation == "walker":
-            return self._build_walker(settings)
-        if operation == "mutation_generator":
-            return self._build_mutation_generator(settings)
-        if operation == "filter":
-            return self._build_filter(settings)
-        if operation == "oracle":
-            return self._build_oracle(settings)
-        raise ValueError(f"Unknown optimization operation: {operation}")
-
-    def _build_loop(self, settings: Mapping[str, Any]) -> Loop:
-        steps = settings.get("steps")
-        if not isinstance(steps, Sequence) or isinstance(steps, (str, bytes)):
-            raise ValueError("loop.steps must be a sequence.")
-        return Loop(self._build_flow(steps), int(settings["iterations"]))
-
-    def _build_parallel(self, settings: Mapping[str, Any]) -> Parallel:
-        """Build explicit branches or indexed replicas of one shared flow."""
-        branch_configs = settings.get("branches")
-        branches: dict[str, Step] = {}
-        replicas = settings.get("replicas")
-        # Replica syntax expands one step definition into independently scoped
-        # branches; explicit branches retain their configured names.
-        if replicas is not None:
-            replica_steps = settings["steps"]
-            for index in range(int(replicas)):
-                branches[f"replica_{index:03d}"] = self._build_flow(replica_steps)
-        else:
-            if not isinstance(branch_configs, Sequence) or isinstance(
-                branch_configs, (str, bytes)
-            ):
-                raise ValueError("parallel.branches must be a sequence.")
-            for index, branch in enumerate(branch_configs):
-                name = str(branch.get("name", f"branch_{index}"))
-                if name in branches:
-                    raise ValueError(f"Parallel branch name is duplicated: {name}")
-                branches[name] = self._build_flow(branch["steps"])
-        return Parallel(
-            branches,
-            execution=settings.get("execution", "auto"),
-            merger=build_merger(settings.get("merge", "concatenate")),
+            logger.info(
+                "Pipeline stability input_candidates=%s output_upper=%s "
+                "peak_upper=%s latent_bytes_upper=%s warnings=%s.",
+                estimate.input_candidates,
+                estimate.output_candidates_upper,
+                estimate.peak_candidates_upper,
+                estimate.latent_bytes_upper,
+                estimate.warnings,
+            )
+        logger.info("Constructed PepCompass pipeline root=%s.", root.name)
+        return PepCompassPipeline(
+            autoencoder=self.autoencoder,
+            root=root,
+            tracker=tracker,
+            limits=specification.limits,
+            stability_monitor=stability_monitor,
         )
-
-    def _build_walker(self, settings: Mapping[str, Any]) -> Step:
-        from pep_compass.walkers.manager import WalkerManager
-
-        method, parameters = self._method_and_parameters(settings)
-        return WalkerManager.build(
-            method,
-            services={"encoder_decoder": self.encoder_decoder},
-            **parameters,
-        )
-
-    def _build_mutation_generator(self, settings: Mapping[str, Any]) -> Step:
-        from pep_compass.mutation_generators.manager import MutationGeneratorManager
-
-        method, parameters = self._method_and_parameters(settings)
-        return MutationGeneratorManager.build(
-            method,
-            services={"encoder_decoder": self.encoder_decoder},
-            **parameters,
-        )
-
-    def _build_filter(self, settings: Mapping[str, Any]) -> Step:
-        method, parameters = self._method_and_parameters(settings)
-        return FilterManager.build(
-            method,
-            services={"encoder_decoder": self.encoder_decoder},
-            **parameters,
-        )
-
-    def _build_oracle(self, settings: Mapping[str, Any]) -> Step:
-        from pep_compass.oracles.manager import OracleManager
-
-        method, parameters = self._method_and_parameters(settings)
-        return OracleManager.build(method, **parameters)
 
     @staticmethod
-    def _method_and_parameters(
-        settings: Mapping[str, Any]
-    ) -> tuple[str, dict[str, Any]]:
-        method = settings.get("method")
-        if not isinstance(method, str) or not method:
-            raise ValueError("A configured strategy requires a non-empty method.")
-        parameters = settings.get("parameters", {})
-        if not isinstance(parameters, Mapping):
-            raise ValueError("Strategy parameters must be a mapping.")
-        return method, dict(parameters)
+    def _load_builtin_components() -> None:
+        """Load built-in component registrations before resolution."""
+        import pep_compass.optimization.components.filters.strategies  # noqa: F401
+        import pep_compass.optimization.components.mutation_generators.strategies  # noqa: F401
+        import pep_compass.optimization.components.oracles.strategies  # noqa: F401
+        import pep_compass.optimization.components.walkers.strategies  # noqa: F401
+
+    def _build_step(self, specification: StepSpecification) -> Step:
+        """Recursively construct one declared computation node."""
+        if isinstance(specification, ComponentSpecification):
+            return self._build_component(specification)
+        if isinstance(specification, FlowSpecification):
+            return Flow([self._build_step(step) for step in specification.steps])
+        if isinstance(specification, LoopSpecification):
+            return Loop(
+                self._build_step(specification.body),
+                specification.iterations,
+            )
+        if isinstance(specification, ParallelSpecification):
+            return Parallel(
+                {
+                    branch.name: self._build_step(branch.body)
+                    for branch in specification.branches
+                },
+                execution=specification.execution,
+                merger=build_merger(specification.merge),
+            )
+        raise TypeError(f"Unsupported pipeline specification: {specification!r}")
+
+    def _build_component(self, specification: ComponentSpecification) -> Step:
+        """Resolve and construct one registered computational component."""
+        managers = {
+            "walker": WalkerManager,
+            "mutation_generator": MutationGeneratorManager,
+            "filter": FilterManager,
+            "oracle": OracleManager,
+        }
+        manager = managers[specification.kind]
+        parameters = dict(specification.parameters)
+        services = {"autoencoder": self.autoencoder}
+        if specification.kind == "oracle":
+            return manager.build(specification.method, **parameters)
+        return manager.build(
+            specification.method,
+            services=services,
+            **parameters,
+        )
