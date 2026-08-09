@@ -7,6 +7,7 @@ from pep_compass.core.specification import (
     ComponentSpecification,
     FlowSpecification,
     LoopSpecification,
+    LocalEnumerationSpecification,
     ParallelSpecification,
     PipelineSpecification,
     StepSpecification,
@@ -19,7 +20,13 @@ from pep_compass.optimization.components.mutation_generators import (
 )
 from pep_compass.optimization.components.oracles import OracleManager
 from pep_compass.optimization.components.walkers import WalkerManager
-from pep_compass.optimization.engine import Flow, Loop, Parallel, build_merger
+from pep_compass.optimization.engine import (
+    Flow,
+    LocalEnumeration,
+    Loop,
+    Parallel,
+    build_merger,
+)
 from pep_compass.optimization.pipeline import PepCompassPipeline
 from pep_compass.optimization.stability_estimation.monitoring import (
     NullStabilityMonitor,
@@ -66,6 +73,13 @@ class PipelineBuilder:
         """
         validate_pipeline_specification(specification)
         root = self._build_step(specification.root)
+        stability_monitor = stability_monitor or NullStabilityMonitor()
+        if isinstance(stability_monitor, StabilityMonitor):
+            stability_monitor.configure_budgets(
+                iterations=_declared_iterations(specification.root),
+                oracle_calls=specification.limits.oracle_calls,
+                generated_candidates=specification.limits.generated_candidates,
+            )
         if initial_candidates is not None:
             estimate = estimate_pipeline_stability(
                 specification,
@@ -121,6 +135,16 @@ class PipelineBuilder:
                 execution=specification.execution,
                 merger=build_merger(specification.merge),
             )
+        if isinstance(specification, LocalEnumerationSpecification):
+            return LocalEnumeration(
+                walker=self._build_component(specification.walker),
+                mutation_generator=self._build_component(specification.generator),
+                filters=self._build_step(specification.filters),
+                trajectories=specification.trajectories,
+                iterations=specification.iterations,
+                walk_time=specification.walk_time,
+                include_walk_points=specification.include_walk_points,
+            )
         raise TypeError(f"Unsupported pipeline specification: {specification!r}")
 
     def _build_component(self, specification: ComponentSpecification) -> Step:
@@ -149,3 +173,23 @@ class PipelineBuilder:
             services=services,
             **parameters,
         )
+
+
+def _declared_iterations(specification: StepSpecification) -> int | None:
+    """Return a static upper bound for engine-controlled iterations."""
+    if isinstance(specification, ComponentSpecification):
+        return 0
+    if isinstance(specification, FlowSpecification):
+        values = [_declared_iterations(step) for step in specification.steps]
+        return sum(values) if all(value is not None for value in values) else None
+    if isinstance(specification, LoopSpecification):
+        body = _declared_iterations(specification.body)
+        return None if body is None else specification.iterations * (body + 1)
+    if isinstance(specification, ParallelSpecification):
+        values = [_declared_iterations(branch.body) for branch in specification.branches]
+        return sum(values) if all(value is not None for value in values) else None
+    if isinstance(specification, LocalEnumerationSpecification):
+        if specification.iterations is None:
+            return None
+        return specification.trajectories * specification.iterations
+    raise TypeError(f"Unsupported pipeline specification: {specification!r}")

@@ -8,6 +8,7 @@ from pep_compass.core.specification import (
     ComponentSpecification,
     FlowSpecification,
     LoopSpecification,
+    LocalEnumerationSpecification,
     ParallelSpecification,
     PipelineSpecification,
     StepSpecification,
@@ -108,6 +109,29 @@ def _estimate_step(
             peak,
             tuple(warning for branch in branches for warning in branch.warnings),
         )
+    if isinstance(specification, LocalEnumerationSpecification):
+        generated = _estimate_step(specification.generator, input_candidates)
+        filtered = _estimate_step(specification.filters, generated.output)
+        if specification.iterations is None:
+            return _NodeEstimate(
+                None,
+                None,
+                filtered.warnings
+                + ("Local enumeration uses a runtime walk-time bound.",),
+            )
+        emissions = 1 + specification.iterations
+        output = (
+            filtered.output * specification.trajectories * emissions
+            if filtered.output is not None
+            else None
+        )
+        if specification.include_walk_points and output is not None:
+            output += (
+                input_candidates
+                * specification.trajectories
+                * specification.iterations
+            )
+        return _NodeEstimate(output, output, filtered.warnings)
     raise TypeError(f"Unsupported pipeline specification: {specification!r}")
 
 

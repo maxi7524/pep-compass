@@ -92,7 +92,7 @@ class PepCompassPipeline:
 
         # Computation lifecycle
         try:
-            self.stability_monitor.sample("pipeline.input", batch)
+            self.stability_monitor.sample("pipeline.input", batch, context.state)
             logger.info("Precomputing PepCompass pipeline steps.")
             self.root.precompute(context)
             logger.info(
@@ -100,7 +100,7 @@ class PepCompassPipeline:
                 len(sequences),
             )
             result = self.root(batch, context)
-            self.stability_monitor.sample("pipeline.output", result)
+            self.stability_monitor.sample("pipeline.output", result, context.state)
             return self._summarize(result)
         finally:
             self.tracker.close()

@@ -30,4 +30,5 @@ class Loop(Step):
             if context.state.stop_requested or len(result) == 0:
                 break
             result = self.body(result, context.enter_iteration(index))
+            context.state.record_iteration()
         return result

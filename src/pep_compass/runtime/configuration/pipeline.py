@@ -10,6 +10,7 @@ from pep_compass.core.specification import (
     ComponentSpecification,
     FlowSpecification,
     LoopSpecification,
+    LocalEnumerationSpecification,
     ParallelSpecification,
     PipelineSpecification,
     StepSpecification,
@@ -77,7 +78,45 @@ def _parse_step(configuration: Any, path: str) -> StepSpecification:
         )
     if operation == "parallel":
         return _parse_parallel(settings, f"{path}.parallel")
+    if operation == "local_enumeration":
+        return _parse_local_enumeration(settings, f"{path}.local_enumeration")
     raise ValueError(f"Unknown pipeline operation at {path}: {operation}")
+
+
+def _parse_local_enumeration(
+    settings: Mapping[str, Any],
+    path: str,
+) -> LocalEnumerationSpecification:
+    """Parse trajectory-local SORBES and mutation-processing declarations."""
+    trajectories = settings.get("trajectories", 1)
+    iterations = settings.get("iterations")
+    walk_time = settings.get("walk_time")
+    walker = _parse_step({"walker": settings.get("walker")}, f"{path}.walker")
+    generator = _parse_step(
+        {"mutation_generator": settings.get("mutation_generator")},
+        f"{path}.mutation_generator",
+    )
+    filters = _parse_flow(
+        [
+            {"filter": filter_configuration}
+            for filter_configuration in _sequence(
+                settings.get("filters", []),
+                f"{path}.filters",
+            )
+        ],
+        f"{path}.filters",
+    )
+    assert isinstance(walker, ComponentSpecification)
+    assert isinstance(generator, ComponentSpecification)
+    return LocalEnumerationSpecification(
+        trajectories=trajectories,
+        iterations=iterations,
+        walk_time=walk_time,
+        walker=walker,
+        generator=generator,
+        filters=filters,
+        include_walk_points=settings.get("include_walk_points", True),
+    )
 
 
 def _parse_parallel(

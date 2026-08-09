@@ -53,8 +53,30 @@ class ParallelSpecification:
     merge: str = "concatenate"
 
 
+@dataclass(frozen=True, slots=True)
+class LocalEnumerationSpecification:
+    """Declare SORBES trajectories with per-position mutation filtering.
+
+    ``walker`` advances only the private trajectory stream. ``generator`` and
+    ``filters`` produce candidates appended to the result pool without feeding
+    them back into the next walker iteration.
+    """
+
+    trajectories: int
+    iterations: int | None
+    walk_time: float | None
+    walker: ComponentSpecification
+    generator: ComponentSpecification
+    filters: FlowSpecification
+    include_walk_points: bool = True
+
+
 StepSpecification: TypeAlias = (
-    ComponentSpecification | FlowSpecification | LoopSpecification | ParallelSpecification
+    ComponentSpecification
+    | FlowSpecification
+    | LoopSpecification
+    | ParallelSpecification
+    | LocalEnumerationSpecification
 )
 
 

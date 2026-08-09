@@ -52,6 +52,7 @@ class OptimizationState:
     observations: dict[str, dict[str, float]] = field(default_factory=dict)
     oracle_calls: int = 0
     generated_candidates: int = 0
+    completed_iterations: int = 0
     stop_requested: bool = False
     trust_regions: dict[str, TrustRegionState] = field(default_factory=dict)
 
@@ -87,3 +88,7 @@ class OptimizationState:
             and self.generated_candidates >= self.limits.generated_candidates
         ):
             self.stop_requested = True
+
+    def record_iteration(self) -> None:
+        """Record completion of one engine-controlled iteration."""
+        self.completed_iterations += 1

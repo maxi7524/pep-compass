@@ -72,6 +72,7 @@ class Step(ABC):
         step_context.stability_monitor.sample(
             f"step.before:{'/'.join(step_context.scope.path)}",
             batch,
+            step_context.state,
         )
         enabled = step_context.tracker.is_enabled(step_context.scope)
         handle = None
@@ -105,6 +106,7 @@ class Step(ABC):
         step_context.stability_monitor.sample(
             f"step.after:{'/'.join(step_context.scope.path)}",
             result,
+            step_context.state,
         )
         logger.debug(
             "Step path=%s input_candidates=%s output_candidates=%s "
