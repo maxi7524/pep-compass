@@ -25,7 +25,7 @@ from pep_compass.optimization.stability_estimation.monitoring import (
     NullStabilityMonitor,
     StabilityMonitor,
 )
-from pep_compass.optimization.engine.step import Step
+from pep_compass.optimization.engine.execution.step import Step
 from pep_compass.optimization.tracking import StepTracker
 from pep_compass.utils.logger import get_custom_logger
 
@@ -33,7 +33,13 @@ logger = get_custom_logger(__name__)
 
 
 class PipelineBuilder:
-    """Build and validate a :class:`PepCompassPipeline`.
+    """Resolve a specification into the executable ``Step`` object tree.
+
+    Runtime parses YAML into neutral specification nodes before calling this
+    builder. Composite nodes become engine operations. Component nodes select
+    a family manager by ``kind`` and a registered factory by ``method``. The
+    resulting root object stores the complete execution order; no scheduler
+    looks up the next component while the pipeline is running.
 
     :param autoencoder: Initialized autoencoder injected into components that
         declare this service.
@@ -94,8 +100,11 @@ class PipelineBuilder:
 
     def _build_step(self, specification: StepSpecification) -> Step:
         """Recursively construct one declared computation node."""
+        # Leaf component resolved through its family registry
         if isinstance(specification, ComponentSpecification):
             return self._build_component(specification)
+
+        # Composite operations retaining their configured child order
         if isinstance(specification, FlowSpecification):
             return Flow([self._build_step(step) for step in specification.steps])
         if isinstance(specification, LoopSpecification):
@@ -115,7 +124,13 @@ class PipelineBuilder:
         raise TypeError(f"Unsupported pipeline specification: {specification!r}")
 
     def _build_component(self, specification: ComponentSpecification) -> Step:
-        """Resolve and construct one registered computational component."""
+        """Resolve a component family, registered method, and injected services.
+
+        ``kind`` selects the registry and ``method`` selects the factory within
+        that registry. Construction occurs once while building the pipeline;
+        execution later follows the already constructed ``Step`` tree.
+        """
+        # Component family selected by the YAML operation key
         managers = {
             "walker": WalkerManager,
             "mutation_generator": MutationGeneratorManager,
@@ -125,6 +140,8 @@ class PipelineBuilder:
         manager = managers[specification.kind]
         parameters = dict(specification.parameters)
         services = {"autoencoder": self.autoencoder}
+
+        # Registered strategy factory selected by the configured method name
         if specification.kind == "oracle":
             return manager.build(specification.method, **parameters)
         return manager.build(

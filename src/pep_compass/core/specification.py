@@ -5,11 +5,11 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Literal, Mapping, TypeAlias
 
-from pep_compass.optimization.engine.state import OptimizationLimits
+from pep_compass.optimization.engine.execution.state import OptimizationLimits
 
 
 ComponentKind = Literal["walker", "mutation_generator", "filter", "oracle"]
-ParallelExecution = Literal["auto", "sequential", "concurrent"]
+ParallelExecution = Literal["sequential", "concurrent"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -49,7 +49,7 @@ class ParallelSpecification:
     """Declare parallel branches and their deterministic merge policy."""
 
     branches: tuple[BranchSpecification, ...]
-    execution: ParallelExecution = "auto"
+    execution: ParallelExecution = "sequential"
     merge: str = "concatenate"
 
 

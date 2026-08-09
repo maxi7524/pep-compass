@@ -44,7 +44,7 @@ def _validate_step(specification: StepSpecification, path: str) -> None:
         _validate_step(specification.body, f"{path}.body")
         return
     if isinstance(specification, ParallelSpecification):
-        if specification.execution not in {"auto", "sequential", "concurrent"}:
+        if specification.execution not in {"sequential", "concurrent"}:
             raise ValueError(f"{path}.execution is invalid.")
         if specification.merge != "concatenate":
             raise ValueError(f"{path}.merge is not implemented.")
