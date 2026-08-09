@@ -1,4 +1,10 @@
-"""Runtime context shared by optimization steps."""
+"""Runtime services propagated through the executable step tree.
+
+``PepCompassPipeline.run`` creates the root context. ``Step.__call__`` and the
+composite operations derive scoped copies as execution enters a step,
+iteration, or branch. All copies intentionally share ``OptimizationState``;
+only their path and branch-local random generator differ.
+"""
 
 from __future__ import annotations
 
@@ -12,7 +18,7 @@ from pep_compass.optimization.tracking import (
     NullStepTracker,
     StepTracker,
 )
-from pep_compass.optimization.engine.state import OptimizationState
+from pep_compass.optimization.engine.execution.state import OptimizationState
 from pep_compass.optimization.stability_estimation.monitoring import (
     NullStabilityMonitor,
     StabilityMonitor,
@@ -21,7 +27,13 @@ from pep_compass.optimization.stability_estimation.monitoring import (
 
 @dataclass(frozen=True)
 class OptimizationContext:
-    """Immutable execution services and scope for an optimization run."""
+    """Carry services, scope, RNG, counters, and monitors through execution.
+
+    The context does not decide which component runs next. That order is
+    encoded in the ``Step`` tree built by ``PipelineBuilder``. ``Flow``,
+    ``Loop``, and ``Parallel`` traverse that tree and pass derived contexts to
+    their children.
+    """
 
     autoencoder: Any
     tracker: StepTracker = field(default_factory=NullStepTracker)

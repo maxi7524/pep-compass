@@ -1,11 +1,26 @@
 """Tests for composable engine graph operations."""
 
-from pep_compass.optimization.engine.context import OptimizationContext
+from pep_compass.optimization.engine.execution.context import OptimizationContext
 from pep_compass.optimization.engine import Flow, Loop, Parallel
 from pep_compass.optimization.tracking import InMemoryStepTracker
 from fixtures.autoencoders import MockAutoencoder
 from fixtures.candidates import candidate_batch
 from fixtures.components import SuffixStep
+
+
+def test_parallel_defaults_to_sequential_execution() -> None:
+    """Omitted execution mode must not create worker threads implicitly."""
+    parallel = Parallel({"only": SuffixStep("1")})
+
+    assert parallel.execution == "sequential"
+
+
+def test_parallel_rejects_removed_auto_execution_mode() -> None:
+    """The ambiguous historical auto mode must no longer be accepted."""
+    import pytest
+
+    with pytest.raises(ValueError, match="sequential or concurrent"):
+        Parallel({"only": SuffixStep("1")}, execution="auto")  # type: ignore[arg-type]
 
 
 def test_parallel_merges_outputs_in_declared_branch_order() -> None:

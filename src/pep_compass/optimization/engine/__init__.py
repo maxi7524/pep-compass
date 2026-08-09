@@ -1,13 +1,16 @@
-"""Internal execution primitives used by :class:`PepCompassPipeline`."""
+"""Internal execution API used by the core builder and ``PepCompassPipeline``.
 
-from pep_compass.optimization.engine.context import OptimizationContext
-from pep_compass.optimization.engine.flow import Flow
-from pep_compass.optimization.engine.loop import Loop
-from pep_compass.optimization.engine.merging import build_merger
-from pep_compass.optimization.engine.parallel import Parallel
-from pep_compass.optimization.engine.result import OptimizationResult
-from pep_compass.optimization.engine.state import OptimizationLimits, OptimizationState
-from pep_compass.optimization.engine.step import Step
+``execution`` owns the lifecycle of one step call and shared run state.
+``operations`` owns composite steps that traverse other steps. Concrete
+walkers, generators, filters, and oracles implement the same ``Step`` contract
+under ``optimization.components``.
+"""
+
+from pep_compass.optimization.engine.execution.context import OptimizationContext
+from pep_compass.optimization.engine.operations import Flow, Loop, Parallel, build_merger
+from pep_compass.optimization.engine.execution.result import OptimizationResult
+from pep_compass.optimization.engine.execution.state import OptimizationLimits, OptimizationState
+from pep_compass.optimization.engine.execution.step import Step
 
 __all__ = [
     "Flow",

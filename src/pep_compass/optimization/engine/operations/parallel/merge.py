@@ -1,4 +1,4 @@
-"""Candidate-batch merge policies for parallel branches."""
+"""Merge policies used exclusively after ``Parallel`` branch execution."""
 
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Sequence

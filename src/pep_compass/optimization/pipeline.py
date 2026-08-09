@@ -12,14 +12,14 @@ from pep_compass.data.optimization import (
     SharedField,
     TensorField,
 )
-from pep_compass.optimization.engine.context import OptimizationContext
-from pep_compass.optimization.engine.result import OptimizationResult
+from pep_compass.optimization.engine.execution.context import OptimizationContext
+from pep_compass.optimization.engine.execution.result import OptimizationResult
 from pep_compass.optimization.stability_estimation.monitoring import (
     NullStabilityMonitor,
     StabilityMonitor,
 )
-from pep_compass.optimization.engine.state import OptimizationLimits, OptimizationState
-from pep_compass.optimization.engine.step import Step
+from pep_compass.optimization.engine.execution.state import OptimizationLimits, OptimizationState
+from pep_compass.optimization.engine.execution.step import Step
 from pep_compass.optimization.tracking import NullStepTracker, StepTracker
 from pep_compass.utils.logger import get_custom_logger
 

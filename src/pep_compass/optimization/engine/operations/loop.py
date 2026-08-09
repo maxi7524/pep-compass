@@ -1,8 +1,13 @@
-"""Iterative optimization-step composition."""
+"""Repeated traversal of one configured child flow.
+
+``PipelineBuilder`` wraps YAML ``loop.steps`` in a ``Flow`` and installs it as
+the loop body. Each iteration receives the previous iteration's output and a
+scope containing the iteration index.
+"""
 
 from pep_compass.data.optimization import CandidateBatch
-from pep_compass.optimization.engine.context import OptimizationContext
-from pep_compass.optimization.engine.step import Step
+from pep_compass.optimization.engine.execution.context import OptimizationContext
+from pep_compass.optimization.engine.execution.step import Step
 
 
 class Loop(Step):

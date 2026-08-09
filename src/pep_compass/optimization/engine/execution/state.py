@@ -1,4 +1,10 @@
-"""Mutable state shared by otherwise composable optimization steps."""
+"""Mutable run state shared by all scoped execution contexts.
+
+The state records facts produced during execution; it does not schedule steps.
+The operation tree decides control flow, while components update counters,
+observations, and trust regions through this object. ``Loop`` reads
+``stop_requested`` before starting the next iteration.
+"""
 
 from __future__ import annotations
 
@@ -29,7 +35,18 @@ class TrustRegionState:
 
 @dataclass
 class OptimizationState:
-    """Observations, counters, and stop state of one optimization run."""
+    """Store observations, counters, stop state, and trust-region state.
+
+    Update ownership is divided by component role:
+
+    * oracles call :meth:`record_observations`;
+    * mutation generators call :meth:`record_generated_candidates`;
+    * trust-region filters update ``trust_regions``;
+    * ``Loop`` consumes ``stop_requested`` at iteration boundaries.
+
+    REMARK: Parallel branches currently share this mutable object. Concurrent
+    updates are therefore not yet guaranteed to be race-free.
+    """
 
     limits: OptimizationLimits = field(default_factory=OptimizationLimits)
     observations: dict[str, dict[str, float]] = field(default_factory=dict)
@@ -38,6 +55,7 @@ class OptimizationState:
     stop_requested: bool = False
     trust_regions: dict[str, TrustRegionState] = field(default_factory=dict)
 
+    # Oracle-budget accounting
     def remaining_oracle_calls(self) -> int | None:
         """Return remaining oracle calls, or ``None`` for an unlimited run."""
         if self.limits.oracle_calls is None:
@@ -60,6 +78,7 @@ class OptimizationState:
         ):
             self.stop_requested = True
 
+    # Candidate-generation budget accounting
     def record_generated_candidates(self, count: int) -> None:
         """Update generated-candidate count and its optional safety limit."""
         self.generated_candidates += count

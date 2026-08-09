@@ -1,10 +1,15 @@
-"""Sequential optimization-step composition."""
+"""Sequential traversal of configured child steps.
+
+``PipelineBuilder`` creates a ``Flow`` for every YAML ``steps`` list. During
+execution it passes each returned ``CandidateBatch`` directly to the next
+child. Every child enters the standard ``Step.__call__`` lifecycle.
+"""
 
 from collections.abc import Sequence
 
 from pep_compass.data.optimization import CandidateBatch
-from pep_compass.optimization.engine.context import OptimizationContext
-from pep_compass.optimization.engine.step import Step
+from pep_compass.optimization.engine.execution.context import OptimizationContext
+from pep_compass.optimization.engine.execution.step import Step
 
 
 class Flow(Step):

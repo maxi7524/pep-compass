@@ -3,7 +3,7 @@
 from collections.abc import Mapping
 from typing import Any
 
-from pep_compass.optimization.engine.flow import Flow
+from pep_compass.optimization.engine.operations.flow import Flow
 from pep_compass.optimization.pipeline import PepCompassPipeline
 from tests.fixtures.autoencoders import MockAutoencoder
 from tests.fixtures.components import SuffixStep

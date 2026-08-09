@@ -1,6 +1,6 @@
 """Tests for the public manually constructed PepCompass pipeline."""
 
-from pep_compass.optimization.engine.flow import Flow
+from pep_compass.optimization.engine.operations.flow import Flow
 from pep_compass.optimization.pipeline import PepCompassPipeline
 from fixtures.autoencoders import MockAutoencoder
 from fixtures.components import SuffixStep
