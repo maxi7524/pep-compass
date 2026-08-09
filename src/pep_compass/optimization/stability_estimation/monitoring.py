@@ -77,12 +77,14 @@ class StabilityMonitor:
         enabled: bool = True,
         log_level: int = 10,
         detailed_fraction: float = 0.1,
+        detailed_every_sample: bool = False,
     ) -> None:
         if not 0 < detailed_fraction <= 1:
             raise ValueError("Detailed sampling fraction must be in (0, 1].")
         self.enabled = enabled
         self.log_level = log_level
         self.detailed_fraction = detailed_fraction
+        self.detailed_every_sample = detailed_every_sample
         self.snapshots: list[MemorySnapshot] = []
         self._budgets: dict[str, int] = {}
         self._next_thresholds: dict[str, int] = {}
@@ -130,9 +132,11 @@ class StabilityMonitor:
             return None
         triggers = self._consume_triggers(state)
         boundary_trigger = label in {"pipeline.input", "pipeline.output"}
-        detailed = boundary_trigger or bool(triggers)
+        detailed = self.detailed_every_sample or boundary_trigger or bool(triggers)
         trigger = ",".join(triggers) if triggers else (
-            "pipeline_boundary" if boundary_trigger else None
+            "test_run" if self.detailed_every_sample else (
+                "pipeline_boundary" if boundary_trigger else None
+            )
         )
         estimate = estimate_batch_memory(batch) if detailed else None
         snapshot = MemorySnapshot(
