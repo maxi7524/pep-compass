@@ -37,6 +37,11 @@ def test_estimator_propagates_generator_growth_and_subset_cap() -> None:
     assert estimate.peak_candidates_upper == 16
     assert estimate.latent_bytes_upper == 16 * 4 * 4
     assert estimate.warnings == ()
+    generator = next(
+        node for node in estimate.nodes if node.operation == "mutation_generator:mutang"
+    )
+    assert generator.input_candidates == 2
+    assert generator.output_candidates == 16
 
 
 def test_estimator_reports_unbounded_generator() -> None:
@@ -57,3 +62,4 @@ def test_estimator_reports_unbounded_generator() -> None:
     assert estimate.peak_candidates_upper is None
     assert estimate.latent_bytes_upper is None
     assert estimate.warnings == ("Unbounded mutation generator: mutang",)
+    assert estimate.nodes[0].uncertainty == "Unbounded mutation generator: mutang"

@@ -248,6 +248,23 @@ class CandidateBatch:
         updated[name] = value
         return CandidateBatch(self.sequences, self.latent_origins, updated)
 
+    def without_fields(self, names: Sequence[str]) -> "CandidateBatch":
+        """Return a batch without selected fields while sharing retained data.
+
+        :param names: Exact field names to remove.
+        :return: Batch preserving sequences, latent origins, and other fields.
+        """
+        removed = frozenset(names)
+        return CandidateBatch(
+            self.sequences,
+            self.latent_origins,
+            {
+                name: value
+                for name, value in self.fields.items()
+                if name not in removed
+            },
+        )
+
     @classmethod
     def concatenate(cls, batches: Sequence["CandidateBatch"]) -> "CandidateBatch":
         """Concatenate branches while preserving fields absent from some branches."""

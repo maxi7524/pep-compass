@@ -63,3 +63,21 @@ def test_runner_resume_skips_durable_completed_run(tmp_path) -> None:
     executions = RuntimeRunner(resumed, MockWorkflow(), writer).run(plan)
 
     assert [execution.status for execution in executions] == ["skipped"]
+
+
+def test_runner_captures_test_run_diagnostics_without_output(tmp_path) -> None:
+    """Diagnostic execution must return scalar steps and memory in memory."""
+    configuration = _configuration(tmp_path)
+    plan = materialize_execution_plan(configuration, working_directory=tmp_path)
+
+    execution = RuntimeRunner(
+        configuration,
+        MockWorkflow(),
+        writer=None,
+        capture_diagnostics=True,
+    ).run(plan)[0]
+
+    assert execution.candidate_count == 1
+    assert execution.step_records
+    assert execution.memory_snapshots
+    assert all(snapshot.batch_bytes is not None for snapshot in execution.memory_snapshots)

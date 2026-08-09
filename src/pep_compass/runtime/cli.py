@@ -5,9 +5,11 @@ from __future__ import annotations
 import argparse
 from dataclasses import replace
 from pathlib import Path
+from time import perf_counter
 
 from pep_compass.core.estimation import estimate_pipeline_stability
 from pep_compass.core.validation import (
+    diagnose_pipeline_specification,
     validate_pipeline_specification,
     validate_registered_components,
 )
@@ -99,12 +101,8 @@ def _run_dry_run(configuration, working_directory: Path, run_indices) -> None:
                 input_candidates=1,
                 latent_dimension=1,
             )
-            print(
-                f"variant={entry.variant.variant_id} "
-                f"output_upper={estimate.output_candidates_upper} "
-                f"peak_upper={estimate.peak_candidates_upper} "
-                f"warnings={list(estimate.warnings)}"
-            )
+            diagnostics = diagnose_pipeline_specification(specification)
+            _print_dry_run_report(entry.variant.variant_id, estimate, diagnostics)
             seen_variants.add(entry.variant.variant_id)
         print(
             f"{entry.index:05d} {entry.run_id} {entry.variant.variant_id} "
@@ -142,13 +140,20 @@ def _run_test_run(configuration, working_directory: Path, arguments) -> None:
     print("test-run overrides:")
     for override in overrides:
         print(f"  {override}")
+    model_started_at = perf_counter()
     workflow = ComposableWorkflow(configuration.autoencoder)
-    executions = RuntimeRunner(configuration, workflow, writer=None).run(plan)
+    print(
+        "model initialization: "
+        f"duration={perf_counter() - model_started_at:.6f}s"
+    )
+    executions = RuntimeRunner(
+        configuration,
+        workflow,
+        writer=None,
+        capture_diagnostics=True,
+    ).run(plan)
     for execution in executions:
-        print(
-            f"{execution.entry.run_id} status={execution.status} "
-            f"error={execution.error}"
-        )
+        _print_test_run_report(execution)
     if any(execution.status == "failed" for execution in executions):
         raise SystemExit(1)
 
@@ -223,6 +228,84 @@ def _materialize_selected_plan(
     ).select(set(run_indices) if run_indices else None)
     validate_execution_plan(plan)
     return plan
+
+
+def _print_dry_run_report(variant_id, estimate, diagnostics) -> None:
+    """Print an explicit per-node cardinality and collision report."""
+    print(f"variant {variant_id}")
+    print("  candidate bounds:")
+    for node in estimate.nodes:
+        if node.operation == "flow":
+            continue
+        print(
+            f"    {node.path} [{node.operation}] "
+            f"input={_bound(node.input_candidates)} "
+            f"output={_bound(node.output_candidates)} "
+            f"peak={_bound(node.peak_candidates)}"
+        )
+        if node.uncertainty is not None:
+            print(f"      unknown because: {node.uncertainty}")
+    print(
+        "  summary: "
+        f"output={_bound(estimate.output_candidates_upper)} "
+        f"peak={_bound(estimate.peak_candidates_upper)}"
+    )
+    print("  diagnostics:")
+    if not diagnostics:
+        print("    none")
+    for diagnostic in diagnostics:
+        print(
+            f"    {diagnostic.severity} {diagnostic.code} "
+            f"at {diagnostic.path}: {diagnostic.message}"
+        )
+
+
+def _print_test_run_report(execution) -> None:
+    """Print timings, cardinalities, and memory observations for one test run."""
+    print(
+        f"{execution.entry.run_id} status={execution.status} "
+        f"duration={execution.duration_seconds:.6f}s "
+        f"candidates={execution.candidate_count} error={execution.error}"
+    )
+    print("  steps:")
+    if not execution.step_records:
+        print("    none")
+    for record in execution.step_records:
+        print(
+            f"    {'/'.join(record.path)} input={record.input_size} "
+            f"output={record.output_size} duration={record.duration_seconds:.6f}s "
+            f"generated={record.generated_candidates_before}"
+            f"->{record.generated_candidates_after} "
+            f"oracle_calls={record.oracle_calls_before}->{record.oracle_calls_after}"
+        )
+    print("  memory:")
+    for snapshot in execution.memory_snapshots:
+        print(
+            f"    {snapshot.label} candidates={snapshot.candidates} "
+            f"rss={_bytes(snapshot.rss_bytes)} "
+            f"cuda_allocated={_bytes(snapshot.cuda_allocated_bytes)} "
+            f"cuda_reserved={_bytes(snapshot.cuda_reserved_bytes)} "
+            f"cuda_peak={_bytes(snapshot.cuda_peak_bytes)} "
+            f"batch={_bytes(snapshot.batch_bytes)} "
+            f"detail_trigger={snapshot.detail_trigger or '-'}"
+        )
+
+
+def _bound(value: int | None) -> str:
+    """Render an explicitly unknown or finite candidate bound."""
+    return "UNKNOWN" if value is None else str(value)
+
+
+def _bytes(value: int | None) -> str:
+    """Render bytes in a compact binary unit without hiding unavailable data."""
+    if value is None:
+        return "N/A"
+    amount = float(value)
+    for unit in ("B", "KiB", "MiB", "GiB", "TiB"):
+        if amount < 1024 or unit == "TiB":
+            return f"{amount:.2f}{unit}"
+        amount /= 1024
+    raise AssertionError("Unreachable byte unit conversion.")
 
 
 if __name__ == "__main__":

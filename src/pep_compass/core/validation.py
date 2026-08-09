@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from pep_compass.core.specification import (
     ComponentSpecification,
     FlowSpecification,
@@ -11,6 +13,16 @@ from pep_compass.core.specification import (
     PipelineSpecification,
     StepSpecification,
 )
+
+
+@dataclass(frozen=True, slots=True)
+class PipelineDiagnostic:
+    """Describe a statically detectable pipeline risk or semantic collision."""
+
+    severity: str
+    code: str
+    path: str
+    message: str
 
 
 def validate_pipeline_specification(specification: PipelineSpecification) -> None:
@@ -37,6 +49,137 @@ def validate_registered_components(specification: PipelineSpecification) -> None
     import pep_compass.optimization.components.walkers.strategies  # noqa: F401
 
     _validate_registered_step(specification.root)
+
+
+def diagnose_pipeline_specification(
+    specification: PipelineSpecification,
+) -> tuple[PipelineDiagnostic, ...]:
+    """Return non-fatal data-flow and resource diagnostics for a valid graph."""
+    diagnostics: list[PipelineDiagnostic] = []
+    _diagnose_step(specification.root, "pipeline", diagnostics)
+    if specification.limits.generated_candidates is not None:
+        diagnostics.append(
+            PipelineDiagnostic(
+                severity="INFO",
+                code="POST_GENERATION_LIMIT",
+                path="pipeline.limits.generated_candidates",
+                message=(
+                    "The limit stops subsequent iterations after generation; "
+                    "it does not bound one mutation product before allocation."
+                ),
+            )
+        )
+    return tuple(diagnostics)
+
+
+def _diagnose_step(
+    specification: StepSpecification,
+    path: str,
+    diagnostics: list[PipelineDiagnostic],
+) -> None:
+    """Inspect one graph node for known composition hazards."""
+    if isinstance(specification, ComponentSpecification):
+        if (
+            specification.kind == "mutation_generator"
+            and specification.parameters.get("maximum_candidates") is None
+        ):
+            diagnostics.append(
+                PipelineDiagnostic(
+                    severity="ERROR",
+                    code="UNBOUNDED_EXPANSION",
+                    path=path,
+                    message=(
+                        f"Mutation generator '{specification.method}' has no "
+                        "maximum_candidates; its output and peak memory cannot "
+                        "be bounded statically."
+                    ),
+                )
+            )
+        return
+    if isinstance(specification, FlowSpecification):
+        for index, step in enumerate(specification.steps):
+            _diagnose_step(step, f"{path}.steps[{index}]", diagnostics)
+        return
+    if isinstance(specification, LoopSpecification):
+        kinds = _component_kinds(specification.body)
+        if "mutation_generator" in kinds and "walker" in kinds:
+            diagnostics.append(
+                PipelineDiagnostic(
+                    severity="ERROR",
+                    code="TRAJECTORY_FEEDBACK",
+                    path=path,
+                    message=(
+                        "This generic loop contains both a walker and a mutation "
+                        "generator. The complete mutation batch becomes the next "
+                        "iteration's walker input. Use local_enumeration to keep "
+                        "the trajectory and candidate pool separate."
+                    ),
+                )
+            )
+        _diagnose_step(specification.body, f"{path}.body", diagnostics)
+        return
+    if isinstance(specification, ParallelSpecification):
+        if specification.execution == "concurrent":
+            diagnostics.append(
+                PipelineDiagnostic(
+                    severity="WARNING",
+                    code="SHARED_MUTABLE_STATE",
+                    path=path,
+                    message=(
+                        "Concurrent branches share OptimizationState; counter and "
+                        "trust-region updates are not transactionally isolated."
+                    ),
+                )
+            )
+        for branch in specification.branches:
+            _diagnose_step(
+                branch.body,
+                f"{path}.branch[{branch.name}]",
+                diagnostics,
+            )
+        return
+    if isinstance(specification, LocalEnumerationSpecification):
+        _diagnose_step(
+            specification.generator,
+            f"{path}.mutation_generator",
+            diagnostics,
+        )
+        _diagnose_step(specification.filters, f"{path}.filters", diagnostics)
+        if not specification.filters.steps:
+            diagnostics.append(
+                PipelineDiagnostic(
+                    severity="WARNING",
+                    code="NO_LOCAL_FILTER",
+                    path=f"{path}.filters",
+                    message=(
+                        "No filter reduces each local mutation batch before it is "
+                        "retained in the complete candidate pool."
+                    ),
+                )
+            )
+        return
+    raise TypeError(f"Unsupported pipeline specification: {specification!r}")
+
+
+def _component_kinds(specification: StepSpecification) -> set[str]:
+    """Return component families nested below one operation."""
+    if isinstance(specification, ComponentSpecification):
+        return {specification.kind}
+    if isinstance(specification, FlowSpecification):
+        return set().union(*(_component_kinds(step) for step in specification.steps))
+    if isinstance(specification, LoopSpecification):
+        return _component_kinds(specification.body)
+    if isinstance(specification, ParallelSpecification):
+        return set().union(
+            *(_component_kinds(branch.body) for branch in specification.branches)
+        )
+    if isinstance(specification, LocalEnumerationSpecification):
+        return {
+            "walker",
+            "mutation_generator",
+            *(_component_kinds(specification.filters)),
+        }
+    raise TypeError(f"Unsupported pipeline specification: {specification!r}")
 
 
 def _validate_registered_step(specification: StepSpecification) -> None:

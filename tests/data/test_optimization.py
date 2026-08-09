@@ -14,3 +14,14 @@ def test_candidate_selection_preserves_every_aligned_column() -> None:
     assert selected.latent_origins.tolist() == [[2.0, 3.0]]
     assert isinstance(selected.fields["score"], TensorField)
     assert selected.fields["score"].values.tolist() == [0.75]
+
+
+def test_candidate_batch_can_release_transient_fields() -> None:
+    """Removing fields must preserve shared sequence and latent storage."""
+    batch = candidate_batch()
+
+    reduced = batch.without_fields(("score",))
+
+    assert reduced.sequences == batch.sequences
+    assert reduced.latent_origins is batch.latent_origins
+    assert reduced.fields == {}
