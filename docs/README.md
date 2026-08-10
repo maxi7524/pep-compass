@@ -13,18 +13,13 @@ extending it, and analysing what it produced. Each document stays at one
 abstraction level; do not duplicate an explanation across documents.
 
 ## Contents
-<!-- #TODO to trzeba poprwać -->
 
-- To run an experiment, continue with the [User Guide](user-guide.md).
-- To understand execution and data flow, continue with
-  [Technical Architecture](technical-architecture.md).
-- To add or modify a component, continue with the
-  [Developer Guide](developer-guide.md).
-- To read and analyse results, continue with the
-  [Analysis Guide](analysis-guide.md).
-- To understand why the codebase is organised this way, continue with
-  [Architecture Decisions](architecture-decisions.md).
-
+- [User Guide](user-guide.md)
+- [Technical Architecture](technical-architecture.md)
+- [Developer Guide](developer-guide.md)
+- [Analysis Guide](analysis-guide.md)
+- [Architecture Decisions](architecture-decisions.md)
+- [Migration Notes](developer/przeniesienie%20modeli.md)
 
 ## Documentation Overview
 

@@ -111,7 +111,7 @@ not call `sbatch`. Submit the generated script yourself:
 
 ```bash
 uv run --extra cu118 pep-compass run \
-  experiments/configs/reference_lebo.yaml \
+  assets/experiments/configs/reference_lebo.yaml \
   --backend slurm \
   --slurm-script experiments/jobs/reference_lebo.sh
 
@@ -200,7 +200,7 @@ input:
 ```yaml
 input:
   csv:
-    path: data/peptides/peptides.csv
+    path: assets/peptides_data/peptides.csv
     sequence_column: sequence
     repetitions_column: repetitions
 ```
@@ -471,7 +471,7 @@ See [Commands](#run) for `local`/`subprocess`/`slurm` semantics and flags.
 
 - `assets/experiments/configs/composable_example.yaml`: fully-commented
   reference covering every configuration section and step type — start here.
-- `experiments/configs/reference_lebo.yaml`: replicated SORBES–MUTANG local
+- `assets/experiments/configs/reference_lebo.yaml`: replicated SORBES–MUTANG local
   enumeration followed by ROBOT, APEX and trust-region updates.
 
 ## Troubleshooting

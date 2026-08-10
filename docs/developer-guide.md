@@ -8,37 +8,39 @@ documented in [Architecture Decisions](architecture-decisions.md).
 
 ## Table of Contents
 
-- [Library Structure](#library-structure)
-  - [Package Map](#package-map)
-  - [Module Responsibilities](#module-responsibilities)
-  - [Naming Conventions](#naming-conventions)
-  - [Public and Internal APIs](#public-and-internal-apis)
-- [Adding Components](#adding-components)
-  - [Implementation Procedure](#implementation-procedure)
-  - [Component Placement](#component-placement)
-  - [Common Component Contract](#common-component-contract)
-  - [Adding an Autoencoder](#adding-an-autoencoder)
-  - [Adding a Walker](#adding-a-walker)
-  - [Adding a Mutation Generator](#adding-a-mutation-generator)
-  - [Adding a Filter](#adding-a-filter)
-  - [Adding an Oracle](#adding-an-oracle)
-  - [Adding a Merge Policy](#adding-a-merge-policy)
-  - [Adding a Workflow](#adding-a-workflow)
-  - [Strategy Registration](#strategy-registration)
-  - [Parameter Validation](#parameter-validation)
-- [Mandatory Requirements](#mandatory-requirements)
-  - [Type and Batch Safety](#type-and-batch-safety)
-  - [Empty-Batch Handling](#empty-batch-handling)
-  - [Deterministic Randomness](#deterministic-randomness)
-  - [Tracking Compatibility](#tracking-compatibility)
-  - [Logging](#logging)
-  - [Docstrings](#docstrings)
-  - [Documentation](#documentation)
-  - [Unit Tests](#unit-tests)
-  - [Contract Tests](#contract-tests)
-  - [Registry Tests](#registry-tests)
-  - [Validation Configurations](#validation-configurations)
-- [Extension Checklist](#extension-checklist)
+- [Developer Guide](#developer-guide)
+  - [Table of Contents](#table-of-contents)
+  - [Library Structure](#library-structure)
+    - [Package Map](#package-map)
+    - [Module Responsibilities](#module-responsibilities)
+    - [Naming Conventions](#naming-conventions)
+    - [Public and Internal APIs](#public-and-internal-apis)
+  - [Adding Components](#adding-components)
+    - [Implementation Procedure](#implementation-procedure)
+    - [Component Placement](#component-placement)
+    - [Common Component Contract](#common-component-contract)
+    - [Adding an Autoencoder](#adding-an-autoencoder)
+    - [Adding a Walker](#adding-a-walker)
+    - [Adding a Mutation Generator](#adding-a-mutation-generator)
+    - [Adding a Filter](#adding-a-filter)
+    - [Adding an Oracle](#adding-an-oracle)
+    - [Adding a Merge Policy](#adding-a-merge-policy)
+    - [Adding a Workflow](#adding-a-workflow)
+    - [Strategy Registration](#strategy-registration)
+    - [Parameter Validation](#parameter-validation)
+  - [Mandatory Requirements](#mandatory-requirements)
+    - [Type and Batch Safety](#type-and-batch-safety)
+    - [Empty-Batch Handling](#empty-batch-handling)
+    - [Deterministic Randomness](#deterministic-randomness)
+    - [Tracking Compatibility](#tracking-compatibility)
+    - [Logging](#logging)
+    - [Docstrings](#docstrings)
+    - [Documentation](#documentation)
+    - [Unit Tests](#unit-tests)
+    - [Contract Tests](#contract-tests)
+    - [Registry Tests](#registry-tests)
+    - [Validation Configurations](#validation-configurations)
+  - [Extension Checklist](#extension-checklist)
 
 ## Library Structure
 
@@ -96,10 +98,11 @@ src/pep_compass/
     strategy_factory.py     register/build/parameter_contract helpers shared by every manager
 ```
 
-Configurations belong under `experiments/configs/` (and validation-scale
-examples under `assets/experiments/configs/`). Executable repository scripts
-belong under `assets/scripts/`. Tests mirror this package layout under
-`tests/`.
+Configurations belong under `assets/experiments/configs/`, with
+validation-scale examples under `assets/experiments/configs/validation/`.
+Persisted run output goes to `experiments/results/`. Executable repository
+scripts (model-weight download helpers) belong under `assets/scripts/`.
+Tests mirror this package layout under `tests/`.
 
 ### Module Responsibilities
 
@@ -445,17 +448,17 @@ Extend these tests when introducing another manager or operation family.
 
 ### Validation Configurations
 
-Add or extend a small file in `experiments/configs/validation/`. Each file
-should isolate one component family and use a grid for comparable methods or
-parameters. Use the mock sequence CSV under `data/peptides/`. Validate
-before a full run:
+Add or extend a small file in `assets/experiments/configs/validation/`. Each
+file should isolate one component family and use a grid for comparable
+methods or parameters. Use the mock sequence CSV under
+`assets/peptides_data/`. Validate before a full run:
 
 ```bash
 uv run --extra cu118 pep-compass dry-run \
-  experiments/configs/validation/<configuration>.yaml
+  assets/experiments/configs/validation/<configuration>.yaml
 
 uv run --extra cu118 pep-compass test-run \
-  experiments/configs/validation/<configuration>.yaml
+  assets/experiments/configs/validation/<configuration>.yaml
 ```
 
 Then execute the smallest real variant needed to exercise the component with

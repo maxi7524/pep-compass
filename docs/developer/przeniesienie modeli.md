@@ -1,9 +1,6 @@
 # Przeniesienie wcześniejszej warstwy `models`
 
-Ten dokument wskazuje zespołowi autorów wcześniejszych implementacji, gdzie
-znajduje się obecnie ich kod i które interfejsy zostały zmienione podczas
-refaktoryzacji. Nie opisuje poprawności naukowej poszczególnych metod; ta będzie
-walidowana osobno przez ich właścicieli.
+Jest tutaj rozpisane gdzie przeniosłem modele 
 
 ## Autoencoder HydrAMP
 
@@ -92,12 +89,40 @@ należy osobno sprawdzić preprocessing, interpretację wyniku, urządzenie,
 wersje bibliotek i zgodność dołączonych wag. Sam fakt rejestracji oznacza tylko,
 że model może zostać odnaleziony i włączony do pipeline.
 
-## `decision_models` nie jest rejestrem modeli
+## Filtry: `decision_models` zostało zastąpione podziałem `direct`/`ranked`
 
-`optimization/components/filters/strategies/decision_models/` zawiera funkcje
-oceniające kandydatów dla filtrów, między innymi ESM oraz potencjały MUTANG,
-TANDEM i MOVE. Nie zastępuje rejestru autoencoderów ani oracle. Są to elementy
-wewnętrzne filtrów i nie powinny być ładowane bezpośrednio przez runtime.
+Ten dokument wcześniej wskazywał
+`optimization/components/filters/strategies/decision_models/`. Ta ścieżka
+już nie istnieje — filtry zostały przebudowane po napisaniu tej notatki na
+dwa style rozszerzania (opisane w
+[Developer Guide](../developer-guide.md#adding-a-filter)):
+
+```text
+filters/strategies/decision_models/
+  -> optimization/components/filters/direct/{constraints,controls,optimization,structural}/
+     (samodzielne transformacje batcha, np. deduplicate, robot, trust_region, levenshtein)
+  -> optimization/components/filters/ranked/
+     (kompozycja ScoreFunction + SelectionRule)
+```
+
+Konkretnie, funkcje oceniające kandydatów (dawniej pod `decision_models/`)
+znajdują się teraz pod:
+
+```text
+ranked/scoring/latent_geometry/{lams,tandem,move}.py
+  # potencjały geometrii latentnej (LAMS, TANDEM, MOVE)
+ranked/scoring/model_scores/{decoder_likelihood,esm}.py
+  # log-prawdopodobieństwo dekodera (LPBEBO) i ESM2 pseudo-log-likelihood
+ranked/scoring/helpers/mutation_potentials.py
+  # współdzielone potencjały numeryczne; docstring modułu wskazuje wprost
+  # źródłowe ścieżki historyczne (upstream/kjxpp/main, upstream/rl_trials)
+ranked/scoring/mutation_pool.py
+  # redukcja/skalowanie iloczynu kartezjańskiego MUTANG przed oceną
+```
+
+Żadna z tych ścieżek nie zastępuje rejestru autoencoderów ani oracle. Są to
+elementy wewnętrzne filtrów i nie powinny być ładowane bezpośrednio przez
+runtime — dostęp do nich idzie przez `FilterManager`/`RankedFilter`.
 
 ## Zmiana sposobu uruchamiania
 
@@ -115,3 +140,31 @@ SORBES oraz pulę kandydatów MUTANG. Kandydaci MUTANG nie stają się automatyc
 punktami początkowymi następnego kroku SORBES. Lista lokalnych filtrów jest
 wykonywana po każdym MUTANG, natomiast globalny wybór, deduplikacja, oracle i
 Bayesian optimization pozostają zwykłymi krokami po Local Enumeration.
+
+## Co nie zostało jeszcze przeniesione ani zweryfikowane
+
+Ta migracja nie obejmuje wszystkiego. Poniższe punkty są zweryfikowane
+względem aktualnego drzewa kodu (nie są domysłem) i mają status "otwarte":
+
+- **PoGS nie jest przeniesiony, tylko zadeklarowany.**
+  `runtime/workflows/pogs.py` definiuje `PogsWorkflow` zgodny z kontraktem
+  `RuntimeWorkflow`, ale jego `build_pipeline` rzuca bezwarunkowo
+  `NotImplementedError`. Żadna komenda `pep-compass` go nie wybiera. Zobacz
+  [User Guide § PoGS](../user-guide.md#pogs) i
+  [Architecture Decisions § PoGS](../architecture-decisions.md#pogs).
+- **Polityki scalania `parallel`**: `interleave`, `select_best` i
+  `weighted_sample` są zadeklarowane w typie `MergeMethod`
+  (`optimization/engine/operations/parallel/merge.py`), ale nadal rzucają
+  `NotImplementedError`. Zaimplementowana jest wyłącznie `concatenate`.
+- **Walidacja naukowa modeli oracle nie jest ukończona** (patrz sekcja
+  [Modele predykcyjne oracle](#modele-predykcyjne-oracle) wyżej) — sam fakt
+  rejestracji w `OracleManager` nie oznacza potwierdzonej zgodności
+  preprocessing/interpretacji wyniku/wag ze źródłem.
+- **`analysis/visualization` i `analysis_types` wymagają dalszego
+  uporządkowania.** Własny `src/pep_compass/analysis/README.md` tego modułu
+  sygnalizuje, że obecny podział wizualizacji/analiz przeniesiony z
+  poprzedniego formatu nie jest uznawany za docelowy.
+- **Pruning pól batcha i jawne selektory żywotności kandydatów nie zostały
+  zaimplementowane.** Były dyskutowane jako rozszerzenie mechanizmu
+  `stability_estimation`, ale pozostają wyłącznie planem — zobacz
+  [Architecture Decisions § Deferred work](../architecture-decisions.md#deferred-work).
