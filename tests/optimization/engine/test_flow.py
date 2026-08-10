@@ -58,6 +58,28 @@ def test_loop_stops_when_a_step_produces_an_empty_batch() -> None:
     assert step.calls == 1
 
 
+def test_loop_preserves_last_result_when_empty_batch_requests_stop() -> None:
+    """An exhaustion sentinel must not erase the last committed iteration."""
+    class ExhaustionStep(SuffixStep):
+        calls = 0
+
+        def _execute(self, batch, context):
+            self.calls += 1
+            if self.calls == 1:
+                return super()._execute(batch, context)
+            context.state.stop_requested = True
+            return batch.select([])
+
+    step = ExhaustionStep("1")
+    context = OptimizationContext(MockAutoencoder())
+
+    result = Loop(step, iterations=3)(candidate_batch(), context)
+
+    assert result.sequences == ("AA1", "BB1")
+    assert step.calls == 2
+    assert context.state.stop_requested is True
+
+
 def test_nested_tracking_preserves_loop_and_branch_identity() -> None:
     """Tracker records must identify replicated work independently."""
     tracker = InMemoryStepTracker()
