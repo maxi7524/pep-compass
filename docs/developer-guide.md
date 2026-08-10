@@ -3,7 +3,8 @@
 This guide defines how to add and maintain PepCompass components. Runtime
 relationships are documented in
 [Technical Architecture](technical-architecture.md); public configuration is
-documented in [User Guide](user-guide.md).
+documented in [User Guide](user-guide.md); package-split rationale is
+documented in [Architecture Decisions](architecture-decisions.md).
 
 ## Table of Contents
 
@@ -16,13 +17,13 @@ documented in [User Guide](user-guide.md).
   - [Implementation Procedure](#implementation-procedure)
   - [Component Placement](#component-placement)
   - [Common Component Contract](#common-component-contract)
-  - [Adding an Encoder-Decoder](#adding-an-encoder-decoder)
+  - [Adding an Autoencoder](#adding-an-autoencoder)
   - [Adding a Walker](#adding-a-walker)
   - [Adding a Mutation Generator](#adding-a-mutation-generator)
   - [Adding a Filter](#adding-a-filter)
-  - [Adding a Selector](#adding-a-selector)
   - [Adding an Oracle](#adding-an-oracle)
   - [Adding a Merge Policy](#adding-a-merge-policy)
+  - [Adding a Workflow](#adding-a-workflow)
   - [Strategy Registration](#strategy-registration)
   - [Parameter Validation](#parameter-validation)
 - [Mandatory Requirements](#mandatory-requirements)
@@ -35,8 +36,8 @@ documented in [User Guide](user-guide.md).
   - [Documentation](#documentation)
   - [Unit Tests](#unit-tests)
   - [Contract Tests](#contract-tests)
-  - [Universal Registry Tests](#universal-registry-tests)
-  - [Integration Configurations](#integration-configurations)
+  - [Registry Tests](#registry-tests)
+  - [Validation Configurations](#validation-configurations)
 - [Extension Checklist](#extension-checklist)
 
 ## Library Structure
@@ -46,148 +47,162 @@ documented in [User Guide](user-guide.md).
 ```text
 src/pep_compass/
   core/
-    builder.py
-    validation.py
-    encoder_decoder/
-      base.py
-      manager.py
-      strategies/
-  experiments/
-    runner/
-    analysis/
-    reader/
+    specification.py     PipelineSpecification, ComponentSpecification, ...
+    builder.py            PipelineBuilder: specification -> PepCompassPipeline
+    validation.py         structural + registered-component validation
+    estimation.py         static candidate/memory estimation (dry-run)
+  autoencoder/
+    base.py               Autoencoder contract
+    registry.py            named model/checkpoint descriptors
+    factory.py              method + model + parameters -> Autoencoder
+    geometry.py            decoder-Jacobian-derived operations
+    strategies/hydramp/
+  data/
+    optimization.py        CandidateBatch, batch fields (runtime data model)
+    result_schema.py       versioned on-disk result format
+    dataset.py              logical, lazy view of loaded results
   optimization/
-    batch.py
-    context.py
-    flow.py
-    runner.py
-    state.py
-    step.py
-    tracking.py
-  walkers/
-    base.py
-    manager.py
-    strategies/
-  mutation_generators/
-    base.py
-    manager.py
-    strategies/
-  filters/
-    base.py
-    manager.py
-    strategies/
-      biology/
-      constraints/
-      decision_models/
-      latent_geometry/
-      selectors/
-      sequence_geometry/
-  oracles/
-    base.py
-    manager.py
-    strategies/
+    engine/
+      execution/           Step, OptimizationContext, OptimizationState, OptimizationResult
+      operations/           Flow, Loop, Parallel (+ merge), LocalEnumeration
+    components/
+      walkers/
+        base.py manager.py strategies/
+      mutation_generators/
+        base.py manager.py strategies/
+      filters/
+        base.py manager.py registry.py
+        direct/{constraints,controls,optimization,structural}/
+        ranked/{base.py,scoring/{latent_geometry,model_scores,helpers},selection}/
+      oracles/
+        base.py manager.py strategies/
+      helpers/
+    stability_estimation/  estimation.py monitoring.py
+    tracking/               ExecutionScope, StepTracker
+    pipeline.py             PepCompassPipeline (public executable object)
+  runtime/
+    cli.py                  pep-compass entry point
+    configuration/          loading.py validation.py pipeline.py schema.py
+    planning/               input.py variants.py plan.py validation.py
+    workflows/               base.py (RuntimeWorkflow protocol) composable.py pogs.py
+    backends/                subprocess.py slurm.py
+    output/                  writer.py tracking.py (CSVStepTracker)
+    device.py test_run.py runner.py
+  analysis/
+    reader/                 ExperimentReader, ExperimentSelection, RunReplay, MetricsStore
+    analysis_types/locality/
+    resampling/ visualization/
   utils/
+    strategy_factory.py     register/build/parameter_contract helpers shared by every manager
 ```
 
-Configurations belong under `experiments/configs/`. Executable repository
-scripts belong under `assets/scripts/`. Tests for the composable runtime belong
-under `tests/`.
+Configurations belong under `experiments/configs/` (and validation-scale
+examples under `assets/experiments/configs/`). Executable repository scripts
+belong under `assets/scripts/`. Tests mirror this package layout under
+`tests/`.
 
 ### Module Responsibilities
 
-`base.py` defines a family contract. `manager.py` stores named factories.
-`strategies/` contains implementations and registration factories. Do not add a
-new top-level package for one strategy when it belongs to an existing family.
+`base.py` defines a family contract (an ABC every strategy in that family
+subclasses). `manager.py` stores named factories (`{Family}Manager`, one per
+walkers/mutation_generators/filters/oracles). `strategies/` (or, for filters,
+`registry.py` plus `direct/`/`ranked/`) contains implementations and their
+registration decorators. Do not add a new top-level package for one strategy
+when it belongs to an existing family.
 
-Core wires components but does not implement their algorithms. Optimisation
-modules define generic execution and data contracts. Experiments orchestrate
-runs and persistence but do not select scientific strategies implicitly.
+`core` wires components but does not implement their algorithms.
+`optimization` defines generic execution/data contracts *and* the science —
+it must remain runnable from plain Python without `core`, YAML, or the CLI.
+`runtime` orchestrates configuration, planning, backends and persistence but
+does not select scientific strategies implicitly.
 
 ### Naming Conventions
 
-Use singular class names and snake-case public registry names. A strategy name
-must identify behaviour rather than the experiment in which it was introduced.
+Use singular class names and snake-case public registry names. A strategy
+name must identify behaviour, not the experiment that introduced it.
 
 Use the established suffixes when applicable:
 
 - `Walker` for latent-position transitions;
 - `Generator` for one-to-many candidate generation;
-- `Filter` for admissibility transformations;
-- `Selector` for policies selecting a subset;
-- `Oracle` or `BlackBox` for objective evaluation;
+- `Filter`/`Selector`/`Constraint`/`ScoreFunction`/`SelectionRule` for
+  admissibility, ranking and policy transformations (see
+  [Adding a Filter](#adding-a-filter) for which one applies);
+- `Oracle`/`BlackBox` for objective evaluation;
 - `Manager` for a strategy registry.
 
 ### Public and Internal APIs
 
-Registry names and YAML parameters are public APIs. `CandidateBatch`, batch
-field classes, `Step`, execution context and manager build methods are developer
-contracts. Strategy helper functions are internal unless exported explicitly.
+Registry names and YAML parameters are public API. `CandidateBatch`, batch
+field classes, `Step`, `OptimizationContext`/`OptimizationState`, and manager
+`build`/`register`/`methods`/`validate` methods are developer contracts.
+Strategy helper functions are internal unless exported explicitly.
 
-Changing a public method name or parameter requires updating validation
-configurations and the [User Guide](user-guide.md).
+Changing a public method name or parameter requires updating the responsible
+`parameter_contract`/factory signature and the [User Guide](user-guide.md).
 
 ## Adding Components
 
 ### Implementation Procedure
 
 1. Select the existing component family responsible for the behaviour.
-2. Read its base class, manager and one current strategy.
+2. Read its `base.py`, `manager.py` and one current strategy.
 3. Implement the smallest class satisfying the family contract.
 4. Add a factory and public registry name.
 5. Declare accepted and required parameters.
 6. Add contract and failure tests.
-7. Add a validation configuration that executes the real runner.
-8. Document public parameters in the User Guide.
+7. Add a validation configuration that executes the real runner (`pep-compass
+   dry-run`, then `test-run`).
+8. Document public parameters in the [User Guide](user-guide.md).
 
-Do not modify `PepCompassCore._build_step` when adding another implementation
-of an existing family. Core changes are required only for a new operation type.
+Do not modify `core.builder.PipelineBuilder._build_step`/`_build_component`
+when adding another implementation of an existing family. Core changes are
+required only for a new *operation type* (a new sibling to `walker`,
+`mutation_generator`, `filter`, `oracle`, `loop`, `parallel`,
+`local_enumeration`), not a new strategy.
 
 ### Component Placement
 
-Place a small implementation directly below its family `strategies/` package.
-Create a subpackage when the implementation contains multiple cohesive modules,
-model files or adapters. Reuse existing semantic groups under filters instead
-of creating one directory per filter.
+Place a small implementation directly below its family's `strategies/`
+package (or, for filters, below `direct/<category>/` or
+`ranked/scoring/<category>/`). Create a subpackage when the implementation
+contains multiple cohesive modules, model files or adapters. Reuse an
+existing semantic subcategory instead of inventing a new one per strategy.
 
-Scientific model code retained for comparison should remain inside the owning
-strategy package. Backup source trees are not importable runtime modules.
+Scientific model code retained for comparison stays inside the owning
+strategy package (see `oracles/strategies/apex_original/` next to
+`apex/`) rather than a separate backup tree.
 
 ### Common Component Contract
 
 A pipeline component accepts one `CandidateBatch` and returns one
-`CandidateBatch`. It may change the number of rows, sequences, latent origins or
-fields only through batch operations that preserve column alignment.
+`CandidateBatch`. It may change row count, sequences, latent origins or
+fields only through batch operations that preserve column alignment
+(`select`, `repeat_from_parents`, `with_field`, `concatenate` — see
+[Technical Architecture](technical-architecture.md#candidate-data-model)).
 
 Algorithm data needed by later steps belongs in `CandidateBatch.fields`.
 Execution diagnostics belong in tracking. Cross-iteration observations and
 control state belong in `OptimizationState`.
 
-### Adding an Encoder-Decoder
+### Adding an Autoencoder
 
-Implement `EncoderDecoder` in
-`core/encoder_decoder/strategies/<method>/`. The implementation must provide
-the encoding, decoding, decoder Jacobian and field-derivative operations used by
-configured walkers and geometry filters.
-
-Register a factory in `core/encoder_decoder/strategies/__init__.py`:
-
-```python
-@EncoderDecoderManager.register("method_name")
-@parameter_contract(
-    accepted={"device", "required_parameter"},
-    required={"required_parameter"},
-)
-def build_method_name(*, device: str = "cpu", **parameters):
-    return MethodEncoderDecoder(device=device, **parameters)
-```
-
-The core owns this instance and injects it into factories declaring an
-`encoder_decoder` service.
+Implement the `Autoencoder` contract (`autoencoder/base.py`) in
+`autoencoder/strategies/<method>/`, providing encoding, decoding, decoder
+Jacobian and field-derivative operations used by walkers and geometry-based
+filters. Register the implementation in `autoencoder/registry.py`, and add
+one or more **named model variants** (checkpoint descriptors) rather than
+hard-coding a single checkpoint — `method` selects the implementation,
+`model` selects the variant (see
+[Architecture Decisions](architecture-decisions.md#autoencoder-vs-models)).
+`core.PipelineBuilder` owns the constructed instance and injects it as the
+`autoencoder` service into any factory that declares it.
 
 ### Adding a Walker
 
-Subclass `Walker` and implement `_execute`. A walker normally replaces latent
-origins and decoded sequences while preserving compatible incoming fields.
+Subclass `Walker` (`optimization/components/walkers/base.py`) and implement
+`_execute`. A walker normally replaces latent origins and decoded sequences
+while preserving compatible incoming fields.
 
 Fields required by MUTANG use the established names:
 
@@ -198,95 +213,148 @@ walker.adjusted_time_step
 walker.tangent_space
 ```
 
-If a new walker cannot produce these values, document that it is not compatible
-with the current MUTANG strategy rather than creating placeholder fields.
+If a new walker cannot produce these values, document that it is not
+compatible with the current MUTANG strategy rather than creating placeholder
+fields.
 
 ### Adding a Mutation Generator
 
-Subclass `MutationGenerator`. For one-to-many generation:
+Subclass `MutationGenerator`
+(`optimization/components/mutation_generators/base.py`). For one-to-many
+generation:
 
 1. compute generated sequences per parent;
 2. build one parent-index list;
 3. call `batch.repeat_from_parents(parent_indices)`;
 4. replace sequences with `with_sequences`;
-5. attach reusable generation metadata;
+5. attach reusable generation metadata as batch fields;
 6. call `context.state.record_generated_candidates`.
 
-Do not re-encode generated sequences when their required origin is the concrete
-parent trajectory position.
+Do not re-encode generated sequences when their required origin is the
+concrete parent trajectory position.
 
 ### Adding a Filter
 
-Subclass `Filter` for an admissibility transformation. Calculate any reusable
-scores before selecting rows, attach them as a candidate-aligned field, and use
-`select(indices)` to return accepted candidates.
+`optimization/components/filters/` has two extension styles — pick the one
+matching what the transformation actually does:
 
-A filter may return an empty batch. It must not raise only because no candidate
-passed its rule.
+- **Direct** (`filters/direct/{constraints,controls,optimization,structural}/`):
+  subclass `Filter` (or `Selector` when the component depends on
+  optimisation policy, observation history or resource targets —
+  register it through `FilterManager` regardless, since `filter` is the one
+  public step operation for both). Calculate any reusable score before
+  selecting rows, attach it as a candidate-aligned field, and use
+  `select(indices)` to return accepted candidates. State-dependent selectors
+  read `context.state`; they must not encode persistent state into tracking
+  fields.
+- **Ranked** (`filters/ranked/{scoring,selection}/`): implement a
+  `ScoreFunction` (under `scoring/`, grouped by what it scores — e.g.
+  `latent_geometry/` for tangent-space-derived scores, `model_scores/` for
+  model-derived scores) and/or a `SelectionRule` (under `selection/` —
+  `threshold`, `nucleus`, `top_k`). `RankedFilter` composes any scorer with
+  any selection rule; register a fixed combination under its own method name
+  (as `lpbebo`/`lams`/`tandem`/`move` do) when that pairing is a named,
+  reusable strategy, or let callers compose one directly through the generic
+  `ranked` method.
 
-### Adding a Selector
-
-Subclass `Selector` when the component chooses candidates using an optimisation
-policy, observation history, diversity rule or resource target. State-dependent
-selectors read `context.state`; they must not encode persistent state into
-tracking fields.
-
-Register selectors through `FilterManager`, because `filter` is the public step
-operation for both filters and selectors.
+A filter may return an empty batch. It must not raise only because no
+candidate passed its rule.
 
 ### Adding an Oracle
 
-Subclass `Oracle` or adapt an existing POLI black box with `BlackBoxOracle`.
-An oracle must:
+Subclass `Oracle`, or adapt an existing POLI black box through
+`BlackBoxOracle` (`optimization/components/oracles/strategies/black_box.py`
+— see `_black_box_oracle` in `oracles/strategies/__init__.py` for the
+established adapter pattern). An oracle must:
 
 - attach a one-dimensional `oracle.<name>.score` tensor;
 - attach objective name and direction fields;
 - record observations through `OptimizationState`;
 - respect the remaining oracle-call budget;
-- return a correctly shaped empty score field without calling its model for an
-  empty batch.
+- return a correctly shaped empty score field without calling its model for
+  an empty batch.
 
-Import model-specific dependencies lazily in the registered factory so unused
-oracles do not prevent library import.
+Import model-specific dependencies lazily inside the registered factory (see
+`_black_box_oracle`'s `import_module`) so an unused oracle's dependency does
+not prevent library import. Oracles do not use `build_with_services` — a
+factory receives only its declared `**parameters`, no injected services.
 
 ### Adding a Merge Policy
 
 Implement `BatchMerger.__call__(batches) -> CandidateBatch` in
-`optimization/flow.py` and add it to `build_merger`. Define stable ordering,
-missing-field behaviour, required score fields, output size and random-state
-usage before implementation.
+`optimization/engine/operations/parallel/merge.py` and wire it into
+`build_merger`. Define stable ordering, missing-field behaviour, required
+score fields, output size and random-state usage before implementation.
+`interleave`, `select_best` and `weighted_sample` are declared
+(`MergeMethod`) but unimplemented — see
+[Architecture Decisions](architecture-decisions.md#known-issues) before
+picking one to implement.
 
-A merge policy must return one batch. Deduplication remains a separate filter
-unless deduplication is explicitly part of the merge policy contract.
+A merge policy must return one batch. Deduplication remains a separate
+filter unless deduplication is explicitly part of the merge policy contract.
+
+### Adding a Workflow
+
+A `RuntimeWorkflow` (`runtime/workflows/base.py`, a `Protocol`) builds one
+`PepCompassPipeline` from a raw pipeline configuration mapping:
+`build_pipeline(pipeline_configuration, *, tracker, stability_monitor) ->
+PepCompassPipeline`. `ComposableWorkflow`
+(`runtime/workflows/composable.py`) is the implemented reference: it builds
+one autoencoder, wraps `core.builder.PipelineBuilder`, and parses+builds a
+fresh pipeline per plan entry. `PogsWorkflow`
+(`runtime/workflows/pogs.py`) is the open example — currently a stub raising
+`NotImplementedError`; see [User Guide](user-guide.md#pogs) and
+[Architecture Decisions](architecture-decisions.md#pogs) before implementing
+it.
 
 ### Strategy Registration
 
-Managers expose `register(name)`, `build(name, ...)`, `methods()` and
-`factory(name)`. Built-in strategy packages are imported by core validation and
-construction. Registration names must be unique inside their family.
+Managers expose `register(name)`, `build(method, *, services=None,
+**parameters)`, `methods()` and `validate(method, parameters)`
+(`optimization/components/*/manager.py`). Built-in strategy packages are
+imported by `core.validation`/`core.builder`, which runs their module-level
+`@Manager.register(...)` decorators. Registration names must be unique
+inside their family.
 
-Prefer a factory when construction requires injected services or adapter
-objects:
+Walkers, mutation generators and filters route construction through
+`build_with_services` (`utils/strategy_factory.py`), which injects a
+developer-owned service (for example `autoencoder`) only when the factory
+signature declares a parameter with that exact name, and raises if a user
+parameter tries to override it:
 
 ```python
 @WalkerManager.register("new_walker")
-@parameter_contract(source=NewWalkerImplementation)
-def build_new_walker(encoder_decoder, **parameters):
-    return NewWalker(NewWalkerImplementation(encoder_decoder, **parameters))
+def build_new_walker(autoencoder, **parameters):
+    return NewWalker(NewWalkerImplementation(autoencoder, **parameters))
+```
+
+Oracles register a plain factory (no service injection) and typically pin an
+explicit parameter contract, since `BlackBoxOracle` factories translate
+parameters rather than exposing them 1:1:
+
+```python
+@OracleManager.register("new_oracle")
+@parameter_contract(accepted=_COMMON | {"model_specific_param"})
+def build_new_oracle(**parameters):
+    return _black_box_oracle("module.path", "NewBlackBox", "new_oracle", parameters)
 ```
 
 ### Parameter Validation
 
-Use `parameter_contract(source=Type)` when the source constructor accurately
-declares public parameters. Use explicit `accepted` and `required` sets when a
-factory translates parameters or uses `*args` and `**kwargs`.
+`validate_factory_parameters` (`utils/strategy_factory.py`) infers accepted
+and required parameters from the factory's own signature by default. Use
+`@parameter_contract(source=Type)` when a different constructor accurately
+declares public parameters, or explicit `accepted`/`required` sets when a
+factory translates parameters or uses `*args`/`**kwargs` (as every oracle
+factory does).
 
-Injected service names are excluded during configuration validation. Do not
-accept arbitrary unknown user parameters only to ignore them.
+Injected service names (`service_names` passed to `validate_factory_parameters`,
+e.g. `{"autoencoder"}`) are excluded from unknown/required-parameter checks.
+Do not accept arbitrary unknown user parameters only to ignore them.
 
-Every configuration grid is validated after value substitution. A method grid
-therefore requires its unchanged parameter mapping to be accepted by every
-selected method.
+Every configuration grid is validated after value substitution — a method
+grid therefore requires its unchanged parameter mapping to be accepted by
+every selected method.
 
 ## Mandatory Requirements
 
@@ -297,44 +365,48 @@ selected method.
 - Use `select` for row filtering.
 - Use `repeat_from_parents` for one-to-many expansion.
 - Preserve device compatibility for concatenated tensors.
-- Use optional fields only when a field is genuinely absent from a branch.
+- Use `OptionalField` only when a field is genuinely absent from a branch.
 
 ### Empty-Batch Handling
 
-Test empty input when the component can follow a filter or selector. Components
-must either return an aligned empty batch or document and validate a required
-non-empty precondition. Oracle adapters must not call third-party models with
-empty input.
+Test empty input when the component can follow a filter or selector.
+Components must either return an aligned empty batch or document and
+validate a required non-empty precondition. Oracle adapters must not call
+third-party models with empty input.
 
 ### Deterministic Randomness
 
-Use `context.rng` for NumPy sampling. Do not construct an unseeded generator in
-the strategy. Parallel identity is provided through
-`context.scope.branch_names` and `branch_indices`.
+Use `context.rng` for NumPy sampling. Do not construct an unseeded generator
+in the strategy. Parallel branch identity and independent seeding come from
+`context.enter_branch(name, index)` (see
+[Technical Architecture](technical-architecture.md#optimisation-context-and-state)),
+not from the strategy itself.
 
-Torch sampling currently uses the run-level Torch seed. A component requiring
-strict branch-local Torch randomness must accept or derive an explicit
-`torch.Generator` rather than relying on thread scheduling.
+Torch sampling currently uses the run-level Torch seed (set once in
+`PepCompassPipeline.run`). A component requiring strict branch-local Torch
+randomness must accept or derive an explicit `torch.Generator`, or use
+`torch.random.fork_rng` the way `LocalEnumeration`'s batched trajectory
+execution does, rather than relying on thread scheduling.
 
 ### Tracking Compatibility
 
-Do not call tracker lifecycle methods from a strategy. Inherit `Step` and allow
-the base wrapper to record execution. Add reusable algorithm values to batch
-fields only when later computation consumes them.
+Do not call tracker lifecycle methods from a strategy. Inherit `Step` and
+let `__call__` record execution automatically. Add reusable algorithm values
+to batch fields only when later computation actually consumes them.
 
 ### Logging
 
-Nontrivial computation and orchestration modules initialise
-`logger = get_custom_logger(__name__)`. Use lazy interpolation. Log stage-level
-progress at `info`, dimensions and parameters at `debug`, recoverable anomalies
-at `warning`, and contextualised handled failures at `error` with exception
-information.
+Nontrivial computation and orchestration modules initialise `logger =
+get_custom_logger(__name__)`. Use lazy interpolation. Log stage-level
+progress at `info`, dimensions and parameters at `debug`, recoverable
+anomalies at `warning`, and contextualised handled failures at `error` with
+exception information.
 
 ### Docstrings
 
 Public Python classes and methods use Sphinx-compatible reStructuredText
-docstrings. Document parameters, return values, raised exceptions, assumptions,
-side effects and input constraints.
+docstrings. Document parameters, return values, raised exceptions,
+assumptions, side effects and input constraints.
 
 ### Documentation
 
@@ -342,9 +414,11 @@ Update the document responsible for the change:
 
 - public YAML method or parameter: [User Guide](user-guide.md);
 - runtime relationship or data flow: [Technical Architecture](technical-architecture.md);
-- extension or maintenance procedure: this guide.
+- extension or maintenance procedure: this guide;
+- reading persisted results: [Analysis Guide](analysis-guide.md);
+- why something is structured a certain way: [Architecture Decisions](architecture-decisions.md).
 
-Do not duplicate the same explanation in all three documents.
+Do not duplicate the same explanation across documents.
 
 ### Unit Tests
 
@@ -363,33 +437,34 @@ Every pipeline component test verifies:
 - expected candidate-count behaviour;
 - empty-batch behaviour where applicable.
 
-### Universal Registry Tests
+### Registry Tests
 
-Manager contract tests iterate over every registered strategy family and verify
-that registered implementations inherit the required base type. Extend these
-tests when introducing another manager or operation family.
+Manager contract tests iterate over every registered strategy in a family
+and verify that registered implementations inherit the required base type.
+Extend these tests when introducing another manager or operation family.
 
-### Integration Configurations
+### Validation Configurations
 
 Add or extend a small file in `experiments/configs/validation/`. Each file
 should isolate one component family and use a grid for comparable methods or
-parameters. Use the mock sequence CSV under `data/peptides/`.
-
-Validate it before a full run:
+parameters. Use the mock sequence CSV under `data/peptides/`. Validate
+before a full run:
 
 ```bash
-uv run --extra cu118 python \
-  assets/scripts/runner/run_composable_optimization.py \
-  --config experiments/configs/validation/<configuration>.yaml \
-  --dry-run
+uv run --extra cu118 pep-compass dry-run \
+  experiments/configs/validation/<configuration>.yaml
+
+uv run --extra cu118 pep-compass test-run \
+  experiments/configs/validation/<configuration>.yaml
 ```
 
-Then execute the smallest real variant needed to exercise the component.
+Then execute the smallest real variant needed to exercise the component with
+`pep-compass run`.
 
 ## Extension Checklist
 
-- [ ] The implementation belongs to an existing component family or a new
-      family is justified.
+- [ ] The implementation belongs to an existing component family, or a new
+      family is justified in [Architecture Decisions](architecture-decisions.md).
 - [ ] Public code, identifiers, comments, logs and configuration are English.
 - [ ] The class satisfies its base contract.
 - [ ] Candidate columns remain aligned after every transformation.
@@ -400,6 +475,6 @@ Then execute the smallest real variant needed to exercise the component.
 - [ ] Unit and regression tests cover computation.
 - [ ] Contract tests cover batch behaviour.
 - [ ] Registry tests recognise the strategy.
-- [ ] A validation YAML exercises the real runner.
+- [ ] A validation configuration exercises `dry-run` and `test-run`.
 - [ ] The responsible documentation file is updated.
 - [ ] Focused tests, full applicable tests and configuration dry-runs pass.
