@@ -53,6 +53,7 @@ class OptimizationState:
     oracle_calls: int = 0
     generated_candidates: int = 0
     completed_iterations: int = 0
+    created_points: int = 0
     stop_requested: bool = False
     trust_regions: dict[str, TrustRegionState] = field(default_factory=dict)
 
@@ -92,3 +93,9 @@ class OptimizationState:
     def record_iteration(self) -> None:
         """Record completion of one engine-controlled iteration."""
         self.completed_iterations += 1
+
+    def next_point_ids(self, count: int) -> tuple[int, ...]:
+        """Allocate run-local identities for newly computed latent points."""
+        start = self.created_points
+        self.created_points += count
+        return tuple(range(start, self.created_points))

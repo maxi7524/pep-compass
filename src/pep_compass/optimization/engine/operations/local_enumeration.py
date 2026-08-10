@@ -14,7 +14,8 @@ _TRANSIENT_WALKER_FIELDS = (
     "walker.left_vectors",
     "walker.adjusted_time_step",
     "walker.tangent_space",
-    "walker.geometry",
+    "tangent_geometry",
+    "point_id",
 )
 
 
@@ -69,6 +70,13 @@ class LocalEnumeration(Step):
         self.iterations = iterations
         self.walk_time = walk_time
         self.include_walk_points = include_walk_points
+        requirement = getattr(mutation_generator, "geometry_requirement", None)
+        contract = getattr(walker, "geometry_contract", None)
+        if getattr(mutation_generator, "requires_local_enumeration", False):
+            if requirement is None or contract is None or not contract.satisfies(requirement):
+                raise ValueError(
+                    "LocalEnumeration walker geometry does not satisfy MUTANG shared geometry."
+                )
 
     def precompute(self, context: OptimizationContext) -> None:
         """Precompute each reusable child exactly once."""
