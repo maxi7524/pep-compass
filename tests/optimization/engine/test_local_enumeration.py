@@ -51,6 +51,8 @@ def test_local_enumeration_does_not_feed_mutations_back_to_walker() -> None:
     result = operation(batch, OptimizationContext(autoencoder=MockAutoencoder()))
 
     assert walker.input_sizes == [1, 1, 1, 1]
-    assert len(result) == 16
+    # Two trajectories, two SORBES points, and three emissions per point:
+    # the walk point plus two locally generated candidates.
+    assert len(result) == 12
     assert result.sequences.count("SWA") == 2
     assert result.sequences.count("SWWB") == 2

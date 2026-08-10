@@ -9,6 +9,14 @@ from pep_compass.utils.logger import get_custom_logger
 
 logger = get_custom_logger(__name__)
 
+_TRANSIENT_WALKER_FIELDS = (
+    "walker.singular_values",
+    "walker.left_vectors",
+    "walker.adjusted_time_step",
+    "walker.tangent_space",
+    "walker.geometry",
+)
+
 
 class LocalEnumeration(Step):
     """Collect local mutations without feeding them back into SORBES.
@@ -110,9 +118,9 @@ class LocalEnumeration(Step):
         context: OptimizationContext,
     ) -> list[CandidateBatch]:
         """Run one trajectory while retaining candidates outside its state."""
-        # Initial-point enumeration required by Algorithm 2
+        # Trajectory point
         current = seed
-        emissions = [self._generate_and_filter(current, context)]
+        emissions: list[CandidateBatch] = []
         elapsed = 0.0
         iteration = 0
 
@@ -120,10 +128,11 @@ class LocalEnumeration(Step):
         while self._should_continue(iteration, elapsed, context):
             iteration_context = context.enter_iteration(iteration)
             current = self.walker(current, iteration_context)
+            time_increment = self._time_increment(current)
             if self.include_walk_points:
-                emissions.append(current)
+                emissions.append(current.without_fields(_TRANSIENT_WALKER_FIELDS))
             emissions.append(self._generate_and_filter(current, iteration_context))
-            elapsed += self._time_increment(current)
+            elapsed += time_increment
             iteration += 1
             context.state.record_iteration()
         logger.debug(
@@ -142,7 +151,8 @@ class LocalEnumeration(Step):
     ) -> CandidateBatch:
         """Generate MUTANG candidates and apply configured local filters."""
         generated = self.mutation_generator(point, context)
-        return self.filters(generated, context)
+        filtered = self.filters(generated, context)
+        return filtered.without_fields(_TRANSIENT_WALKER_FIELDS)
 
     def _should_continue(
         self,
