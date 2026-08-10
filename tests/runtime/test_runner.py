@@ -42,7 +42,11 @@ def test_runner_persists_completed_result_and_stability_samples(tmp_path) -> Non
     assert payload["status"] == "completed"
     assert payload["candidate_count"] == 1
     assert (directory / "candidates.csv").exists()
-    assert (directory / "stability.csv").exists()
+    assert (directory / "fields.jsonl").exists()
+    assert (directory / "resolved_config.json").exists()
+    assert (directory / "tracking" / "stability.csv").exists()
+    assert (directory / "tracking" / "replay_manifest.json").exists()
+    assert (directory / "tracking" / "run.log").stat().st_size > 0
     assert (directory / "tracking" / "steps.csv").exists()
 
 
@@ -78,6 +82,7 @@ def test_runner_captures_test_run_diagnostics_without_output(tmp_path) -> None:
     ).run(plan)[0]
 
     assert execution.candidate_count == 1
+    assert execution.final_candidates == (("AAZ", None),)
     assert execution.step_records
     assert execution.memory_snapshots
     assert all(snapshot.batch_bytes is not None for snapshot in execution.memory_snapshots)

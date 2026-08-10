@@ -16,6 +16,7 @@ from pep_compass.core.validation import (
 from pep_compass.runtime.backends import execute_subprocess_plan, write_slurm_array_script
 from pep_compass.runtime.configuration import load_runtime_configuration
 from pep_compass.runtime.configuration.pipeline import parse_pipeline_specification
+from pep_compass.runtime.device import inspect_torch_runtime, validate_execution_device
 from pep_compass.runtime.output import ResultWriter
 from pep_compass.runtime.planning.plan import ExecutionPlan, materialize_execution_plan
 from pep_compass.runtime.planning.validation import validate_execution_plan
@@ -66,6 +67,11 @@ def _add_configuration_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("configuration", type=Path)
     parser.add_argument("--working-directory", type=Path, default=Path.cwd())
     parser.add_argument("--run-index", type=int, action="append")
+    parser.add_argument(
+        "--device",
+        dest="autoencoder_device",
+        help="Override autoencoder.device from the configuration (for example cpu or cuda).",
+    )
 
 
 def main() -> None:
@@ -74,6 +80,14 @@ def main() -> None:
     working_directory = arguments.working_directory.resolve()
     configuration_path = arguments.configuration.resolve()
     configuration = load_runtime_configuration(configuration_path)
+    if arguments.autoencoder_device is not None:
+        configuration = replace(
+            configuration,
+            autoencoder=replace(
+                configuration.autoencoder,
+                device=arguments.autoencoder_device,
+            ),
+        )
 
     if arguments.command == "dry-run":
         _run_dry_run(configuration, working_directory, arguments.run_index)
@@ -140,6 +154,7 @@ def _run_test_run(configuration, working_directory: Path, arguments) -> None:
     print("test-run overrides:")
     for override in overrides:
         print(f"  {override}")
+    _inspect_and_print_runtime(configuration.autoencoder.device)
     model_started_at = perf_counter()
     workflow = ComposableWorkflow(configuration.autoencoder)
     print(
@@ -190,6 +205,7 @@ def _run_production(
             configuration_path,
             working_directory=working_directory,
             max_workers=execution.max_workers,
+            autoencoder_device=arguments.autoencoder_device,
         )
         return
     if execution.backend == "slurm" and not arguments.worker:
@@ -201,9 +217,11 @@ def _run_production(
             arguments.slurm_script,
             working_directory=working_directory,
             settings=execution.slurm,
+            autoencoder_device=arguments.autoencoder_device,
         )
         return
 
+    _inspect_and_print_runtime(configuration.autoencoder.device)
     output = configuration.experiment.output_directory
     writer = None
     if output is not None:
@@ -289,6 +307,37 @@ def _print_test_run_report(execution) -> None:
             f"batch={_bytes(snapshot.batch_bytes)} "
             f"detail_trigger={snapshot.detail_trigger or '-'}"
         )
+    print("  final candidates:")
+    if not execution.final_candidates:
+        print("    none")
+    elif all(score is None for _, score in execution.final_candidates):
+        print("    score field: not produced (the executed pipeline has no oracle score)")
+    for index, (sequence, score) in enumerate(execution.final_candidates):
+        rendered_score = "N/A" if score is None else f"{score:.8g}"
+        print(f"    {index}: sequence={sequence} score={rendered_score}")
+
+
+def _inspect_and_print_runtime(device: str):
+    """Print and validate the effective Torch and autoencoder device selection."""
+    runtime = inspect_torch_runtime()
+    compiled_cuda = runtime.compiled_cuda or "none (CPU-only build)"
+    print(
+        "runtime: "
+        f"torch={runtime.version} compiled_cuda={compiled_cuda} "
+        f"cuda_available={runtime.cuda_available} "
+        f"cuda_devices={runtime.cuda_device_count} "
+        f"autoencoder_device={device}"
+    )
+    if device == "cpu" and runtime.compiled_cuda is not None:
+        print(
+            "runtime note: CUDA Torch is installed, but autoencoder.device=cpu; "
+            "CUDA is intentionally not used by the autoencoder."
+        )
+    try:
+        validate_execution_device(device, runtime)
+    except RuntimeError as error:
+        raise SystemExit(f"pep-compass: error: {error}") from None
+    return runtime
 
 
 def _bound(value: int | None) -> str:

@@ -15,6 +15,7 @@ from pep_compass.analysis.reader.entities import (
 )
 from pep_compass.analysis.reader.metrics_store import MetricsStore
 from pep_compass.analysis.reader.selection import ExperimentSelection
+from pep_compass.analysis.reader.replay import RunReplay
 from pep_compass.analysis.reader.dataset import SelectionTableHandle
 from pep_compass.analysis.reader.data_schemas import SCHEMAS
 from pep_compass.data.dataset import (
@@ -89,6 +90,15 @@ class ExperimentReader:
         """List completed cached results, including cache-only collections."""
         return self.metrics.list_analyses()
 
+    def replay(self, run_id: str) -> RunReplay:
+        """Open replay checkpoints and final results for one unambiguous run."""
+        matches = [run for run in self.runs if run.run_id == run_id]
+        if len(matches) != 1:
+            raise KeyError(
+                f"Expected one run named {run_id!r}, found {len(matches)}."
+            )
+        return RunReplay(matches[0].tracking_path.parent)
+
     def _discover(self) -> ExperimentCollection:
         runtime_results = sorted(self.root.glob("variants/*/runs/*/result.json"))
         if runtime_results:
@@ -131,13 +141,19 @@ class ExperimentReader:
                 "name": payload.get("sequence"),
                 "method": payload.get("workflow", "composable"),
             }
+            config_path = run_root / "resolved_config.json"
+            config = (
+                json.loads(config_path.read_text(encoding="utf-8"))
+                if config_path.exists()
+                else {}
+            )
             runs.append(
                 ExperimentRun(
                     run_id=run_id,
                     experiment=self.root.name,
                     grid_id=variant_id,
                     tracking_path=run_root / "tracking",
-                    config={},
+                    config=config,
                     metadata=metadata,
                 )
             )

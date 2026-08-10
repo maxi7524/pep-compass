@@ -18,6 +18,7 @@ def write_slurm_array_script(
     *,
     working_directory: Path,
     settings: Mapping[str, Any],
+    autoencoder_device: str | None = None,
 ) -> Path:
     """Write, but do not submit, a Slurm array script."""
     if not plan.entries:
@@ -40,6 +41,7 @@ def write_slurm_array_script(
         configuration_path,
         "$SLURM_ARRAY_TASK_ID",
         working_directory=working_directory,
+        autoencoder_device=autoencoder_device,
     )
     rendered = [shlex.quote(part) for part in command]
     token = rendered.index("'$SLURM_ARRAY_TASK_ID'")

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import logging
 from pathlib import Path
 from time import perf_counter
 from typing import Literal
@@ -33,6 +34,7 @@ class RunExecution:
     candidate_count: int | None = None
     step_records: tuple[StepExecutionRecord, ...] = ()
     memory_snapshots: tuple[MemorySnapshot, ...] = ()
+    final_candidates: tuple[tuple[str, float | None], ...] = ()
 
 
 class RuntimeRunner:
@@ -81,6 +83,8 @@ class RuntimeRunner:
         )
         if self.writer is not None:
             self.writer.write_running(entry)
+            self.writer.write_replay_manifest(entry, self.configuration)
+        log_handler = _attach_run_log(run_directory)
         try:
             started_at = perf_counter()
             pipeline = self.workflow.build_pipeline(
@@ -98,6 +102,11 @@ class RuntimeRunner:
                 candidate_count=len(result.candidates),
                 step_records=tuple(getattr(tracker, "records", ())),
                 memory_snapshots=tuple(monitor.snapshots),
+                final_candidates=(
+                    _final_candidate_rows(result)
+                    if self.capture_diagnostics
+                    else ()
+                ),
             )
         except Exception as error:
             logger.error("Run %s failed: %s", entry.run_id, error, exc_info=True)
@@ -113,6 +122,8 @@ class RuntimeRunner:
                 step_records=tuple(getattr(tracker, "records", ())),
                 memory_snapshots=tuple(monitor.snapshots),
             )
+        finally:
+            _detach_run_log(log_handler)
 
     def _build_tracker(self, entry: PlannedRun, directory: Path | None):
         """Construct a CSV tracker or a no-output tracker for one run."""
@@ -135,3 +146,57 @@ class RuntimeRunner:
             run_id=entry.run_id,
             variant_id=entry.variant.variant_id,
         )
+
+
+def _final_candidate_rows(result) -> tuple[tuple[str, float | None], ...]:
+    """Return compact sequence-score rows without retaining the final batch."""
+    score_values = None
+    for name, field in result.candidates.fields.items():
+        if name.startswith("oracle.") and name.endswith(".score"):
+            score_values = getattr(field, "values", None)
+    return tuple(
+        (
+            sequence,
+            None if score_values is None else float(score_values[index].item()),
+        )
+        for index, sequence in enumerate(result.candidates.sequences)
+    )
+
+
+def _attach_run_log(
+    directory: Path | None,
+) -> tuple[logging.Handler, logging.Logger, int] | None:
+    """Attach one run-scoped file handler when durable output is enabled."""
+    if directory is None:
+        return None
+    tracking_directory = directory / "tracking"
+    tracking_directory.mkdir(parents=True, exist_ok=True)
+    handler = logging.FileHandler(
+        tracking_directory / "run.log",
+        encoding="utf-8",
+    )
+    handler.setLevel(logging.DEBUG)
+    handler.setFormatter(
+        logging.Formatter(
+            "%(asctime)s %(levelname)s %(name)s %(message)s"
+        )
+    )
+    root_logger = logging.getLogger()
+    package_logger = logging.getLogger("pep_compass")
+    previous_level = package_logger.level
+    package_logger.setLevel(logging.DEBUG)
+    root_logger.addHandler(handler)
+    return handler, package_logger, previous_level
+
+
+def _detach_run_log(
+    capture: tuple[logging.Handler, logging.Logger, int] | None,
+) -> None:
+    """Flush, detach and close one run-scoped logging handler."""
+    if capture is None:
+        return
+    handler, package_logger, previous_level = capture
+    logging.getLogger().removeHandler(handler)
+    package_logger.setLevel(previous_level)
+    handler.flush()
+    handler.close()

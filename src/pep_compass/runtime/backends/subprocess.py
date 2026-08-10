@@ -16,9 +16,10 @@ def worker_command(
     run_index: int | str,
     *,
     working_directory: Path,
+    autoencoder_device: str | None = None,
 ) -> list[str]:
     """Return the CLI command for one isolated plan entry."""
-    return [
+    command = [
         sys.executable,
         "-m",
         "pep_compass.runtime.cli",
@@ -32,6 +33,9 @@ def worker_command(
         str(working_directory),
         "--worker",
     ]
+    if autoencoder_device is not None:
+        command.extend(("--device", autoencoder_device))
+    return command
 
 
 def execute_subprocess_plan(
@@ -40,6 +44,7 @@ def execute_subprocess_plan(
     *,
     working_directory: Path,
     max_workers: int,
+    autoencoder_device: str | None = None,
     command_runner: Callable[..., subprocess.CompletedProcess] = subprocess.run,
 ) -> None:
     """Execute every selected plan entry in an isolated process."""
@@ -53,6 +58,7 @@ def execute_subprocess_plan(
                 configuration_path,
                 entry.index,
                 working_directory=working_directory,
+                autoencoder_device=autoencoder_device,
             ),
             check=True,
             cwd=working_directory,

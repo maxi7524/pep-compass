@@ -23,6 +23,36 @@ SCHEMAS = {
         "candidates.csv",
         frozenset({"execution_id", "candidate_index", "sequence"}),
     ),
+    "trajectory_points": DataSchema(
+        "trajectory_points",
+        "trajectory_points.csv",
+        frozenset(
+            {
+                "execution_id",
+                "trajectory_id",
+                "trajectory_step",
+                "sequence",
+                "latent_index",
+            }
+        ),
+    ),
+    "local_enumerations": DataSchema(
+        "local_enumerations",
+        "local_enumerations.csv",
+        frozenset(
+            {
+                "execution_id",
+                "input_count",
+                "output_count",
+                "output_sequences_sha256",
+            }
+        ),
+    ),
+    "stability": DataSchema(
+        "stability",
+        "stability.csv",
+        frozenset({"label", "candidates", "rss_bytes"}),
+    ),
     "evaluations": DataSchema(
         "evaluations",
         "evaluations.csv",

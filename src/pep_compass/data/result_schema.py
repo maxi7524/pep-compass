@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 
-CURRENT_RESULT_SCHEMA_VERSION = "1"
+CURRENT_RESULT_SCHEMA_VERSION = "2"
 
 
 @dataclass(frozen=True, slots=True)
@@ -55,6 +55,26 @@ RESULT_SCHEMA = ResultSchema(
                 "input_size",
                 "output_size",
                 "duration_seconds",
+            ),
+        ),
+        ResultFileSchema(
+            "trajectory_points",
+            "tracking/trajectory_points.csv",
+            (
+                "execution_id",
+                "trajectory_id",
+                "trajectory_step",
+                "latent_index",
+            ),
+        ),
+        ResultFileSchema(
+            "local_enumerations",
+            "tracking/local_enumerations.csv",
+            (
+                "execution_id",
+                "input_count",
+                "output_count",
+                "output_sequences_sha256",
             ),
         ),
         ResultFileSchema(
