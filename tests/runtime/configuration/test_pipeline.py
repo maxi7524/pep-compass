@@ -31,6 +31,7 @@ def test_pipeline_parser_builds_local_enumeration_declaration() -> None:
                 {
                     "local_enumeration": {
                         "trajectories": 2,
+                        "trajectory_execution": "sequential",
                         "iterations": 3,
                         "walker": {"method": "sorbes", "parameters": {}},
                         "mutation_generator": {
@@ -49,4 +50,5 @@ def test_pipeline_parser_builds_local_enumeration_declaration() -> None:
     operation = specification.root.steps[0]
     assert isinstance(operation, LocalEnumerationSpecification)
     assert operation.trajectories == 2
+    assert operation.trajectory_execution == "sequential"
     assert [step.method for step in operation.filters.steps] == ["deduplicate"]

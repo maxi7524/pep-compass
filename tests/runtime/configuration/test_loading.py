@@ -41,3 +41,23 @@ pipeline:
 
     with pytest.raises(ValueError, match="Unknown autoencoder model"):
         load_runtime_configuration(path)
+
+
+def test_reference_lebo_uses_reference_local_enumeration_parameters() -> None:
+    """The maintained reference config must retain origin/dev baseline values."""
+    configuration = load_runtime_configuration(
+        "assets/experiments/configs/reference_lebo.yaml"
+    )
+    outer_loop = configuration.pipeline["steps"][0]["loop"]
+    local = outer_loop["steps"][0]["local_enumeration"]
+    walker = local["walker"]["parameters"]
+
+    assert configuration.autoencoder.parameters["jacobian_eps"] == 0.05
+    assert configuration.autoencoder.parameters["field_eps"] == 0.05
+    assert local["trajectories"] == 10
+    assert local["walk_time"] == 0.1
+    assert walker["geometry"]["parameters"]["kappa"] == 0.01
+    assert walker["position_update"]["parameters"] == {
+        "epsilon": 0.1,
+        "delta_max": 0.5,
+    }

@@ -22,16 +22,41 @@ zarejestrowanych oracle'i (`apex`, `battleamp`, `eipred`, `hydrophobicity`, `mbc
 przeciwieństwie do analogicznych bugów opisanych dla `walkers`/`mutation_generators` w planie
 restrukturyzacji tamtych komponentów.
 
-## APEX — zweryfikowany, bez zmian
+## APEX — model wag wprowadzony jako nazwany wariant
 
-`strategies/apex/oracle.py`, klasa `APEXBlackBox`: poprawnie zarejestrowana
-(`strategies/__init__.py:33-42`), poprawnie owinięta przez `BlackBoxOracle`, `self.maximize = False`
-ustawione jawnie, brak martwych zależności w ścieżce wykonania. Jedyna zmiana dotycząca tego pliku to
-usunięcie nieużywanej klasy opisanej w punkcie 4 poniżej — nie zmienia to działania `APEXBlackBox`.
+`APEXBlackBox`/`PredictorAPEX` wcześniej wymagały ręcznie skopiowanych folderów wag
+(`APEX_pathogen_models`, `Full_APEX_pathogen_models`) bezpośrednio w pakiecie `apex/` — oba były puste
+(tylko `.gitignore`, bez wag), więc oracle był niesprawny przy każdym świeżym checkoucie.
 
-Nieprzetestowane uruchomieniowo w ramach tego przeglądu (sprawdzone tylko czytaniem kodu): ładowanie
-wag przez `PredictorAPEX`/`APEXUnpickler` (`apex/APEX_predictor.py:16-24`, customowy unpickler
-remapujący stare nazwy modułów) i poprawność liczbowa predykcji.
+Wczytywanie wag zostało przepisane analogicznie do `AutoencoderFactory`/`AutoencoderRegistry` w
+HydrAMP: `PredictorAPEX(model=...)` wybiera nazwany wariant z `APEX_MODEL_VARIANTS`
+(`apex/APEX_predictor.py`), każdy wariant wskazuje na `apex/models/<nazwa>/` (analogicznie do
+`autoencoder/strategies/hydramp/models/<nazwa>/`). Dostępne warianty:
+
+- `default` — 8-patogenowy zestaw z oryginalnego artykułu APEX (pliki `APEX_*`), źródło:
+  [`Yimeng-Zeng/APEXGo`](https://github.com/Yimeng-Zeng/APEXGo). Instalacja:
+  `assets/scripts/downloads/apex/download_apex_models_default.sh`.
+- `full` — rozszerzony zestaw 34 patogenów, 40 modeli (pliki `trained_all_model_*_ensemble_*`), źródło:
+  oficjalne, kanoniczne repozytorium
+  [`machine-biology-group-public/apex`](https://gitlab.com/machine-biology-group-public/apex/-/tree/main/trained_models)
+  (~27 MB/plik, ~1 GB łącznie). Instalacja:
+  `assets/scripts/downloads/apex/download_apex_models_full.sh`.
+
+Oba skrypty pomijają pobieranie (exit 0), jeśli pliki wag już są obecne w katalogu docelowym — nie
+pobierają ponownie przy kolejnych uruchomieniach. Każdy katalog wariantu ma własny `.gitignore`
+(`*` poza `.gitignore`/`README.md`) — wagi nigdy nie trafiają do repozytorium, niezależnie od
+katalogów `.gitignore` wyższego poziomu.
+
+Config (`oracle: {method: apex, parameters: {model: default, ...}}`) musi teraz podawać `model`
+jawnie — `strategies/__init__.py`'s `build_apex` przyjmuje ten parametr
+(`_COMMON | {"mic_aggregate", "mic_bacteria", "model", "device"}`).
+
+Usunięto martwą klasę `HydrAMPAPEXBlackBox` (duplikowała `APEXBlackBox`, nigdzie nieużywana) —
+wcześniejszy punkt 4 tej listy jest już zamknięty.
+
+**Nieprzetestowane uruchomieniowo w ramach tego przeglądu**: rzeczywiste pobranie i wczytanie wag
+(skrypty nie zostały odpalone — plik `full` to ~1 GB, decyzja o pobraniu należy do osoby uruchamiającej
+eksperyment) oraz poprawność liczbowa predykcji.
 
 ## Zmiany do wprowadzenia w pozostałych pięciu oracle'ach
 
@@ -60,27 +85,20 @@ Występuje w `apex/oracle.py`, `battleamp/oracle.py`, `eipred/oracle.py`, `hydro
 ograniczeń przez cały przebieg optymalizacji. Do usunięcia z wszystkich sześciu plików, albo — jeśli
 ma wartość diagnostyczną — do scentralizowania w jednym miejscu zamiast kopiowania w każdym adapterze.
 
-### 4. Nieużywana klasa `HydrAMPAPEXBlackBox`
-
-`apex/oracle.py:68-149`. Duplikuje logikę `APEXBlackBox`, dodatkowo dekoduje z latentu przez
-`HydrampAutoencoder`, ma własne `shift`/`cache`. Nigdzie nieimportowana ani niezarejestrowana —
-`strategies/__init__.py` importuje z tego modułu tylko `APEXBlackBox`. Do usunięcia albo przeniesienia
-poza ścieżkę importową `strategies/__init__.py` z jawnym oznaczeniem jako nieużywany/eksperymentalny.
-
-### 5. Ręczne smoke-testy w plikach produkcyjnych
+### 4. Ręczne smoke-testy w plikach produkcyjnych
 
 `strategies/hydrophobicity/oracle.py` (linie 65-111) i `strategies/toxipep/oracle.py` (linie 132-182)
 zawierają bloki `if __name__ == "__main__":` z ręcznymi testami i `print()`. Do usunięcia albo
 przeniesienia do `tests/` jako właściwe testy jednostkowe.
 
-### 6. Niespójne źródło `AbstractBlackBox`
+### 5. Niespójne źródło `AbstractBlackBox`
 
 `apex/oracle.py` i `battleamp/oracle.py` importują `AbstractBlackBox` z `poli.core.abstract_black_box`;
 `eipred/oracle.py`, `hydrophobicity/oracle.py`, `mbc_attention/oracle.py`, `toxipep/oracle.py`
 importują z `poli_baselines.core.abstract_solver`. Do wyjaśnienia: czy rozjazd jest zamierzony (dwie
 różne biblioteki dla różnych klas modeli), czy przypadkowy i wymaga ujednolicenia.
 
-### 7. Ręczna izolacja procesowa tylko w BattleAMP
+### 6. Ręczna izolacja procesowa tylko w BattleAMP
 
 `battleamp/oracle.py:47-52` uruchamia predyktor w osobnym procesie CPU przy `device=cuda` przez
 ręczny `ProcessPoolExecutor` (komentarz w kodzie: unika konfliktu CUDA/cuSOLVER z PyTorchem

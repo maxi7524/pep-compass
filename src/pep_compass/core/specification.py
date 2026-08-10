@@ -10,6 +10,7 @@ from pep_compass.optimization.engine.execution.state import OptimizationLimits
 
 ComponentKind = Literal["walker", "mutation_generator", "filter", "oracle"]
 ParallelExecution = Literal["sequential", "concurrent"]
+TrajectoryExecution = Literal["sequential", "batched"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -68,6 +69,7 @@ class LocalEnumerationSpecification:
     walker: ComponentSpecification
     generator: ComponentSpecification
     filters: FlowSpecification
+    trajectory_execution: TrajectoryExecution = "batched"
     include_walk_points: bool = True
 
 

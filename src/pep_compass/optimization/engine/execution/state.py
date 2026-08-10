@@ -90,9 +90,15 @@ class OptimizationState:
         ):
             self.stop_requested = True
 
-    def record_iteration(self) -> None:
-        """Record completion of one engine-controlled iteration."""
-        self.completed_iterations += 1
+    def record_iteration(self, count: int = 1) -> None:
+        """Record completed engine-controlled iterations.
+
+        :param count: Number of logical iterations completed by a batched step.
+        :raises ValueError: If ``count`` is negative.
+        """
+        if count < 0:
+            raise ValueError("Completed iteration count cannot be negative.")
+        self.completed_iterations += count
 
     def next_point_ids(self, count: int) -> tuple[int, ...]:
         """Allocate run-local identities for newly computed latent points."""

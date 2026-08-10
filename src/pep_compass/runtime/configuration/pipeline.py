@@ -115,6 +115,7 @@ def _parse_local_enumeration(
         walker=walker,
         generator=generator,
         filters=filters,
+        trajectory_execution=settings.get("trajectory_execution", "batched"),
         include_walk_points=settings.get("include_walk_points", True),
     )
 

@@ -1,8 +1,9 @@
 """Contract tests applied automatically to registered components."""
 
+import subprocess
 import sys
 
-import pep_compass.optimization.components.filters.strategies  # noqa: F401
+import pep_compass.optimization.components.filters.registry  # noqa: F401
 import pep_compass.optimization.components.mutation_generators.strategies  # noqa: F401
 import pep_compass.optimization.components.walkers.strategies  # noqa: F401
 import pep_compass.optimization.components.oracles.strategies  # noqa: F401
@@ -34,16 +35,21 @@ def test_registered_component_factories_have_stable_non_empty_names(registry) ->
 
 def test_oracle_registration_does_not_import_model_implementations() -> None:
     """Discovering oracle names must not initialize optional model stacks."""
-    implementation_modules = {
-        "pep_compass.optimization.components.oracles.strategies.apex.oracle",
-        "pep_compass.optimization.components.oracles.strategies.battleamp.oracle",
-        "pep_compass.optimization.components.oracles.strategies.eipred.oracle",
-        "pep_compass.optimization.components.oracles.strategies.hydrophobicity.oracle",
-        "pep_compass.optimization.components.oracles.strategies.mbc_attention.oracle",
-        "pep_compass.optimization.components.oracles.strategies.toxipep.oracle",
-    }
+    script = """
+import sys
+import pep_compass.optimization.components.oracles.strategies
 
-    assert implementation_modules.isdisjoint(sys.modules)
+implementation_modules = {
+    'pep_compass.optimization.components.oracles.strategies.apex.oracle',
+    'pep_compass.optimization.components.oracles.strategies.battleamp.oracle',
+    'pep_compass.optimization.components.oracles.strategies.eipred.oracle',
+    'pep_compass.optimization.components.oracles.strategies.hydrophobicity.oracle',
+    'pep_compass.optimization.components.oracles.strategies.mbc_attention.oracle',
+    'pep_compass.optimization.components.oracles.strategies.toxipep.oracle',
+}
+assert implementation_modules.isdisjoint(sys.modules)
+"""
+    subprocess.run([sys.executable, "-c", script], check=True)
     assert OracleManager.methods() == (
         "apex",
         "battleamp",

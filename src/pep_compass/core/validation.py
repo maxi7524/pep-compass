@@ -43,7 +43,7 @@ def validate_pipeline_specification(specification: PipelineSpecification) -> Non
 
 def validate_registered_components(specification: PipelineSpecification) -> None:
     """Validate registered methods and parameters without constructing models."""
-    import pep_compass.optimization.components.filters.strategies  # noqa: F401
+    import pep_compass.optimization.components.filters.registry  # noqa: F401
     import pep_compass.optimization.components.mutation_generators.strategies  # noqa: F401
     import pep_compass.optimization.components.oracles.strategies  # noqa: F401
     import pep_compass.optimization.components.walkers.strategies  # noqa: F401
@@ -174,11 +174,9 @@ def _component_kinds(specification: StepSpecification) -> set[str]:
             *(_component_kinds(branch.body) for branch in specification.branches)
         )
     if isinstance(specification, LocalEnumerationSpecification):
-        return {
-            "walker",
-            "mutation_generator",
-            *(_component_kinds(specification.filters)),
-        }
+        # LocalEnumeration owns its trajectory feedback boundary. Its walker
+        # and generator must not be interpreted as siblings of an outer loop.
+        return {"local_enumeration", *(_component_kinds(specification.filters))}
     raise TypeError(f"Unsupported pipeline specification: {specification!r}")
 
 
@@ -253,6 +251,8 @@ def _validate_step(specification: StepSpecification, path: str) -> None:
     if isinstance(specification, LocalEnumerationSpecification):
         if specification.trajectories < 1:
             raise ValueError(f"{path}.trajectories must be positive.")
+        if specification.trajectory_execution not in {"sequential", "batched"}:
+            raise ValueError(f"{path}.trajectory_execution is invalid.")
         if (specification.iterations is None) == (specification.walk_time is None):
             raise ValueError(
                 f"{path} requires exactly one of iterations or walk_time."

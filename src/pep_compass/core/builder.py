@@ -107,7 +107,7 @@ class PipelineBuilder:
     @staticmethod
     def _load_builtin_components() -> None:
         """Load built-in component registrations before resolution."""
-        import pep_compass.optimization.components.filters.strategies  # noqa: F401
+        import pep_compass.optimization.components.filters.registry  # noqa: F401
         import pep_compass.optimization.components.mutation_generators.strategies  # noqa: F401
         import pep_compass.optimization.components.oracles.strategies  # noqa: F401
         import pep_compass.optimization.components.walkers.strategies  # noqa: F401
@@ -141,6 +141,7 @@ class PipelineBuilder:
                 mutation_generator=self._build_component(specification.generator),
                 filters=self._build_step(specification.filters),
                 trajectories=specification.trajectories,
+                trajectory_execution=specification.trajectory_execution,
                 iterations=specification.iterations,
                 walk_time=specification.walk_time,
                 include_walk_points=specification.include_walk_points,

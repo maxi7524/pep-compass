@@ -31,7 +31,10 @@ def _black_box_oracle(
 
 
 @OracleManager.register("apex")
-@parameter_contract(accepted=_COMMON | {"mic_aggregate", "mic_bacteria", "device"})
+@parameter_contract(
+    accepted=_COMMON
+    | {"mic_aggregate", "mic_bacteria", "model", "device", "models_directory"}
+)
 def build_apex(**parameters: Any) -> BlackBoxOracle:
     """Build the APEX oracle strategy."""
     return _black_box_oracle(
