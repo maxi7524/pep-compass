@@ -8,7 +8,7 @@ experiment:
     sequences:
       - FLYKWWIRIGRLKL
     repetitions: 1
-  output_directory: experiments/results/reference_lebo/run
+  output_directory: experiments/results/reference_lebo_batched/run
 
 tracking:
   level: normal
@@ -45,7 +45,7 @@ pipeline:
           - local_enumeration:
               trajectories: 10
               # Batch independent SORBES trajectories into shared GPU kernels.
-              trajectory_execution: sequential
+              trajectory_execution: batched
               walk_time: 0.1
               include_walk_points: false
 

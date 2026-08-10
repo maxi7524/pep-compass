@@ -57,6 +57,7 @@ class BlackBoxOracle(Oracle):
             self.field_name.removesuffix(".score").removeprefix("oracle."),
             evaluated_batch.sequences,
             [float(score) for score in scores.detach().cpu().tolist()],
+            evaluated_batch.latent_origins,
         )
         return self._attach_result(evaluated_batch, scores)
 

@@ -50,6 +50,9 @@ class OptimizationState:
 
     limits: OptimizationLimits = field(default_factory=OptimizationLimits)
     observations: dict[str, dict[str, float]] = field(default_factory=dict)
+    observation_latents: dict[str, dict[str, torch.Tensor]] = field(
+        default_factory=dict
+    )
     oracle_calls: int = 0
     generated_candidates: int = 0
     completed_iterations: int = 0
@@ -69,10 +72,29 @@ class OptimizationState:
         objective: str,
         sequences: tuple[str, ...],
         scores: list[float],
+        latent_origins: torch.Tensor | None = None,
     ) -> None:
-        """Store latest objective values and update the oracle-call counter."""
+        """Store latest objective values and update the oracle-call counter.
+
+        :param objective: Stable oracle objective name.
+        :param sequences: Evaluated peptide sequences.
+        :param scores: Scalar objective values aligned with ``sequences``.
+        :param latent_origins: Optional aligned latent origins. They are archived
+            as detached CPU tensors so completed observations do not retain VRAM.
+        """
+        if len(sequences) != len(scores):
+            raise ValueError("Observation sequences and scores must have equal length.")
+        if latent_origins is not None and latent_origins.shape[0] != len(sequences):
+            raise ValueError("Observation latent origins must align with sequences.")
         objective_observations = self.observations.setdefault(objective, {})
         objective_observations.update(zip(sequences, scores))
+        if latent_origins is not None:
+            objective_latents = self.observation_latents.setdefault(objective, {})
+            cpu_latents = latent_origins.detach().to(device="cpu", dtype=torch.float32)
+            objective_latents.update(
+                (sequence, cpu_latents[index].clone())
+                for index, sequence in enumerate(sequences)
+            )
         self.oracle_calls += len(sequences)
         if (
             self.limits.oracle_calls is not None

@@ -8,7 +8,7 @@ import numpy as np
 import torch
 from tqdm import tqdm
 
-from pep_compass.optimization.components.oracles.strategies.apex.utils import make_vocab, onehot_encoding
+from pep_compass.optimization.components.oracles.strategies.apex_original.utils import make_vocab, onehot_encoding
 from pep_compass.utils.logger import get_custom_logger
 
 logger = get_custom_logger(__name__)
@@ -96,9 +96,9 @@ class APEXUnpickler(pickle.Unpickler):
     def find_class(self, module, name):
         # Map old top-level module names to the correct package paths
         if module == "APEX_models":
-            module = "pep_compass.optimization.components.oracles.strategies.apex.APEX_models"
+            module = "pep_compass.optimization.components.oracles.strategies.apex_original.APEX_models"
         elif module == "AMP_DL_model_twohead":
-            module = "pep_compass.optimization.components.oracles.strategies.apex.APEX_models"
+            module = "pep_compass.optimization.components.oracles.strategies.apex_original.APEX_models"
         return super().find_class(module, name)
 
 
@@ -151,7 +151,7 @@ class PredictorAPEX:
         models_root = (
             Path(models_directory)
             if models_directory is not None
-            else Path(__file__).resolve().parent / "models"
+            else Path(__file__).resolve().parents[1] / "apex" / "models"
         )
         models_dir = models_root / variant.directory
         if not models_dir.exists():

@@ -41,6 +41,7 @@ import pep_compass.optimization.components.oracles.strategies
 
 implementation_modules = {
     'pep_compass.optimization.components.oracles.strategies.apex.oracle',
+    'pep_compass.optimization.components.oracles.strategies.apex_original.oracle',
     'pep_compass.optimization.components.oracles.strategies.battleamp.oracle',
     'pep_compass.optimization.components.oracles.strategies.eipred.oracle',
     'pep_compass.optimization.components.oracles.strategies.hydrophobicity.oracle',
@@ -52,6 +53,7 @@ assert implementation_modules.isdisjoint(sys.modules)
     subprocess.run([sys.executable, "-c", script], check=True)
     assert OracleManager.methods() == (
         "apex",
+        "apex_original",
         "battleamp",
         "eipred",
         "hydrophobicity",

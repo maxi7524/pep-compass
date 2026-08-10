@@ -101,13 +101,16 @@ class PepCompassPipeline:
             )
             result = self.root(batch, context)
             self.stability_monitor.sample("pipeline.output", result, context.state)
-            return self._summarize(result)
+            return self._summarize(result, context.state)
         finally:
             self.tracker.close()
 
     @staticmethod
-    def _summarize(batch: CandidateBatch) -> OptimizationResult:
-        """Summarize the last one-dimensional oracle score field."""
+    def _summarize(
+        batch: CandidateBatch,
+        state: OptimizationState,
+    ) -> OptimizationResult:
+        """Return the complete evaluated archive for the terminal objective."""
         score_names = [
             name
             for name, value in batch.fields.items()
@@ -119,6 +122,7 @@ class PepCompassPipeline:
             return OptimizationResult(candidates=batch)
         score_name = score_names[-1]
         prefix = score_name.removesuffix(".score")
+        objective = prefix.removeprefix("oracle.")
         score_field = batch.fields[score_name]
         direction_field = batch.fields.get(f"{prefix}.direction")
         name_field = batch.fields.get(f"{prefix}.name")
@@ -130,6 +134,32 @@ class PepCompassPipeline:
         scores = score_field.values
         if scores.ndim != 1:
             return OptimizationResult(candidates=batch)
+
+        # Evaluated-candidate archive
+        ## Oracle observations are the durable experiment result. The batch
+        ## propagated by the loop contains only the latest acquisition batch.
+        observations = state.observations.get(objective, {})
+        archived_latents = state.observation_latents.get(objective, {})
+        if observations and all(sequence in archived_latents for sequence in observations):
+            sequences = tuple(observations)
+            scores = torch.tensor(
+                list(observations.values()),
+                dtype=torch.float32,
+            )  # (N,)
+            latent_origins = torch.stack(
+                [archived_latents[sequence] for sequence in sequences]
+            )  # (N, D)
+            batch = CandidateBatch(sequences, latent_origins).with_field(
+                score_name,
+                TensorField(scores),
+            )
+            batch = batch.with_field(
+                f"{prefix}.direction",
+                SharedField(direction),
+            ).with_field(
+                f"{prefix}.name",
+                SharedField(objective),
+            )
         best_index = int(
             scores.argmax().item()
             if direction == "maximize"
@@ -145,7 +175,7 @@ class PepCompassPipeline:
             objective_name=(
                 str(name_field.value)
                 if isinstance(name_field, SharedField)
-                else prefix.removeprefix("oracle.")
+                else objective
             ),
             objective_direction=direction,
         )

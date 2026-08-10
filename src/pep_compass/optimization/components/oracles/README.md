@@ -1,16 +1,23 @@
 # Oracles — zakres zmian do przekazania
 
+## Wstęp 
+
+Poprawnie jest zaimplementowany, APEX (`src/pep_compass/optimization/components/oracles/strategies/apex`)  
+
+
+## To co u mnie LLM sugeruje - nie sprwadzłęm kontekstu 
+
 Instrukcje dla osoby przejmującej porządkowanie tego komponentu, bez konieczności samodzielnego
 czytania każdej metody w `strategies/`.
 
-## Scope
+### Scope
 
 Ten dokument opisuje wyłącznie strukturę i spójność kodu adapterów (`oracles/strategies/*/oracle.py`),
 nie poprawność naukową predykcji poszczególnych modeli (wagi, preprocessing, interpretacja wyniku).
 Stan walidacji naukowej opisuje [`docs/developer/REFACTORING_HANDOFF_PL.md`](../../../../../docs/developer/REFACTORING_HANDOFF_PL.md),
 sekcja "Modele predykcyjne oracle" — modele czekają na osobną walidację przez ich właścicieli.
 
-## Warstwa wspólna — nie zmieniać
+### Warstwa wspólna — nie zmieniać
 
 `Oracle` (`base.py`) → `BlackBoxOracle` (`strategies/black_box.py`) → rejestracja przez
 `_black_box_oracle()` w `strategies/__init__.py`. Ta warstwa jest spójna dla wszystkich sześciu
@@ -22,7 +29,7 @@ zarejestrowanych oracle'i (`apex`, `battleamp`, `eipred`, `hydrophobicity`, `mbc
 przeciwieństwie do analogicznych bugów opisanych dla `walkers`/`mutation_generators` w planie
 restrukturyzacji tamtych komponentów.
 
-## APEX — model wag wprowadzony jako nazwany wariant
+### APEX — model wag wprowadzony jako nazwany wariant
 
 `APEXBlackBox`/`PredictorAPEX` wcześniej wymagały ręcznie skopiowanych folderów wag
 (`APEX_pathogen_models`, `Full_APEX_pathogen_models`) bezpośrednio w pakiecie `apex/` — oba były puste
@@ -58,9 +65,9 @@ wcześniejszy punkt 4 tej listy jest już zamknięty.
 (skrypty nie zostały odpalone — plik `full` to ~1 GB, decyzja o pobraniu należy do osoby uruchamiającej
 eksperyment) oraz poprawność liczbowa predykcji.
 
-## Zmiany do wprowadzenia w pozostałych pięciu oracle'ach
+### Zmiany do wprowadzenia w pozostałych pięciu oracle'ach
 
-### 1. Brakujące `self.maximize`
+#### 1. Brakujące `self.maximize`
 
 `BlackBoxOracle._attach_result` czyta `getattr(self.black_box, "maximize", False)` — brak
 przypisania w `__init__` oznacza cichy fallback na `"minimize"`, bez jawnej decyzji w kodzie.
@@ -70,14 +77,14 @@ Dotyczy `strategies/eipred/oracle.py` (`EIPredBlackBox.__init__`) i
 `self.maximize`. Oba modele dziś zwracają `log2(...)`, więc kierunek jest prawdopodobnie `False`, ale
 wymaga potwierdzenia merytorycznego z właścicielem modelu przed dodaniem jawnego przypisania.
 
-### 2. Sprzeczny opis kierunku w `ToxiPepBlackBox`
+#### 2. Sprzeczny opis kierunku w `ToxiPepBlackBox`
 
 `strategies/toxipep/oracle.py:27-32` — docstring klasy opisuje wyższy score jako bezpieczniejszy
 peptyd (sugeruje maksymalizację). Komentarz przy `self.peptide_scorer` (linia 67) mówi
 "for minimization", a `self.maximize = False` jest ustawione na sztywno (linia 73). Do wyjaśnienia
 merytorycznie z właścicielem modelu, który z dwóch opisów jest poprawny, i poprawienia drugiego.
 
-### 3. Nieużywany `self.cache`
+#### 3. Nieużywany `self.cache`
 
 Występuje w `apex/oracle.py`, `battleamp/oracle.py`, `eipred/oracle.py`, `hydrophobicity/oracle.py`,
 `mbc_attention/oracle.py`, `toxipep/oracle.py` (ten ostatni ma dodatkowo gettery
@@ -85,20 +92,20 @@ Występuje w `apex/oracle.py`, `battleamp/oracle.py`, `eipred/oracle.py`, `hydro
 ograniczeń przez cały przebieg optymalizacji. Do usunięcia z wszystkich sześciu plików, albo — jeśli
 ma wartość diagnostyczną — do scentralizowania w jednym miejscu zamiast kopiowania w każdym adapterze.
 
-### 4. Ręczne smoke-testy w plikach produkcyjnych
+#### 4. Ręczne smoke-testy w plikach produkcyjnych
 
 `strategies/hydrophobicity/oracle.py` (linie 65-111) i `strategies/toxipep/oracle.py` (linie 132-182)
 zawierają bloki `if __name__ == "__main__":` z ręcznymi testami i `print()`. Do usunięcia albo
 przeniesienia do `tests/` jako właściwe testy jednostkowe.
 
-### 5. Niespójne źródło `AbstractBlackBox`
+#### 5. Niespójne źródło `AbstractBlackBox`
 
 `apex/oracle.py` i `battleamp/oracle.py` importują `AbstractBlackBox` z `poli.core.abstract_black_box`;
 `eipred/oracle.py`, `hydrophobicity/oracle.py`, `mbc_attention/oracle.py`, `toxipep/oracle.py`
 importują z `poli_baselines.core.abstract_solver`. Do wyjaśnienia: czy rozjazd jest zamierzony (dwie
 różne biblioteki dla różnych klas modeli), czy przypadkowy i wymaga ujednolicenia.
 
-### 6. Ręczna izolacja procesowa tylko w BattleAMP
+#### 6. Ręczna izolacja procesowa tylko w BattleAMP
 
 `battleamp/oracle.py:47-52` uruchamia predyktor w osobnym procesie CPU przy `device=cuda` przez
 ręczny `ProcessPoolExecutor` (komentarz w kodzie: unika konfliktu CUDA/cuSOLVER z PyTorchem
@@ -107,7 +114,7 @@ wykonującym LE-BO na GPU). Wszystkie sześć oracle'i przyjmują już `force_is
 nie wystarcza tutaj (i wtedy ten wzorzec wymaga udokumentowania i ewentualnego powtórzenia tam, gdzie
 jest potrzebny), czy to obejście możliwe do zastąpienia samym `force_isolation=True`.
 
-## Powiązane dokumenty
+### Powiązane dokumenty
 
 - [`docs/developer/REFACTORING_HANDOFF_PL.md`](../../../../../docs/developer/REFACTORING_HANDOFF_PL.md)
   — stan walidacji naukowej modeli i kontekst poprzedniej restrukturyzacji pakietu.

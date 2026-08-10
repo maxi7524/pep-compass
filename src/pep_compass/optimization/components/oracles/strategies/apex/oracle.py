@@ -1,42 +1,47 @@
-"""APEX sequence black box adapted to the common PepCompass oracle step."""
+"""Clean POLI-compatible APEX oracle strategy."""
+
+from __future__ import annotations
+
+from collections.abc import Sequence
 
 import numpy as np
 from poli.core.abstract_black_box import AbstractBlackBox
 from poli.core.black_box_information import BlackBoxInformation
 
-from pep_compass.optimization.components.oracles.strategies.apex.APEX_predictor import PredictorAPEX
+from pep_compass.optimization.components.oracles.strategies.apex.predictor import (
+    APEXPredictor,
+)
 
 
 class APEXBlackBox(AbstractBlackBox):
-    """Evaluate peptide sequences with an averaged pretrained APEX ensemble.
+    """Aggregate pathogen-specific APEX MIC predictions into one objective.
 
-    ``OracleManager`` constructs this POLI-compatible implementation lazily and
-    wraps it in :class:`BlackBoxOracle`, which supplies the PepCompass
-    :class:`Oracle` lifecycle, budget accounting and result fields.
+    The runtime lazily constructs this class through ``OracleManager`` and then
+    wraps it with the common ``BlackBoxOracle`` step. Consequently, budget
+    accounting and attachment of ``oracle.apex.score`` occur in the shared
+    oracle adapter rather than in this model-specific implementation.
 
-    :param mic_aggregate: Reduction across selected pathogen MIC columns.
+    :param mic_aggregate: ``mean`` or ``max`` reduction over pathogen columns.
     :param mic_bacteria: ``all`` or zero-based pathogen column indices.
-    :param model: Registered APEX ensemble variant.
+    :param model: Registered ensemble name.
     :param device: Torch inference device.
-    :param evaluation_budget: Optional POLI-side evaluation ceiling.
-    :raises ValueError: If aggregation or pathogen selection is invalid.
-    :raises FileNotFoundError: If the requested APEX weights are incomplete.
+    :param models_directory: Optional external root containing named ensembles.
     """
 
     def __init__(
         self,
         *,
         mic_aggregate: str = "mean",
-        mic_bacteria: str | list = "all",
+        mic_bacteria: str | Sequence[int] = "all",
         model: str = "default",
-        batch_size: int = None,
+        batch_size: int | None = None,
         parallelize: bool = False,
-        num_workers: int = None,
-        evaluation_budget: int = float("inf"),
+        num_workers: int | None = None,
+        evaluation_budget: int | float = float("inf"),
         force_isolation: bool = False,
         device: str = "cpu",
         models_directory: str | None = None,
-    ):
+    ) -> None:
         super().__init__(
             batch_size=batch_size,
             parallelize=parallelize,
@@ -44,55 +49,33 @@ class APEXBlackBox(AbstractBlackBox):
             evaluation_budget=evaluation_budget,
             force_isolation=force_isolation,
         )
-
-        if mic_aggregate == "max":
-            self._aggregate = lambda values: np.max(values, axis=1)
-        elif mic_aggregate == "mean":
-            self._aggregate = lambda values: np.mean(values, axis=1)
-        else:
+        if mic_aggregate not in {"mean", "max"}:
             raise ValueError("APEX mic_aggregate must be 'mean' or 'max'.")
-
-        if mic_bacteria == "all":
-            self._bacteria_indices: tuple[int, ...] | None = None
-        elif isinstance(mic_bacteria, list):
-            if not mic_bacteria or any(
-                isinstance(index, bool)
-                or not isinstance(index, int)
-                or index < 0
-                for index in mic_bacteria
-            ):
-                raise ValueError(
-                    "APEX mic_bacteria must contain valid zero-based pathogen indices."
-                )
-            self._bacteria_indices = tuple(mic_bacteria)
-        else:
-            raise ValueError("APEX mic_bacteria must be 'all' or a list of indices.")
-
-        self.apex_predictor = PredictorAPEX(
+        self.mic_aggregate = mic_aggregate
+        self.predictor = APEXPredictor(
             device=device,
             model=model,
             models_directory=models_directory,
         )
-        if self._bacteria_indices is not None and any(
-            index >= len(self.apex_predictor.pathogen_list)
-            for index in self._bacteria_indices
-        ):
-            raise ValueError(
-                "APEX mic_bacteria contains an index outside the selected model."
-            )
-
+        self.bacteria_indices = _validate_bacteria_indices(
+            mic_bacteria,
+            pathogen_count=len(self.predictor.pathogen_list),
+        )
         self.maximize = False
 
-    def score(self, sequences: list[str]) -> np.ndarray:
-        """Return aggregated log2 MIC scores shaped ``(B,)``."""
-        predictions = self.apex_predictor.predict(sequences)  # (B, P)
-        if self._bacteria_indices is not None:
-            predictions = predictions[:, self._bacteria_indices]  # (B, P_selected)
+    def score(self, sequences: Sequence[str]) -> np.ndarray:
+        """Return aggregated log2 MIC values shaped ``(B,)``."""
+        predictions = self.predictor.predict(sequences)  # (B, P)
+        if self.bacteria_indices is not None:
+            predictions = predictions[:, self.bacteria_indices]  # (B, P_selected)
         if np.any(predictions <= 0) or not np.all(np.isfinite(predictions)):
             raise ValueError("APEX produced non-positive or non-finite MIC values.")
-        return self._aggregate(np.log2(predictions))  # (B,)
+        transformed = np.log2(predictions)  # (B, P_selected)
+        reduction = np.mean if self.mic_aggregate == "mean" else np.max
+        return reduction(transformed, axis=1)  # (B,)
 
     def get_black_box_info(self) -> BlackBoxInformation:
+        """Return the static POLI declaration for APEX peptide inputs."""
         return BlackBoxInformation(
             name="APEX",
             max_sequence_length=25,
@@ -105,9 +88,28 @@ class APEXBlackBox(AbstractBlackBox):
             padding_token=" ",
         )
 
-    def _black_box(self, x: np.ndarray, context: dict = None) -> np.ndarray:
+    def _black_box(self, x: np.ndarray, context: dict | None = None) -> np.ndarray:
         """Translate POLI token rows and return scores shaped ``(B, 1)``."""
-        sequences = ["".join(seq) for seq in x]
-        predictions = self.score(sequences)
+        sequences = ["".join(row) for row in x]
+        return self.score(sequences).reshape(-1, 1)  # (B, 1)
 
-        return predictions.reshape(-1, 1)
+
+def _validate_bacteria_indices(
+    value: str | Sequence[int],
+    *,
+    pathogen_count: int,
+) -> tuple[int, ...] | None:
+    """Normalize and validate configured pathogen columns."""
+    if value == "all":
+        return None
+    if isinstance(value, str) or not value:
+        raise ValueError("APEX mic_bacteria must be 'all' or a non-empty index list.")
+    indices = tuple(value)
+    if any(
+        isinstance(index, bool)
+        or not isinstance(index, int)
+        or not 0 <= index < pathogen_count
+        for index in indices
+    ):
+        raise ValueError("APEX mic_bacteria contains an invalid pathogen index.")
+    return indices

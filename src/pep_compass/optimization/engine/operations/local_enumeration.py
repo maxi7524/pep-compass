@@ -21,6 +21,10 @@ _TRANSIENT_WALKER_FIELDS = (
     "walker.tangent_space",
     "tangent_geometry",
     "point_id",
+    "tracking.trajectory_id",
+    "tracking.trajectory_index",
+    "tracking.rng_stream_seed",
+    "tracking.trajectory_step",
 )
 
 
@@ -129,6 +133,11 @@ class LocalEnumeration(Step):
                     trajectory_index,
                 )
                 trajectory_index += 1
+                seed = self._attach_trajectory_identity(
+                    seed,
+                    trajectory_context,
+                    trajectory_index - 1,
+                )
                 emissions.extend(self._run_trajectory(seed, trajectory_context))
 
         if not emissions:
@@ -181,6 +190,7 @@ class LocalEnumeration(Step):
             len(batch), device=batch.latent_origins.device
         ).repeat_interleave(self.trajectories)  # (B * T,)
         current = batch.repeat_from_parents(parent_indices)
+        current = self._attach_batched_trajectory_identity(current, context)
         current = current.with_field(
             "local_enumeration.center_sequence",
             ObjectField(current.sequences),
@@ -205,6 +215,12 @@ class LocalEnumeration(Step):
 
             elapsed = elapsed + increments
             iteration += 1
+            current = current.with_field(
+                "tracking.trajectory_step",
+                TensorField(
+                    current.fields["tracking.trajectory_step"].values + 1
+                ),
+            )
             if self.walk_time is not None:
                 active = torch.nonzero(
                     elapsed < self.walk_time,
@@ -224,6 +240,62 @@ class LocalEnumeration(Step):
             len(result),
         )
         return result
+
+    @staticmethod
+    def _attach_trajectory_identity(
+        batch: CandidateBatch,
+        context: OptimizationContext,
+        trajectory_index: int,
+    ) -> CandidateBatch:
+        """Attach replay identity to one sequential trajectory."""
+        device = batch.latent_origins.device
+        seed = -1 if context.seed is None else context.seed
+        identifier = "/".join(context.scope.path)
+        result = batch.with_field(
+            "tracking.trajectory_id",
+            ObjectField([identifier]),
+        )
+        result = result.with_field(
+            "tracking.trajectory_index",
+            TensorField(torch.tensor([trajectory_index], device=device)),
+        )
+        result = result.with_field(
+            "tracking.rng_stream_seed",
+            TensorField(torch.tensor([seed], device=device)),
+        )
+        return result.with_field(
+            "tracking.trajectory_step",
+            TensorField(torch.zeros(1, dtype=torch.long, device=device)),
+        )
+
+    @staticmethod
+    def _attach_batched_trajectory_identity(
+        batch: CandidateBatch,
+        context: OptimizationContext,
+    ) -> CandidateBatch:
+        """Attach row identities for one deterministic batched RNG stream."""
+        count = len(batch)
+        device = batch.latent_origins.device
+        seed = -1 if context.seed is None else context.seed
+        prefix = "/".join(context.scope.path)
+        result = batch.with_field(
+            "tracking.trajectory_id",
+            ObjectField(
+                [f"{prefix}/trajectory[{index}]" for index in range(count)]
+            ),
+        )
+        result = result.with_field(
+            "tracking.trajectory_index",
+            TensorField(torch.arange(count, device=device)),
+        )
+        result = result.with_field(
+            "tracking.rng_stream_seed",
+            TensorField(torch.full((count,), seed, device=device)),
+        )
+        return result.with_field(
+            "tracking.trajectory_step",
+            TensorField(torch.zeros(count, dtype=torch.long, device=device)),
+        )
 
     def _run_trajectory(
         self,

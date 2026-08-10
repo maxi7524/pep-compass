@@ -45,6 +45,21 @@ def build_apex(**parameters: Any) -> BlackBoxOracle:
     )
 
 
+@OracleManager.register("apex_original")
+@parameter_contract(
+    accepted=_COMMON
+    | {"mic_aggregate", "mic_bacteria", "model", "device", "models_directory"}
+)
+def build_apex_original(**parameters: Any) -> BlackBoxOracle:
+    """Build the preserved pre-refactor APEX oracle strategy."""
+    return _black_box_oracle(
+        "pep_compass.optimization.components.oracles.strategies.apex_original.oracle",
+        "APEXBlackBox",
+        "apex_original",
+        parameters,
+    )
+
+
 @OracleManager.register("battleamp")
 @parameter_contract(accepted=_COMMON | {"device"})
 def build_battleamp(**parameters: Any) -> BlackBoxOracle:

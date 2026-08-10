@@ -1,8 +1,22 @@
 # Walidacja strategii oracle
 
+## Wstęp
+
 Ten katalog docelowo zawiera adaptery i duże implementacje modeli używanych jako
 oracle. Podczas migracji stare pliki pozostają źródłem odniesienia, aby można
 było porównać wyniki przed usunięciem starej struktury.
+
+Przejrzałem jedynie APEX'a, żeby był przykąłd jak to trzeba zrobić 
+
+## Struktura
+- plik z opisem BlackBoxa (`oracle.py`)
+- plik z działaniem modelu (`predictor.py`) 
+- plik który zarzadza modelami (`model_registry`)
+- folder z modelami (nazwa folderu - nazwa wywołania) 
+  - KONIECZNIE dodawać skrypty do pobierani tego (`assets/scripts/downloads`), inaczej bardzo cięzko się weryfikuje kto co używał ostatecznie (on i szukanie tego ...) 
+
+# Chat work - tego nie weryfikowałem
+Nie czytałem jak te model tylko przeniosłęm (chyba) w odpowiednie miejsce, jeżeli na tym byśmy chcieli pracowac to trzeba todo struktury dopasować
 
 ## Zweryfikować
 
