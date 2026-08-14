@@ -35,24 +35,23 @@ Note: `py-cdhit` and `cd-hit` are licensed **GPL-2.0-only**. Installing the
 `cdhit` extra and running `--clustering cdhit` brings GPL-2.0 components into
 your environment. The default backend keeps the package MIT-clean.
 
-## Data generation scripts
+## Regenerating checked-in matrices
 
-From the repo root (uses the `blosum-matrix` env for deps):
+Data-generation scripts (repo root):
 
 ```bash
-cd tools/blosum_matrix
-uv run python scripts/generate_all.py
+cd assets/tools/blosum_matrix && uv sync
+uv run python ../../scripts/blosum_matrix/generate_all.py
 ```
 
 Or individually:
 
 ```bash
-uv run python scripts/export_blosum62.py
-uv run python scripts/generate_ampblosum62.py --blocks-dir path/to/blocks
+uv run python ../../scripts/blosum_matrix/export_blosum62.py
+uv run python ../../scripts/blosum_matrix/generate_ampblosum62.py
 ```
 
-Outputs land in PepCompass package resources under
-`optimization/components/helpers/substitution_matrices/matrices/`.
+Defaults write to `results/blosum_matrix/`.
 
 ## Inputs
 

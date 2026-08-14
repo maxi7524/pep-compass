@@ -13,8 +13,8 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from assets.tools.blosum_matrix.src.blosum_matrix.alphabet import AA_INDEX, GAP_CHARS, STANDARD_AA
-from assets.tools.blosum_matrix.src.blosum_matrix.blocks import Block
+from blosum_matrix.alphabet import AA_INDEX, GAP_CHARS, STANDARD_AA
+from blosum_matrix.blocks import Block
 
 ClusterFn = Callable[..., dict[str, int]]
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Regenerate distributable substitution-matrix resources."""
+"""Regenerate all matrices under results/blosum_matrix."""
 
 from __future__ import annotations
 
@@ -16,9 +16,9 @@ app = typer.Typer(add_completion=False, no_args_is_help=False)
 
 @app.command()
 def main() -> None:
-    """Regenerate resources that do not require an external source dataset."""
+    """Run export_blosum62.py then generate_ampblosum62.py."""
 
-    for script in ("export_blosum62.py",):
+    for script in ("export_blosum62.py", "generate_ampblosum62.py"):
         path = _SCRIPTS / script
         typer.echo(f"==> {path.name}")
         subprocess.run([sys.executable, str(path)], check=True)

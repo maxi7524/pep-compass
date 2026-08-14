@@ -8,11 +8,11 @@ from pathlib import Path
 
 import typer
 
-from assets.tools.blosum_matrix.src.blosum_matrix.blocks import load_blocks
-from assets.tools.blosum_matrix.src.blosum_matrix.cluster_exact import cluster_block_exact
-from assets.tools.blosum_matrix.src.blosum_matrix.counts import build_blosum
-from assets.tools.blosum_matrix.src.blosum_matrix.log_odds import counts_to_log_odds
-from assets.tools.blosum_matrix.src.blosum_matrix.ncbi import write_ncbi_matrix
+from blosum_matrix.blocks import load_blocks
+from blosum_matrix.cluster_exact import cluster_block_exact
+from blosum_matrix.counts import build_blosum
+from blosum_matrix.log_odds import counts_to_log_odds
+from blosum_matrix.ncbi import write_ncbi_matrix
 
 
 class Clustering(str, Enum):
@@ -139,7 +139,7 @@ def build(
         cluster_kwargs: dict[str, object] = {}
         cleanup_tmp: tempfile.TemporaryDirectory | None = None
     else:
-        from assets.tools.blosum_matrix.src.blosum_matrix.cluster_cdhit import cluster_block_cdhit
+        from blosum_matrix.cluster_cdhit import cluster_block_cdhit
 
         if workdir is None:
             cleanup_tmp = tempfile.TemporaryDirectory(prefix="blosum-matrix-")

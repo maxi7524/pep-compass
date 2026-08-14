@@ -10,8 +10,8 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 
-from assets.tools.blosum_matrix.src.blosum_matrix.alphabet import GAP_CHARS
-from assets.tools.blosum_matrix.src.blosum_matrix.blocks import Block
+from blosum_matrix.alphabet import GAP_CHARS
+from blosum_matrix.blocks import Block
 
 
 def _word_size_for(identity: float) -> int:

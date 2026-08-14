@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build AMP-BLOSUM62 from caller-provided DBAASP sequence blocks."""
+"""Build AMP-BLOSUM62 from DBAASP length blocks into results/blosum_matrix."""
 
 from __future__ import annotations
 
@@ -12,7 +12,8 @@ _SCRIPTS = Path(__file__).resolve().parent
 if str(_SCRIPTS) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS))
 
-from assets.tools.blosum_matrix.scripts._paths import (  # noqa: E402
+from _paths import (  # noqa: E402
+    DEFAULT_BLOCKS_DIR,
     DEFAULT_BLOCKS_GLOB,
     DEFAULT_OUT_DIR,
     REPO_ROOT,
@@ -83,9 +84,9 @@ def _build_and_write(
 @app.command()
 def main(
     blocks_dir: Path = typer.Option(
-        ...,
+        DEFAULT_BLOCKS_DIR,
         "--blocks-dir",
-        help="Required directory of equal-length AMP block FASTA files.",
+        help="Directory of equal-length AMP block FASTA files.",
     ),
     blocks_glob: str = typer.Option(
         DEFAULT_BLOCKS_GLOB,

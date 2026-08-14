@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Export the official NCBI BLOSUM62 matrix into package resources."""
+"""Export the official NCBI BLOSUM62 matrix (via BioPython) to results/blosum_matrix."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ _SCRIPTS = Path(__file__).resolve().parent
 if str(_SCRIPTS) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS))
 
-from assets.tools.blosum_matrix.scripts._paths import DEFAULT_OUT_DIR, ensure_package_importable  # noqa: E402
+from _paths import DEFAULT_OUT_DIR, ensure_package_importable  # noqa: E402
 
 ensure_package_importable()
 
