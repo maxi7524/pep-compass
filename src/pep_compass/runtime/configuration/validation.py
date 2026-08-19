@@ -26,6 +26,10 @@ def validate_runtime_configuration(configuration: RuntimeConfiguration) -> None:
         raise ValueError("execution.max_workers must be a positive integer.")
     if configuration.tracking.level not in {"short", "normal", "all"}:
         raise ValueError("tracking.level must be short, normal, or all.")
+    if configuration.tracking.candidate_snapshots not in {"none", "oracle", "all"}:
+        raise ValueError(
+            "tracking.candidate_snapshots must be none, oracle, or all."
+        )
     if not configuration.autoencoder.method:
         raise ValueError("autoencoder.method cannot be empty.")
     if not configuration.autoencoder.model:
