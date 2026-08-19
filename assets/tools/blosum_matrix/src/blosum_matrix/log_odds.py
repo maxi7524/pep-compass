@@ -6,7 +6,7 @@ from typing import Literal
 
 import numpy as np
 
-from assets.tools.blosum_matrix.src.blosum_matrix.alphabet import STANDARD_AA
+from blosum_matrix.alphabet import STANDARD_AA
 
 Unit = Literal["half_bits", "bits"]
 

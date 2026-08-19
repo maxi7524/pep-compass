@@ -6,7 +6,7 @@ from pathlib import Path
 
 import numpy as np
 
-from assets.tools.blosum_matrix.src.blosum_matrix.alphabet import STANDARD_AA
+from blosum_matrix.alphabet import STANDARD_AA
 
 
 def write_ncbi_matrix(

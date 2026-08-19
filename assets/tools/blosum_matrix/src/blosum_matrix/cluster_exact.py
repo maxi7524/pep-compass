@@ -7,8 +7,8 @@ in input order so that the partition is fully deterministic.
 
 from __future__ import annotations
 
-from assets.tools.blosum_matrix.src.blosum_matrix.alphabet import GAP_CHARS
-from assets.tools.blosum_matrix.src.blosum_matrix.blocks import Block
+from blosum_matrix.alphabet import GAP_CHARS
+from blosum_matrix.blocks import Block
 
 
 def _pairwise_identity(seq_a: str, seq_b: str) -> float:

@@ -1,20 +1,9 @@
 # Substitution matrices (NCBI/BLAST text format)
 
-Regenerate from the repo root (via the `blosum-matrix` package env):
-
-```bash
-cd packages/blosum_matrix
-uv run python ../../scripts/blosum_matrix/generate_all.py
-```
-
-Or individually:
-
-```bash
-uv run python ../../scripts/blosum_matrix/export_blosum62.py
-uv run python ../../scripts/blosum_matrix/generate_ampblosum62.py
-```
-
 Alphabet for all files: `ARNDCQEGHILKMFPSTWYV` (NCBI order, 20 standard amino acids).
+
+Matrix construction: [`assets/tools/blosum_matrix`](../../../../../../assets/tools/blosum_matrix) (`blosum-matrix` package).
+Regeneration scripts: [`assets/scripts/blosum_matrix`](../../../../../../assets/scripts/blosum_matrix).
 
 ## Files
 
