@@ -78,12 +78,9 @@ def _match_sorbes_parents(
     MUTANG never re-encodes generated sequences: ``CandidateBatch.with_sequences``
     replaces sequences "without changing their latent origins or fields", so
     every MUTANG candidate's stored latent origin is a bit-identical copy of
-    the walk point that produced it. The per-candidate parent link itself is
-    unrecoverable from tracking output (``mutation.parent_sequence`` collapses
-    to a valueless ``OptionalField`` once concatenated with walk-point rows,
-    and both writers only persist its validity flag, never the value), so the
-    walk point is recovered here by nearest-neighbor match against the exact
-    latent vector it was copied from.
+    the walk point that produced it. This fallback is only used for older run
+    outputs without ``lineage.parent_candidate_id``; current outputs resolve
+    the parent directly by ID in :func:`_match_sorbes_parents_by_id`.
     """
     lookup: dict[tuple[float, ...], pd.Series] = {}
     for position, vector in enumerate(trajectory_point_latents):
@@ -94,23 +91,59 @@ def _match_sorbes_parents(
     ]
 
 
-def _mutang_candidate_mask(fields_path: Any, candidate_count: int) -> np.ndarray:
-    """Discriminate MUTANG-generated final candidates from raw walk points.
+def _read_candidate_lineage(
+    fields_path: Any,
+    candidate_count: int,
+) -> tuple[np.ndarray, np.ndarray | None]:
+    """Read MUTANG provenance and optional parent IDs from final candidate fields.
 
-    Only MUTANG output ever had ``mutation.parent_sequence`` attached (even
-    though its value is unrecoverable, see :func:`_match_sorbes_parents`), so
-    the field's presence/validity flag alone distinguishes candidate
-    provenance in the final result pool.
+    Only MUTANG output has ``mutation.parent_sequence`` attached, so its
+    presence/validity flag distinguishes candidate provenance in the final
+    result pool. Current outputs additionally store the exact lineage parent.
     """
     mask = np.zeros(candidate_count, dtype=bool)
+    parent_ids = np.full(candidate_count, -1, dtype=np.int64)
+    has_parent_ids = False
     with open(fields_path, encoding="utf-8") as handle:
         for line in handle:
             payload = json.loads(line)
+            candidate_index = int(payload["candidate_index"])
+            if not 0 <= candidate_index < candidate_count:
+                raise ValueError(
+                    "Candidate field index is outside the final candidate table: "
+                    f"{candidate_index}."
+                )
             marker = payload["fields"].get("mutation.parent_sequence")
-            mask[payload["candidate_index"]] = bool(
+            mask[candidate_index] = bool(
                 isinstance(marker, dict) and marker.get("valid")
             )
-    return mask
+            parent_id = payload["fields"].get("lineage.parent_candidate_id")
+            if isinstance(parent_id, int) and not isinstance(parent_id, bool):
+                parent_ids[candidate_index] = parent_id
+                has_parent_ids = True
+    return mask, parent_ids if has_parent_ids else None
+
+
+def _match_sorbes_parents_by_id(
+    parent_ids: np.ndarray,
+    trajectory_points: pd.DataFrame,
+) -> list[pd.Series | None]:
+    """Resolve MUTANG parents against tracked SORBES candidates by lineage ID."""
+    if "candidate_id" not in trajectory_points:
+        raise ValueError("Trajectory points do not contain candidate lineage IDs.")
+    points_by_id: dict[int, pd.Series] = {}
+    for _, point in trajectory_points.iterrows():
+        candidate_id = point["candidate_id"]
+        if pd.isna(candidate_id):
+            continue
+        candidate_id = int(candidate_id)
+        if candidate_id in points_by_id:
+            raise ValueError(
+                "Trajectory candidate IDs must be unique within a run; "
+                f"found {candidate_id} more than once."
+            )
+        points_by_id[candidate_id] = point
+    return [points_by_id.get(int(parent_id)) for parent_id in parent_ids]
 
 
 def compute_outliers(
@@ -303,8 +336,8 @@ def latent_jump(
     - ``candidate_to_origin``: a MUTANG candidate to its trajectory's
       original seed, both freshly re-encoded.
     - ``candidate_to_sorbes_parent``: a MUTANG candidate to the SORBES walk
-      point it was generated from (identified by exact latent match, see
-      :func:`_match_sorbes_parents`). MUTANG candidates are the *only* thing
+      point it was generated from (identified by lineage ID, with an exact
+      latent-match fallback for legacy outputs). MUTANG candidates are the *only* thing
       subject to the pipeline's ``levenshtein`` local filter (``maximum_distance``
       applied against ``local_enumeration.center_sequence``); raw SORBES walk
       points bypass it entirely (they are appended to the trajectory's output
@@ -329,7 +362,8 @@ def latent_jump(
         run; ``None`` re-encodes every final MUTANG candidate.
     :param encode_batch_size: Sequences encoded per autoencoder forward pass.
     :param match_decimals: Rounding precision used to match a candidate's
-        inherited latent to its exact SORBES-parent walk point.
+        inherited latent to its SORBES-parent walk point for legacy runs that
+        do not record lineage identifiers.
     :param random_seed: Seed for candidate subsampling.
     :param device: Torch device used only for this analysis's re-encoding.
     :param progress: Print an overall bar plus one bar per run being encoded.
@@ -362,11 +396,11 @@ def latent_jump(
 
     # Pre-pass: how many MUTANG candidates will actually be encoded, so the
     # overall progress bar has a real total before any encoding starts.
-    planned: dict[str, np.ndarray] = {}
+    planned: dict[str, tuple[np.ndarray, np.ndarray | None]] = {}
     for run in selection.runs:
         replay = selection.reader.replay(run.run_id)
         final_candidates = replay.final_candidates
-        is_mutang = _mutang_candidate_mask(
+        is_mutang, parent_ids = _read_candidate_lineage(
             replay.root / "fields.jsonl", len(final_candidates)
         )
         mutang_indices = np.flatnonzero(is_mutang)
@@ -377,14 +411,16 @@ def latent_jump(
             mutang_indices = rng.choice(
                 mutang_indices, size=candidate_sample_size, replace=False
             )
-        planned[run.run_id] = mutang_indices
-    overall_total = sum(len(indices) for indices in planned.values())
+        planned[run.run_id] = (mutang_indices, parent_ids)
+    overall_total = sum(len(indices) for indices, _ in planned.values())
     nested_progress = NestedProgress("latent_jump:encode", overall_total, enabled=progress)
 
     rows: list[dict[str, Any]] = []
     total_walk_points = 0
     total_candidates_analyzed = 0
     unmatched_parents = 0
+    lineage_parent_matches = 0
+    latent_parent_matches = 0
 
     for run in selection.runs:
         replay = selection.reader.replay(run.run_id)
@@ -425,7 +461,7 @@ def latent_jump(
             )
         total_walk_points += len(points)
 
-        mutang_indices = planned[run.run_id]
+        mutang_indices, parent_ids = planned[run.run_id]
         if len(mutang_indices) == 0:
             continue
         total_candidates_analyzed += len(mutang_indices)
@@ -434,9 +470,16 @@ def latent_jump(
         final_latents = replay.final_latents.numpy()
         sequences = final_candidates["sequence"].to_numpy()[mutang_indices]
         copied_latents = final_latents[mutang_indices]
-        matched_parents = _match_sorbes_parents(
-            copied_latents, points, point_latents, match_decimals
-        )
+        if parent_ids is not None and "candidate_id" in points:
+            matched_parents = _match_sorbes_parents_by_id(
+                parent_ids[mutang_indices], points
+            )
+            lineage_parent_matches += sum(parent is not None for parent in matched_parents)
+        else:
+            matched_parents = _match_sorbes_parents(
+                copied_latents, points, point_latents, match_decimals
+            )
+            latent_parent_matches += sum(parent is not None for parent in matched_parents)
 
         nested_progress.start_stage(run.run_id, len(sequences))
         true_latents = encode_sequences(
@@ -505,6 +548,8 @@ def latent_jump(
             "total_walk_points": total_walk_points,
             "total_mutang_candidates_analyzed": total_candidates_analyzed,
             "unmatched_sorbes_parents": unmatched_parents,
+            "lineage_parent_matches": lineage_parent_matches,
+            "latent_parent_matches": latent_parent_matches,
             "outlier_iqr_multiplier": outlier_iqr_multiplier,
             "candidate_sample_size": candidate_sample_size,
             "autoencoder": autoencoder_parameters,

@@ -111,10 +111,13 @@ class RunReplay:
         points = self.trajectory_points
         if points.empty:
             return torch.empty((0, 0), dtype=torch.float32)
+        relative_paths = [
+            str(path)
+            for path in dict.fromkeys(points["checkpoint_file"].dropna())
+            if str(path)
+        ]
         chunks = []
-        for relative_path in dict.fromkeys(points["checkpoint_file"].dropna()):
-            if not relative_path:
-                continue
+        for relative_path in relative_paths:
             chunks.append(
                 torch.load(
                     self.tracking / relative_path,
@@ -135,13 +138,18 @@ class RunReplay:
             return points.reset_index(drop=True), self.trajectory_latents.index_select(
                 0, indices
             )
+        shards: dict[str, torch.Tensor] = {}
         latents = []
         for _, row in points.iterrows():
-            shard = torch.load(
-                self.tracking / str(row["checkpoint_file"]),
-                map_location="cpu",
-                weights_only=True,
-            )
+            relative_path = str(row["checkpoint_file"])
+            shard = shards.get(relative_path)
+            if shard is None:
+                shard = torch.load(
+                    self.tracking / relative_path,
+                    map_location="cpu",
+                    weights_only=True,
+                )
+                shards[relative_path] = shard
             latents.append(shard[int(row["checkpoint_index"])])
         return points.reset_index(drop=True), torch.stack(latents)
 
@@ -155,7 +163,11 @@ class RunReplay:
         if len(matched) != 1:
             raise KeyError(f"Unknown local-enumeration execution: {execution_id}")
         row = matched.iloc[0]
-        if "checkpoint_file" in row and row["checkpoint_file"]:
+        if (
+            "checkpoint_file" in row
+            and pd.notna(row["checkpoint_file"])
+            and str(row["checkpoint_file"])
+        ):
             checkpoint = self.local_enumeration_checkpoint(execution_id)
             return tuple(checkpoint["sequences"]), checkpoint["latent_origins"]
         start = int(row["input_latent_start"])
@@ -179,9 +191,10 @@ class RunReplay:
         matched = rows[rows["execution_id"] == execution_id]
         if len(matched) != 1:
             raise KeyError(f"Unknown local-enumeration execution: {execution_id}")
-        relative_path = str(matched.iloc[0]["checkpoint_file"])
-        if not relative_path:
+        relative_value = matched.iloc[0]["checkpoint_file"]
+        if pd.isna(relative_value) or not str(relative_value):
             raise ValueError("This legacy run has no standalone replay checkpoint.")
+        relative_path = str(relative_value)
         return torch.load(
             self.tracking / relative_path,
             map_location="cpu",

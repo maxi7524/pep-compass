@@ -126,6 +126,39 @@ def _build_autoencoder(
     return autoencoder.to(device).eval()
 
 
+def _validate_locality_inputs(
+    peptides: pd.DataFrame,
+    *,
+    neighbor_count: int,
+    neighbor_sample_size: int,
+    neighbor_query_batch: int,
+    encode_batch_size: int,
+) -> None:
+    """Validate shared group-locality inputs before model construction.
+
+    :param peptides: Input frame containing sequence and group columns.
+    :param neighbor_count: Neighbors retained per sampled sequence.
+    :param neighbor_sample_size: Maximum sequences sampled per group.
+    :param neighbor_query_batch: Queries evaluated in one distance chunk.
+    :param encode_batch_size: Sequences encoded in one model forward pass.
+    :raises ValueError: If required columns are absent or a size is not positive.
+    """
+    required_columns = {"sequence", "group"}
+    missing_columns = required_columns - set(peptides.columns)
+    if missing_columns:
+        raise ValueError(
+            f"Peptide groups are missing required columns: {sorted(missing_columns)}."
+        )
+    for name, value in {
+        "neighbor_count": neighbor_count,
+        "neighbor_sample_size": neighbor_sample_size,
+        "neighbor_query_batch": neighbor_query_batch,
+        "encode_batch_size": encode_batch_size,
+    }.items():
+        if value < 1:
+            raise ValueError(f"{name} must be positive.")
+
+
 def _encode_groups(
     peptides: pd.DataFrame,
     autoencoder: HydrampAutoencoder,
@@ -203,6 +236,13 @@ def group_locality(
         member per neighbor); ``diagnostics["centroid_distance"]`` holds one
         row per member.
     """
+    _validate_locality_inputs(
+        peptides,
+        neighbor_count=neighbor_count,
+        neighbor_sample_size=neighbor_sample_size,
+        neighbor_query_batch=neighbor_query_batch,
+        encode_batch_size=encode_batch_size,
+    )
     autoencoder = _build_autoencoder(
         model_name=model_name,
         device=device,
@@ -343,6 +383,13 @@ def between_group_distance(
         ``other_group`` (the group its neighbors were found in);
         ``diagnostics["centroid_distance"]`` holds one row per ordered pair.
     """
+    _validate_locality_inputs(
+        peptides,
+        neighbor_count=neighbor_count,
+        neighbor_sample_size=neighbor_sample_size,
+        neighbor_query_batch=neighbor_query_batch,
+        encode_batch_size=encode_batch_size,
+    )
     autoencoder = _build_autoencoder(
         model_name=model_name,
         device=device,

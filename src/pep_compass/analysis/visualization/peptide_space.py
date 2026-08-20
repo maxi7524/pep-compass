@@ -231,7 +231,7 @@ class PeptideSpaceVisualizer:
             subset = combined.loc[combined["group"] == group].copy()
             order = [group] + [other for other in groups if other != group]
             subset["kind"] = np.where(
-                subset["other_group"] == group, "własna grupa", "inna grupa"
+                subset["other_group"] == group, "own group", "other group"
             )
             sns.violinplot(
                 data=subset,
@@ -239,14 +239,18 @@ class PeptideSpaceVisualizer:
                 y="neighbor_distance",
                 order=order,
                 hue="kind",
-                hue_order=["własna grupa", "inna grupa"],
+                hue_order=["own group", "other group"],
                 dodge=False,
                 palette=self.theme.palette,
                 cut=0,
                 density_norm="width",
                 ax=axes,
             )
-            axes.set(title=group, xlabel="", ylabel="dystans" if index % ncols == 0 else "")
+            axes.set(
+                title=group,
+                xlabel="",
+                ylabel="distance" if index % ncols == 0 else "",
+            )
             axes.tick_params(axis="x", rotation=60)
             for label in axes.get_xticklabels():
                 label.set_horizontalalignment("right")
@@ -256,7 +260,7 @@ class PeptideSpaceVisualizer:
         handles, labels = axes_grid[0][0].get_legend_handles_labels()
         figure.legend(handles, labels, loc="upper right", ncol=2)
         figure.suptitle(
-            f"Dystans do najbliższych sąsiadów: własna grupa vs. każda inna grupa "
+            f"Nearest-neighbor distance: own group vs. every other group "
             f"(k={within_result.metadata.get('neighbor_count')})"
         )
         figure.tight_layout(rect=(0, 0, 1, 0.96))

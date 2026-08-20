@@ -5,30 +5,16 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
-from pep_compass.analysis.analysis_types.locality.latent_geometry import (
-    latent_locality,
-)
 from pep_compass.analysis.analysis_types.locality.latent_jump import (
     latent_jump,
     sorbes_trajectory_profile,
-)
-from pep_compass.analysis.analysis_types.locality.mutang import (
-    method_comparison,
-    mutang_selectivity,
-)
-from pep_compass.analysis.analysis_types.locality.parameters import (
-    parameter_selection,
-)
-from pep_compass.analysis.analysis_types.locality.sorbes import (
-    step_saturation,
-    trajectory_saturation,
 )
 from pep_compass.analysis.result import AnalysisResult
 from pep_compass.analysis.reader.selection import ExperimentSelection
 
 
 class LocalityAnalysis:
-    """Expose SORBES, latent, MUTANG, and parameter locality analyses."""
+    """Expose the maintained SORBES and MUTANG locality analyses."""
 
     def __init__(self, selection: ExperimentSelection, use_cache: bool = True) -> None:
         self.selection = selection
@@ -61,22 +47,6 @@ class LocalityAnalysis:
         )
         return result
 
-    def trajectory_saturation(self, **parameters: Any) -> AnalysisResult:
-        """Estimate diminishing candidate yield as trajectories are added."""
-        return self._run(
-            "locality.trajectory_saturation",
-            trajectory_saturation,
-            parameters,
-        )
-
-    def step_saturation(self, **parameters: Any) -> AnalysisResult:
-        """Estimate diminishing candidate yield as walker depth increases."""
-        return self._run("locality.step_saturation", step_saturation, parameters)
-
-    def latent_locality(self, **parameters: Any) -> AnalysisResult:
-        """Relate edit distance to actual and encoded latent positions."""
-        return self._run("locality.latent_locality", latent_locality, parameters)
-
     def latent_jump(self, **parameters: Any) -> AnalysisResult:
         """Relate edit distance to genuine (re-encoded) latent displacement."""
         return self._run("locality.latent_jump", latent_jump, parameters)
@@ -87,22 +57,4 @@ class LocalityAnalysis:
             "locality.sorbes_trajectory_profile",
             sorbes_trajectory_profile,
             parameters,
-        )
-
-    def mutang_selectivity(self, **parameters: Any) -> AnalysisResult:
-        """Summarize threshold, dimensionality, and candidate-retention effects."""
-        return self._run(
-            "locality.mutang_selectivity", mutang_selectivity, parameters
-        )
-
-    def method_comparison(self, **parameters: Any) -> AnalysisResult:
-        """Compare method-retained local pools against random controls."""
-        return self._run(
-            "locality.method_comparison", method_comparison, parameters
-        )
-
-    def parameter_selection(self, **parameters: Any) -> AnalysisResult:
-        """Calculate preliminary multi-objective parameter summaries."""
-        return self._run(
-            "locality.parameter_selection", parameter_selection, parameters
         )
