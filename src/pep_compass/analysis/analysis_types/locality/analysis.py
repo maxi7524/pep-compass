@@ -8,6 +8,10 @@ from typing import Any
 from pep_compass.analysis.analysis_types.locality.latent_geometry import (
     latent_locality,
 )
+from pep_compass.analysis.analysis_types.locality.latent_jump import (
+    latent_jump,
+    sorbes_trajectory_profile,
+)
 from pep_compass.analysis.analysis_types.locality.mutang import (
     method_comparison,
     mutang_selectivity,
@@ -38,7 +42,7 @@ class LocalityAnalysis:
     ) -> AnalysisResult:
         store = self.selection.reader.metrics
         specification = self.selection.specification()
-        analysis_version = "5"
+        analysis_version = "7"
         if self.use_cache:
             cached = store.get_analysis(
                 name, specification, parameters, analysis_version
@@ -72,6 +76,18 @@ class LocalityAnalysis:
     def latent_locality(self, **parameters: Any) -> AnalysisResult:
         """Relate edit distance to actual and encoded latent positions."""
         return self._run("locality.latent_locality", latent_locality, parameters)
+
+    def latent_jump(self, **parameters: Any) -> AnalysisResult:
+        """Relate edit distance to genuine (re-encoded) latent displacement."""
+        return self._run("locality.latent_jump", latent_jump, parameters)
+
+    def sorbes_trajectory_profile(self, **parameters: Any) -> AnalysisResult:
+        """Return per-iteration SORBES latent drift from each trajectory origin."""
+        return self._run(
+            "locality.sorbes_trajectory_profile",
+            sorbes_trajectory_profile,
+            parameters,
+        )
 
     def mutang_selectivity(self, **parameters: Any) -> AnalysisResult:
         """Summarize threshold, dimensionality, and candidate-retention effects."""
