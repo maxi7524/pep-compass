@@ -1,7 +1,11 @@
 """Baseline MUTANG score matrix."""
 
+from pep_compass.optimization.components.mutation_generators.strategies.mutang.base import (
+    ScoringStrategy,
+)
 
-class MaxAbsoluteLoading:
+
+class MaxAbsoluteLoading(ScoringStrategy):
     """Return ``max_j abs(U[(l,a),j])`` for selected directions."""
 
     def __init__(self, max_len=25, alphabet_size=21):

@@ -2,24 +2,26 @@
 
 from __future__ import annotations
 
-from cachetools import LRUCache
+import Levenshtein
 import numpy as np
 import torch
-import Levenshtein
 from botorch.acquisition import LogExpectedImprovement
 from botorch.fit import fit_gpytorch_mll
 from botorch.models import SingleTaskGP
 from botorch.models.transforms import Standardize
+from cachetools import LRUCache
 from gpytorch.mlls import ExactMarginalLogLikelihood
 
+from pep_compass.data_schemas.candidates import CandidateBatch, TensorField
 from pep_compass.optimization.components.filters.direct.base import DirectFilter
-from pep_compass.optimization.components.filters.manager import FilterManager
-from pep_compass.optimization.components.filters.direct.optimization.helpers.fingerprints import Map4Fingerprint
+from pep_compass.optimization.components.filters.direct.optimization.helpers.fingerprints import (
+    Map4Fingerprint,
+)
 from pep_compass.optimization.components.filters.direct.optimization.helpers.kernel import (
     TanimotoSimilarityKernel,
 )
-from pep_compass.data.optimization import CandidateBatch, TensorField
 from pep_compass.optimization.engine.execution.context import OptimizationContext
+from pep_compass.registry.components.families.filters import FilterManager
 
 
 @FilterManager.register("robot")

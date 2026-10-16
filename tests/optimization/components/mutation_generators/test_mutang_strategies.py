@@ -4,10 +4,16 @@ import torch
 
 from pep_compass.autoencoder.geometry import StableTangentGeometry, TangentDecomposition
 from pep_compass.autoencoder.subriemannian import PointGeometry
-from pep_compass.data.optimization import CandidateBatch, ObjectField
-from pep_compass.optimization.components.mutation_generators.strategies.mutang.direction_selection.baseline import BaselineDirectionSelection
-from pep_compass.optimization.components.mutation_generators.strategies.mutang.geometry.shared import SharedGeometry
-from pep_compass.optimization.components.mutation_generators.strategies.mutang.scoring.max_absolute_loading import MaxAbsoluteLoading
+from pep_compass.data_schemas.candidates import CandidateBatch, ObjectField
+from pep_compass.optimization.components.mutation_generators.strategies.mutang.direction_selection.baseline import (
+    BaselineDirectionSelection,
+)
+from pep_compass.optimization.components.mutation_generators.strategies.mutang.geometry.shared import (
+    SharedGeometry,
+)
+from pep_compass.optimization.components.mutation_generators.strategies.mutang.scoring.max_absolute_loading import (
+    MaxAbsoluteLoading,
+)
 
 
 def test_baseline_scoring_matches_directionwise_union() -> None:

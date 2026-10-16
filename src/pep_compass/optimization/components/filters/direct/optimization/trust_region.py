@@ -5,11 +5,11 @@ from __future__ import annotations
 import Levenshtein
 import torch
 
+from pep_compass.data_schemas.candidates import CandidateBatch, SharedField, TensorField
 from pep_compass.optimization.components.filters.direct.base import DirectFilter
-from pep_compass.optimization.components.filters.manager import FilterManager
-from pep_compass.data.optimization import CandidateBatch, SharedField, TensorField
 from pep_compass.optimization.engine.execution.context import OptimizationContext
 from pep_compass.optimization.engine.execution.state import TrustRegionState
+from pep_compass.registry.components.families.filters import FilterManager
 
 
 @FilterManager.register("trust_region")
@@ -31,7 +31,9 @@ class TrustRegionSelector(DirectFilter):
         self.geometry = geometry
         self.initial_radius = initial_radius
 
-    def _execute(self, batch: CandidateBatch, context: OptimizationContext) -> CandidateBatch:
+    def _execute(
+        self, batch: CandidateBatch, context: OptimizationContext
+    ) -> CandidateBatch:
         region = context.state.trust_regions.setdefault(
             self.objective, TrustRegionState(radius=self.initial_radius)
         )
@@ -43,21 +45,30 @@ class TrustRegionSelector(DirectFilter):
             retained = [
                 index
                 for index, sequence in enumerate(batch.sequences)
-                if Levenshtein.distance(sequence, region.center_sequence) <= region.radius
+                if Levenshtein.distance(sequence, region.center_sequence)
+                <= region.radius
             ]
         else:
             distances = torch.linalg.vector_norm(
-                batch.latent_origins - region.center_latent.to(batch.latent_origins.device),
+                batch.latent_origins
+                - region.center_latent.to(batch.latent_origins.device),
                 dim=1,
             )
-            retained = torch.nonzero(distances <= region.radius, as_tuple=False).flatten().tolist()
+            retained = (
+                torch.nonzero(distances <= region.radius, as_tuple=False)
+                .flatten()
+                .tolist()
+            )
         selected = batch.select(retained)
         return selected.with_field(
             f"trust_region.{self.objective}.radius", SharedField(region.radius)
         )
 
 
-@FilterManager.register("trust_region_update")
+@FilterManager.register(
+    "trust_region_update",
+    input_fields=lambda values: (f"oracle.{values['objective']}.score",),
+)
 class TrustRegionUpdater(DirectFilter):
     """Update center and radius from scores already attached by an oracle."""
 
@@ -75,9 +86,13 @@ class TrustRegionUpdater(DirectFilter):
         maximize: bool = False,
     ) -> None:
         if not 0 < minimum_radius <= initial_radius <= maximum_radius:
-            raise ValueError("Trust-region radii must satisfy 0 < min <= initial <= max.")
+            raise ValueError(
+                "Trust-region radii must satisfy 0 < min <= initial <= max."
+            )
         if expand_factor <= 1 or not 0 < shrink_factor < 1:
-            raise ValueError("Trust-region expansion must exceed 1 and shrinkage be in (0, 1).")
+            raise ValueError(
+                "Trust-region expansion must exceed 1 and shrinkage be in (0, 1)."
+            )
         if success_tolerance < 1 or failure_tolerance < 1:
             raise ValueError("Trust-region tolerances must be positive.")
         self.objective = objective
@@ -90,7 +105,9 @@ class TrustRegionUpdater(DirectFilter):
         self.failure_tolerance = failure_tolerance
         self.maximize = maximize
 
-    def _execute(self, batch: CandidateBatch, context: OptimizationContext) -> CandidateBatch:
+    def _execute(
+        self, batch: CandidateBatch, context: OptimizationContext
+    ) -> CandidateBatch:
         score_field = batch.fields.get(f"oracle.{self.objective}.score")
         if not isinstance(score_field, TensorField) or score_field.values.ndim != 1:
             raise ValueError(
@@ -114,13 +131,17 @@ class TrustRegionUpdater(DirectFilter):
             region.successes += 1
             region.failures = 0
             if region.successes >= self.success_tolerance:
-                region.radius = min(region.radius * self.expand_factor, self.maximum_radius)
+                region.radius = min(
+                    region.radius * self.expand_factor, self.maximum_radius
+                )
                 region.successes = 0
         else:
             region.failures += 1
             region.successes = 0
             if region.failures >= self.failure_tolerance:
-                region.radius = max(region.radius * self.shrink_factor, self.minimum_radius)
+                region.radius = max(
+                    region.radius * self.shrink_factor, self.minimum_radius
+                )
                 region.failures = 0
         result = batch.with_field(
             f"trust_region.{self.objective}.radius", SharedField(region.radius)

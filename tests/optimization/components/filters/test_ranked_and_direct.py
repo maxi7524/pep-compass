@@ -2,13 +2,23 @@
 
 import torch
 
-from pep_compass.data.optimization import CandidateBatch, ObjectField
-from pep_compass.optimization.components.filters.direct.constraints.levenshtein import LevenshteinConstraint
-from pep_compass.optimization.components.filters.direct.constraints.sequence_length import SequenceLengthConstraint
+from pep_compass.data_schemas.candidates import CandidateBatch, ObjectField
+from pep_compass.optimization.components.filters.direct.constraints.levenshtein import (
+    LevenshteinConstraint,
+)
+from pep_compass.optimization.components.filters.direct.constraints.sequence_length import (
+    SequenceLengthConstraint,
+)
 from pep_compass.optimization.components.filters.ranked.base import RankedFilter
-from pep_compass.optimization.components.filters.ranked.scoring.base import ScoreFunction
-from pep_compass.optimization.components.filters.ranked.selection.nucleus import NucleusSelection
-from pep_compass.optimization.components.filters.ranked.selection.threshold import ThresholdSelection
+from pep_compass.optimization.components.filters.ranked.scoring.base import (
+    ScoreFunction,
+)
+from pep_compass.optimization.components.filters.ranked.selection.nucleus import (
+    NucleusSelection,
+)
+from pep_compass.optimization.components.filters.ranked.selection.threshold import (
+    ThresholdSelection,
+)
 from pep_compass.optimization.engine.execution.context import OptimizationContext
 
 
@@ -62,8 +72,8 @@ def test_levenshtein_constraint_uses_per_trajectory_center_field() -> None:
         {"center": ObjectField(["AAAT", "GGGG"])},
     )
 
-    result = LevenshteinConstraint(
-        reference_field="center", maximum_distance=1
-    )(batch, OptimizationContext(autoencoder=None))
+    result = LevenshteinConstraint(reference_field="center", maximum_distance=1)(
+        batch, OptimizationContext(autoencoder=None)
+    )
 
     assert result.sequences == ("AAAA",)

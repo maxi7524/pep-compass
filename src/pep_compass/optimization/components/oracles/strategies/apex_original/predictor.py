@@ -8,10 +8,11 @@ import numpy as np
 import torch
 from tqdm import tqdm
 
-from pep_compass.optimization.components.oracles.strategies.apex_original.utils import make_vocab, onehot_encoding
-from pep_compass.optimization.components.oracles.model_registry import (
-    resolve_oracle_model,
+from pep_compass.optimization.components.oracles.strategies.apex_original.utils import (
+    make_vocab,
+    onehot_encoding,
 )
+from pep_compass.registry.models.oracles import resolve_oracle_model
 from pep_compass.utils.logger import get_custom_logger
 
 logger = get_custom_logger(__name__)
@@ -95,7 +96,7 @@ APEX_MODEL_VARIANTS: dict[str, APEXModelVariant] = {
 
 class APEXUnpickler(pickle.Unpickler):
     """Custom unpickler that maps old module names to current ones."""
-    
+
     def find_class(self, module, name):
         # Map old top-level module names to the correct package paths
         if module == "APEX_models":
@@ -108,7 +109,9 @@ class APEXUnpickler(pickle.Unpickler):
 # Create a simple module-like object for torch.load
 class APEXPickleModule:
     """Custom pickle module for torch.load."""
+
     Unpickler = APEXUnpickler
+
     # Delegate everything else to pickle
     def __getattr__(self, name):
         return getattr(pickle, name)
@@ -132,7 +135,11 @@ class PredictorAPEX:
         model="default",
         models_directory: str | Path | None = None,
     ):
-        if not isinstance(batch_size, int) or isinstance(batch_size, bool) or batch_size < 1:
+        if (
+            not isinstance(batch_size, int)
+            or isinstance(batch_size, bool)
+            or batch_size < 1
+        ):
             raise ValueError("APEX batch_size must be a positive integer.")
         self.device = torch.device(device)
         self.model = model
@@ -223,8 +230,8 @@ class PredictorAPEX:
                 with torch.inference_mode():
                     amp_prediction_batch = apex_model(x_sequence)  # (B_model, P)
                 AMP_pred_batch = amp_prediction_batch.cpu().numpy()
-                AMP_pred_batch = 10 ** (
-                    6 - AMP_pred_batch
+                AMP_pred_batch = (
+                    10 ** (6 - AMP_pred_batch)
                 )  # transform back to MICs; When training the APEX models, MICs were transformed by: -np.log10(MICs/float(1000000))
 
                 model_batches.append(AMP_pred_batch)

@@ -6,14 +6,14 @@ from collections.abc import Mapping
 
 import pytest
 
-from pep_compass.registry import (
-    ComponentCatalog,
+from pep_compass.registry.components.catalog import ComponentCatalog
+from pep_compass.registry.factories.registry import Registry
+from pep_compass.registry.models.catalog import ModelRegistry
+from pep_compass.registry.models.definitions import (
     DirectoryArtifact,
     FileArtifact,
     GlobArtifact,
     ModelDescriptor,
-    ModelRegistry,
-    Registry,
 )
 
 
@@ -145,9 +145,7 @@ def test_model_registry_validates_directory_artifact_contents(tmp_path) -> None:
 
 def test_bundled_oracle_models_have_complete_registered_artifacts() -> None:
     """Every bundled oracle model declaration must resolve without loading it."""
-    from pep_compass.optimization.components.oracles.model_registry import (
-        resolve_oracle_model,
-    )
+    from pep_compass.registry.models.oracles import resolve_oracle_model
 
     expected_artifact_counts = {
         "battleamp": 1,

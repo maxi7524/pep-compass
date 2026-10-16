@@ -6,7 +6,11 @@ walkers, generators, filters, and oracles implement the same ``Step`` contract
 under ``optimization.components``.
 """
 
+from pep_compass.data_schemas.execution import OptimizationLimits
+from pep_compass.data_schemas.results import OptimizationResult
 from pep_compass.optimization.engine.execution.context import OptimizationContext
+from pep_compass.optimization.engine.execution.state import OptimizationState
+from pep_compass.optimization.engine.execution.step import Step
 from pep_compass.optimization.engine.operations import (
     Flow,
     LocalEnumeration,
@@ -14,9 +18,6 @@ from pep_compass.optimization.engine.operations import (
     Parallel,
     build_merger,
 )
-from pep_compass.optimization.engine.execution.result import OptimizationResult
-from pep_compass.optimization.engine.execution.state import OptimizationLimits, OptimizationState
-from pep_compass.optimization.engine.execution.step import Step
 
 __all__ = [
     "Flow",

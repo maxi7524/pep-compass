@@ -1,13 +1,13 @@
 """Tests for non-fatal computation-graph diagnostics."""
 
-from pep_compass.core.specification import (
+from pep_compass.core.builder.validation import diagnose_pipeline_specification
+from pep_compass.data_schemas.specification import (
     ComponentSpecification,
     FlowSpecification,
-    LoopSpecification,
     LocalEnumerationSpecification,
+    LoopSpecification,
     PipelineSpecification,
 )
-from pep_compass.core.validation import diagnose_pipeline_specification
 
 
 def test_diagnostics_reject_mutation_feedback_into_walker_loop() -> None:
@@ -55,6 +55,4 @@ def test_local_enumeration_is_not_reported_as_generic_loop_feedback() -> None:
 
     diagnostics = diagnose_pipeline_specification(specification)
 
-    assert "TRAJECTORY_FEEDBACK" not in {
-        diagnostic.code for diagnostic in diagnostics
-    }
+    assert "TRAJECTORY_FEEDBACK" not in {diagnostic.code for diagnostic in diagnostics}

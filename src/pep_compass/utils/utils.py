@@ -1,16 +1,15 @@
-
-import random
 import time
-
-import numpy as np
-import torch
 
 
 def set_seed(seed: int):
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)
+    """Seed all supported generators through the backend RNG contract.
+
+    :param seed: Non-negative integer seed.
+    """
+    from pep_compass.utils.randomness import seed_generators
+
+    seed_generators(seed)
+
 
 class Timer:
     def __init__(self):
@@ -30,9 +29,15 @@ class Timer:
     def __exit__(self, exc_type, exc_value, traceback):
         elapsed = time.time() - self._start
         self.times[self._name] = elapsed
-        
+
     def __str__(self):
-        return "{\n\t" + "\n\t".join(f"{name}: {elapsed:.4f}s" for name, elapsed in self.times.items()) + "\n}"
+        return (
+            "{\n\t"
+            + "\n\t".join(
+                f"{name}: {elapsed:.4f}s" for name, elapsed in self.times.items()
+            )
+            + "\n}"
+        )
 
     def reset(self):
         self.times = {}

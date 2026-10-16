@@ -9,7 +9,9 @@ import torch
 
 def test_apex_rejects_missing_ensemble(tmp_path: Path) -> None:
     """An absent model directory must fail during oracle construction."""
-    from pep_compass.optimization.components.oracles.strategies.apex.predictor import APEXPredictor
+    from pep_compass.optimization.components.oracles.strategies.apex.predictor import (
+        APEXPredictor,
+    )
 
     with pytest.raises(FileNotFoundError, match="model directory not found"):
         APEXPredictor(models_directory=tmp_path)
@@ -17,7 +19,9 @@ def test_apex_rejects_missing_ensemble(tmp_path: Path) -> None:
 
 def test_apex_rejects_incomplete_ensemble(tmp_path: Path) -> None:
     """A partially downloaded ensemble must not reach prediction."""
-    from pep_compass.optimization.components.oracles.strategies.apex.predictor import APEXPredictor
+    from pep_compass.optimization.components.oracles.strategies.apex.predictor import (
+        APEXPredictor,
+    )
 
     model_directory = tmp_path / "default"
     model_directory.mkdir()
@@ -29,11 +33,10 @@ def test_apex_rejects_incomplete_ensemble(tmp_path: Path) -> None:
 
 def test_apex_default_ensemble_loads_and_predicts() -> None:
     """Bundled weights must execute through the common PepCompass Oracle contract."""
-    import pep_compass.optimization.components.oracles.strategies  # noqa: F401
-    from pep_compass.data.optimization import CandidateBatch, TensorField
+    from pep_compass.data_schemas.candidates import CandidateBatch, TensorField
     from pep_compass.optimization.components.oracles.base import Oracle
-    from pep_compass.optimization.components.oracles.manager import OracleManager
     from pep_compass.optimization.engine.execution.context import OptimizationContext
+    from pep_compass.registry.components.families.oracles import OracleManager
     from tests.fixtures.autoencoders import MockAutoencoder
 
     oracle = OracleManager.build(
@@ -58,7 +61,9 @@ def test_apex_default_ensemble_loads_and_predicts() -> None:
 
 def test_apex_validates_public_parameters() -> None:
     """Invalid aggregation must fail before scoring begins."""
-    from pep_compass.optimization.components.oracles.strategies.apex.oracle import APEXBlackBox
+    from pep_compass.optimization.components.oracles.strategies.apex.oracle import (
+        APEXBlackBox,
+    )
 
     with pytest.raises(ValueError, match="mic_aggregate"):
         APEXBlackBox(mic_aggregate="median")
@@ -66,10 +71,9 @@ def test_apex_validates_public_parameters() -> None:
 
 def test_clean_and_original_apex_strategies_are_independently_registered() -> None:
     """Both APEX implementations must use shared weights and equivalent scoring."""
-    import pep_compass.optimization.components.oracles.strategies  # noqa: F401
-    from pep_compass.data.optimization import CandidateBatch, TensorField
-    from pep_compass.optimization.components.oracles.manager import OracleManager
+    from pep_compass.data_schemas.candidates import CandidateBatch, TensorField
     from pep_compass.optimization.engine.execution.context import OptimizationContext
+    from pep_compass.registry.components.families.oracles import OracleManager
     from tests.fixtures.autoencoders import MockAutoencoder
 
     parameters = {

@@ -74,31 +74,15 @@ assets/scripts/downloads/apex/download_apex_models_full.sh
 
 ## Run
 
-`pep-compass` is the console entry point (`src/pep_compass/runtime/cli.py`).
-Verify a configuration without loading any model:
-
 ```bash
-uv run --extra cu118 pep-compass dry-run \
-  assets/experiments/configs/validation/optimization_flow_smoke.yaml
+uv run --extra cpu pep-compass plan pipeline=simple
+uv run --extra cpu pep-compass run pipeline=simple ++runner.execution.seed=7
+uv run --extra cpu pep-compass run --multirun pipeline=simple ++runner.execution.seed=7,8
 ```
 
-Then execute a small bounded run with real models and no persisted output:
-
-```bash
-uv run --extra cu118 pep-compass test-run \
-  assets/experiments/configs/composable_example.yaml \
-  --device cpu
-```
-
-And a full run, persisting results under `experiment.output_directory`:
-
-```bash
-uv run --extra cu118 pep-compass run \
-  assets/experiments/configs/composable_example.yaml
-```
-
-Every command and flag (`--device`, `--run-index`, backends, Slurm) is
-documented in [User Guide § Commands](docs/user-guide.md#commands).
+The Hydra CLI lives in `src/pep_compass/orchestrator/cli.py` and executes the public
+Python wrapper. See the [orchestrator guide](docs/tutorial/orchestrator.md) for YAML
+composition, independent workers, Slurm templates and migration from old commands.
 
 ## Guides
 

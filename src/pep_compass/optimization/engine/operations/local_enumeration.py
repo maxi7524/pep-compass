@@ -6,7 +6,7 @@ from typing import Literal
 
 import torch
 
-from pep_compass.data.optimization import CandidateBatch, ObjectField, TensorField
+from pep_compass.data_schemas.candidates import CandidateBatch, ObjectField, TensorField
 from pep_compass.optimization.engine.execution.context import OptimizationContext
 from pep_compass.optimization.engine.execution.step import Step
 from pep_compass.utils.logger import get_custom_logger
@@ -65,8 +65,10 @@ class LocalEnumeration(Step):
         include_walk_points: bool = True,
         trajectory_execution: TrajectoryExecution = "batched",
     ) -> None:
-        if trajectories < 1:
-            raise ValueError("Local-enumeration trajectories must be positive.")
+        from pep_compass.utils.validation import validate_integer, validate_positive
+
+        validate_integer(trajectories, "local_enumeration.trajectories", 1)
+        validate_integer(iterations, "local_enumeration.iterations", 1, optional=True)
         if trajectory_execution not in {"sequential", "batched"}:
             raise ValueError(
                 "Local-enumeration trajectory execution must be sequential or batched."
@@ -75,10 +77,10 @@ class LocalEnumeration(Step):
             raise ValueError(
                 "Local enumeration requires exactly one of iterations or walk_time."
             )
-        if iterations is not None and iterations < 1:
-            raise ValueError("Local-enumeration iterations must be positive.")
-        if walk_time is not None and walk_time <= 0:
-            raise ValueError("Local-enumeration walk time must be positive.")
+        if walk_time is not None:
+            validate_positive(walk_time, "local_enumeration.walk_time")
+        if not isinstance(include_walk_points, bool):
+            raise ValueError("Local-enumeration include_walk_points must be a boolean.")
         self.walker = walker
         self.mutation_generator = mutation_generator
         self.filters = filters
@@ -90,7 +92,11 @@ class LocalEnumeration(Step):
         requirement = getattr(mutation_generator, "geometry_requirement", None)
         contract = getattr(walker, "geometry_contract", None)
         if getattr(mutation_generator, "requires_local_enumeration", False):
-            if requirement is None or contract is None or not contract.satisfies(requirement):
+            if (
+                requirement is None
+                or contract is None
+                or not contract.satisfies(requirement)
+            ):
                 raise ValueError(
                     "LocalEnumeration walker geometry does not satisfy MUTANG shared geometry."
                 )
@@ -144,8 +150,7 @@ class LocalEnumeration(Step):
             return batch.select([])
         result = CandidateBatch.concatenate(emissions)
         logger.info(
-            "Local enumeration seeds=%s trajectories_per_seed=%s "
-            "output_candidates=%s.",
+            "Local enumeration seeds=%s trajectories_per_seed=%s output_candidates=%s.",
             len(batch),
             self.trajectories,
             len(result),
@@ -205,6 +210,7 @@ class LocalEnumeration(Step):
         # Batched SORBES trajectory evolution
         ## Keep only unfinished trajectories in the next accelerator call
         while len(current) and self._batch_should_continue(iteration, context):
+            context.iteration_started(iteration)
             iteration_context = context.enter_iteration(iteration)
             current = self.walker(current, iteration_context)
             increments = self._time_increments(current)  # (T_active,)
@@ -212,14 +218,13 @@ class LocalEnumeration(Step):
                 emissions.append(current.without_fields(_TRANSIENT_WALKER_FIELDS))
             emissions.append(self._generate_and_filter(current, iteration_context))
             context.state.record_iteration(len(current))
+            context.iteration_completed(iteration, trajectories=len(current))
 
             elapsed = elapsed + increments
             iteration += 1
             current = current.with_field(
                 "tracking.trajectory_step",
-                TensorField(
-                    current.fields["tracking.trajectory_step"].values + 1
-                ),
+                TensorField(current.fields["tracking.trajectory_step"].values + 1),
             )
             if self.walk_time is not None:
                 active = torch.nonzero(
@@ -280,9 +285,7 @@ class LocalEnumeration(Step):
         prefix = "/".join(context.scope.path)
         result = batch.with_field(
             "tracking.trajectory_id",
-            ObjectField(
-                [f"{prefix}/trajectory[{index}]" for index in range(count)]
-            ),
+            ObjectField([f"{prefix}/trajectory[{index}]" for index in range(count)]),
         )
         result = result.with_field(
             "tracking.trajectory_index",
@@ -314,6 +317,7 @@ class LocalEnumeration(Step):
 
         # SORBES trajectory
         while self._should_continue(iteration, elapsed, context):
+            context.iteration_started(iteration)
             iteration_context = context.enter_iteration(iteration)
             current = self.walker(current, iteration_context)
             time_increment = self._time_increment(current)
@@ -323,6 +327,7 @@ class LocalEnumeration(Step):
             elapsed += time_increment
             iteration += 1
             context.state.record_iteration()
+            context.iteration_completed(iteration - 1)
         logger.debug(
             "Local-enumeration trajectory iterations=%s elapsed_walk_time=%.6f "
             "emissions=%s.",

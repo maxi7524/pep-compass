@@ -7,12 +7,10 @@ wrapped, scoped, measured, and stopped; they do not select the configured
 component order.
 """
 
+from pep_compass.data_schemas.execution import OptimizationLimits
+from pep_compass.data_schemas.results import OptimizationResult
 from pep_compass.optimization.engine.execution.context import OptimizationContext
-from pep_compass.optimization.engine.execution.result import OptimizationResult
-from pep_compass.optimization.engine.execution.state import (
-    OptimizationLimits,
-    OptimizationState,
-)
+from pep_compass.optimization.engine.execution.state import OptimizationState
 from pep_compass.optimization.engine.execution.step import Step
 
 __all__ = [

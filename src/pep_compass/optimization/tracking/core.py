@@ -15,7 +15,7 @@ from time import perf_counter
 from typing import TYPE_CHECKING, Any, Literal
 
 if TYPE_CHECKING:
-    from pep_compass.data.optimization import CandidateBatch
+    from pep_compass.data_schemas.candidates import CandidateBatch
     from pep_compass.optimization.engine.execution.context import OptimizationContext
     from pep_compass.optimization.engine.execution.step import Step
 
@@ -148,7 +148,9 @@ class StepExecutionRecord:
 class InMemoryStepTracker(StepTracker):
     """Retain scalar execution records for tests and interactive debugging."""
 
-    def __init__(self, *, level: TrackingLevel = "normal", max_depth: int | None = None) -> None:
+    def __init__(
+        self, *, level: TrackingLevel = "normal", max_depth: int | None = None
+    ) -> None:
         self.level = level
         self.max_depth = max_depth
         self.records: list[StepExecutionRecord] = []
@@ -156,7 +158,11 @@ class InMemoryStepTracker(StepTracker):
 
     def begin_step(self, step, batch, scope, context):
         """Capture start time and run counters without retaining the batch."""
-        return perf_counter(), context.state.oracle_calls, context.state.generated_candidates
+        return (
+            perf_counter(),
+            context.state.oracle_calls,
+            context.state.generated_candidates,
+        )
 
     def end_step(self, handle, step, input_batch, output_batch, scope, context) -> None:
         """Append a successful scalar record."""
@@ -166,7 +172,9 @@ class InMemoryStepTracker(StepTracker):
         """Append a failed scalar record."""
         self._append(handle, step, input_batch, scope, context, 0, error)
 
-    def _append(self, handle, step, input_batch, scope, context, output_size, error) -> None:
+    def _append(
+        self, handle, step, input_batch, scope, context, output_size, error
+    ) -> None:
         """Normalize and append one event under the tracker lock."""
         record = StepExecutionRecord(
             step_name=step.name,

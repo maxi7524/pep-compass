@@ -7,7 +7,7 @@ child. Every child enters the standard ``Step.__call__`` lifecycle.
 
 from collections.abc import Sequence
 
-from pep_compass.data.optimization import CandidateBatch
+from pep_compass.data_schemas.candidates import CandidateBatch
 from pep_compass.optimization.engine.execution.context import OptimizationContext
 from pep_compass.optimization.engine.execution.step import Step
 
@@ -23,7 +23,9 @@ class Flow(Step):
         for step in self.steps:
             step.precompute(context.enter_step(step.name))
 
-    def _execute(self, batch: CandidateBatch, context: OptimizationContext) -> CandidateBatch:
+    def _execute(
+        self, batch: CandidateBatch, context: OptimizationContext
+    ) -> CandidateBatch:
         """Pass each intermediate batch to the next child step."""
         result = batch
         for step in self.steps:

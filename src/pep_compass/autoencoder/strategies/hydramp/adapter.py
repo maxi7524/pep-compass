@@ -1,26 +1,28 @@
 """HydrAMP implementation of the PepCompass autoencoder contract."""
 
-import torch
-from typing import Literal
-from torch import nn
 from pathlib import Path
 from time import perf_counter
+from typing import Literal
+
+import torch
+from einops import rearrange, repeat
+from torch import nn
 
 from pep_compass.autoencoder.base import Autoencoder
 from pep_compass.autoencoder.strategies.hydramp.architecture import (
     HydrAMPDecoder,
     HydrAMPEncoder,
 )
-from pep_compass.utils.sequence_utils import to_one_hot, translate_generated_peptide
+from pep_compass.registry.models.catalog import model_catalog
 from pep_compass.utils.logger import get_custom_logger
-from pep_compass.registry import model_catalog
-from einops import repeat, rearrange
+from pep_compass.utils.sequence_utils import to_one_hot, translate_generated_peptide
 
 logger = get_custom_logger(__name__)
 
 
 class HydrampAutoencoder(Autoencoder, nn.Module):
     """Load and execute the HydrAMP peptide autoencoder."""
+
     def __init__(
         self,
         *,
@@ -61,11 +63,11 @@ class HydrampAutoencoder(Autoencoder, nn.Module):
 
     def _load_weights(self) -> None:
         """Load state dictionaries for the selected bundled HydrAMP model."""
-        # Direct adapter use bypasses the runtime bootstrap registration path.
+        # Direct adapter use explicitly loads its model declarations.
         if self.model_name not in model_catalog.names("autoencoder.hydramp"):
-            from pep_compass.autoencoder.strategies.hydramp import register_hydramp
+            from pep_compass.registry.components.loading import load_components
 
-            register_hydramp()
+            load_components("autoencoder")
         started_at = perf_counter()
         weights_dir = Path(__file__).parent / "models" / self.model_name
         if not weights_dir.is_dir():
@@ -102,8 +104,7 @@ class HydrampAutoencoder(Autoencoder, nn.Module):
         """Return the flattened decoder probability dimension."""
         return self.decoder.gru.output_len * self.decoder.dense.out_features
 
-
-    # main functionality 
+    # main functionality
     def decoder_forward(
         self,
         x: torch.Tensor,

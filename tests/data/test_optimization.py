@@ -1,9 +1,9 @@
 """Tests for shared optimization data contracts."""
 
 import torch
-
-from pep_compass.data.optimization import TensorField
 from fixtures.candidates import candidate_batch
+
+from pep_compass.data_schemas.candidates import TensorField
 
 
 def test_candidate_selection_preserves_every_aligned_column() -> None:

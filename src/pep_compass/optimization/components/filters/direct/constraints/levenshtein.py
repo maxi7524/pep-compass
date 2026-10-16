@@ -2,9 +2,9 @@
 
 import torch
 
-from pep_compass.data.optimization import ObjectField
+from pep_compass.data_schemas.candidates import ObjectField
 from pep_compass.optimization.components.filters.direct.base import DirectFilter
-from pep_compass.optimization.components.filters.manager import FilterManager
+from pep_compass.registry.components.families.filters import FilterManager
 
 
 def levenshtein_distance(left: str, right: str) -> int:
@@ -26,16 +26,28 @@ def levenshtein_distance(left: str, right: str) -> int:
     return previous[-1]
 
 
-@FilterManager.register("levenshtein")
+@FilterManager.register(
+    "levenshtein",
+    input_fields=lambda values: (
+        (values["reference_field"],) if values.get("reference_field") else ()
+    ),
+    display_parameters=("maximum_distance", "reference", "reference_field"),
+)
 class LevenshteinConstraint(DirectFilter):
     """Keep sequences within an inclusive edit radius of a reference."""
 
-    def __init__(self, reference: str | None = None, maximum_distance: int = 4,
-                 reference_field: str | None = None) -> None:
+    def __init__(
+        self,
+        reference: str | None = None,
+        maximum_distance: int = 4,
+        reference_field: str | None = None,
+    ) -> None:
         if maximum_distance < 0:
             raise ValueError("Maximum Levenshtein distance cannot be negative.")
         if (reference is None) == (reference_field is None):
-            raise ValueError("Provide exactly one Levenshtein reference or reference_field.")
+            raise ValueError(
+                "Provide exactly one Levenshtein reference or reference_field."
+            )
         self.reference, self.reference_field = reference, reference_field
         self.maximum_distance = maximum_distance
 
@@ -45,7 +57,9 @@ class LevenshteinConstraint(DirectFilter):
         if self.reference_field is not None:
             field = batch.fields.get(self.reference_field)
             if not isinstance(field, ObjectField):
-                raise ValueError("Levenshtein reference_field must name an ObjectField.")
+                raise ValueError(
+                    "Levenshtein reference_field must name an ObjectField."
+                )
             references = field.values
         retained = []
         for index, sequence in enumerate(batch.sequences):

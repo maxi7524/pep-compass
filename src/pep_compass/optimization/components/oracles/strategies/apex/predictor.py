@@ -3,18 +3,17 @@
 from __future__ import annotations
 
 import pickle
+from collections.abc import Sequence
 from pathlib import Path
 from time import perf_counter
-from collections.abc import Sequence
 
 import numpy as np
 import torch
 
-from pep_compass.optimization.components.oracles.strategies.apex.model_registry import (
+from pep_compass.registry.models.apex import (
     resolve_apex_weights,
 )
 from pep_compass.utils.logger import get_custom_logger
-
 
 logger = get_custom_logger(__name__)
 
@@ -57,7 +56,11 @@ class APEXPredictor:
         model: str = "default",
         models_directory: str | Path | None = None,
     ) -> None:
-        if isinstance(batch_size, bool) or not isinstance(batch_size, int) or batch_size < 1:
+        if (
+            isinstance(batch_size, bool)
+            or not isinstance(batch_size, int)
+            or batch_size < 1
+        ):
             raise ValueError("APEX batch_size must be a positive integer.")
         self.device = torch.device(device)
         self.batch_size = batch_size
@@ -131,7 +134,5 @@ def _encode_sequences(
     encoded = np.zeros((len(sequences), max_length), dtype=np.int64)  # (B, L)
     for row, sequence in enumerate(sequences):
         framed = "1" + sequence[: max_length - 2].upper() + "2"
-        encoded[row, : len(framed)] = [
-            vocabulary.get(symbol, 0) for symbol in framed
-        ]
+        encoded[row, : len(framed)] = [vocabulary.get(symbol, 0) for symbol in framed]
     return encoded

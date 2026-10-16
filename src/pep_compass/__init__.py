@@ -3,9 +3,23 @@
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    from pep_compass.core.wrapper import (
+        LocalEnumeration,
+        Loop,
+        Parallel,
+        Pipeline,
+        Step,
+    )
     from pep_compass.optimization.pipeline import PepCompassPipeline
 
-__all__ = ["PepCompassPipeline"]
+__all__ = [
+    "PepCompassPipeline",
+    "Pipeline",
+    "Step",
+    "Loop",
+    "Parallel",
+    "LocalEnumeration",
+]
 
 
 def __getattr__(name: str) -> Any:
@@ -19,4 +33,8 @@ def __getattr__(name: str) -> Any:
         from pep_compass.optimization.pipeline import PepCompassPipeline
 
         return PepCompassPipeline
+    if name in {"Pipeline", "Step", "Loop", "Parallel", "LocalEnumeration"}:
+        from pep_compass.core import wrapper
+
+        return getattr(wrapper, name)
     raise AttributeError(name)

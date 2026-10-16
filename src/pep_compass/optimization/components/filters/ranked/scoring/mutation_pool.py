@@ -7,7 +7,7 @@ import random
 from pep_compass.autoencoder.subriemannian import SubRiemannianTangentSpace
 
 
-def bounded_mutations(parent, mutations, alphabet, maximum_candidates):
+def bounded_mutations(parent, mutations, alphabet, maximum_candidates, *, rng=None):
     """Reduce a Cartesian mutation product before it is materialised."""
     valid = {
         position: sorted(set(residues))
@@ -23,7 +23,13 @@ def bounded_mutations(parent, mutations, alphabet, maximum_candidates):
         parent_residue = alphabet.index(parent[position])
         alternatives = [value for value in choices[position] if value != parent_residue]
         if alternatives:
-            choices[position].remove(random.choice(alternatives))
+            choices[position].remove(
+                (
+                    random.choice(alternatives)
+                    if rng is None
+                    else int(rng.choice(alternatives))
+                )
+            )
         elif len(choices) > 1:
             del choices[position]
         else:
@@ -31,9 +37,11 @@ def bounded_mutations(parent, mutations, alphabet, maximum_candidates):
     return choices
 
 
-def enumerate_sequences(parent, mutations, alphabet, maximum_candidates):
+def enumerate_sequences(parent, mutations, alphabet, maximum_candidates, *, rng=None):
     """Return the bounded unique product excluding the unchanged parent."""
-    choices = bounded_mutations(parent, mutations, alphabet, maximum_candidates)
+    choices = bounded_mutations(
+        parent, mutations, alphabet, maximum_candidates, rng=rng
+    )
     positions = sorted(choices)
     sequences = []
     for residues in itertools.product(*(choices[position] for position in positions)):

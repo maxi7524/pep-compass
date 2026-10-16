@@ -1602,7 +1602,7 @@ class EIPredPredictor:
         model="default",
         models_directory=None,
     ):
-        from pep_compass.optimization.components.oracles.model_registry import (
+        from pep_compass.registry.models.oracles import (
             resolve_oracle_model,
         )
 

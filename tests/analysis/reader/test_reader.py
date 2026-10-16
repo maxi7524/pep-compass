@@ -1,31 +1,13 @@
 """Tests for versioned runtime-result discovery."""
 
-from pathlib import Path
-
 from pep_compass.analysis.reader import ExperimentReader
-from pep_compass.runtime.configuration.schema import (
-    AutoencoderConfiguration,
-    ExperimentConfiguration,
-    RuntimeConfiguration,
-)
-from pep_compass.runtime.output import ResultWriter
-from pep_compass.runtime.planning.plan import materialize_execution_plan
-from pep_compass.runtime.runner import RuntimeRunner
+from tests.fixtures.archives import write_archive
 from tests.fixtures.workflows import MockWorkflow
 
 
 def test_reader_exposes_runtime_results_as_logical_dataset(tmp_path) -> None:
     """Reader discovery must produce both selections and ExperimentDataset."""
-    configuration = RuntimeConfiguration(
-        experiment=ExperimentConfiguration(
-            name="reader",
-            input={"sequences": ["AA"]},
-        ),
-        autoencoder=AutoencoderConfiguration("mock", "default"),
-        pipeline={},
-    )
-    plan = materialize_execution_plan(configuration, working_directory=Path.cwd())
-    RuntimeRunner(configuration, MockWorkflow(), ResultWriter(tmp_path)).run(plan)
+    write_archive(tmp_path, MockWorkflow())
 
     reader = ExperimentReader(tmp_path)
 
@@ -48,7 +30,6 @@ def test_reader_validates_local_enumeration_replay_checkpoint(tmp_path) -> None:
     """Reader must expose SORBES points and verify reconstructed local output."""
     import torch
 
-    from pep_compass.data.optimization import CandidateBatch
     from pep_compass.optimization.engine.operations import Flow, LocalEnumeration
     from pep_compass.optimization.pipeline import PepCompassPipeline
     from tests.fixtures.autoencoders import MockAutoencoder
@@ -88,17 +69,7 @@ def test_reader_validates_local_enumeration_replay_checkpoint(tmp_path) -> None:
                 stability_monitor=stability_monitor,
             )
 
-    configuration = RuntimeConfiguration(
-        experiment=ExperimentConfiguration(
-            name="replay",
-            input={"sequences": ["AA"]},
-            seed=11,
-        ),
-        autoencoder=AutoencoderConfiguration("mock", "default"),
-        pipeline={},
-    )
-    plan = materialize_execution_plan(configuration, working_directory=Path.cwd())
-    RuntimeRunner(configuration, ReplayWorkflow(), ResultWriter(tmp_path)).run(plan)
+    write_archive(tmp_path, ReplayWorkflow(), seed=11)
 
     reader = ExperimentReader(tmp_path)
     replay = reader.replay("run_00000")

@@ -2,10 +2,15 @@
 
 import torch
 
-from pep_compass.optimization.components.mutation_generators.strategies.mutang.schema import SelectedDirections
+from pep_compass.optimization.components.mutation_generators.strategies.mutang.base import (
+    DirectionStrategy,
+)
+from pep_compass.optimization.components.mutation_generators.strategies.mutang.schema import (
+    SelectedDirections,
+)
 
 
-class BaselineDirectionSelection:
+class BaselineDirectionSelection(DirectionStrategy):
     """Preserve the main/dev significance threshold and minimum count."""
 
     def __init__(self, threshold=1e-3, minimum=5):

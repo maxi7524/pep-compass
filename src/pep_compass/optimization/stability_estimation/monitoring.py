@@ -2,15 +2,15 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import math
 import os
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 import torch
 
-from pep_compass.data.optimization import CandidateBatch
+from pep_compass.data_schemas.candidates import CandidateBatch
 from pep_compass.optimization.stability_estimation.estimation import (
     estimate_batch_memory,
 )
@@ -133,9 +133,13 @@ class StabilityMonitor:
         triggers = self._consume_triggers(state)
         boundary_trigger = label in {"pipeline.input", "pipeline.output"}
         detailed = self.detailed_every_sample or boundary_trigger or bool(triggers)
-        trigger = ",".join(triggers) if triggers else (
-            "test_run" if self.detailed_every_sample else (
-                "pipeline_boundary" if boundary_trigger else None
+        trigger = (
+            ",".join(triggers)
+            if triggers
+            else (
+                "test_run"
+                if self.detailed_every_sample
+                else ("pipeline_boundary" if boundary_trigger else None)
             )
         )
         estimate = estimate_batch_memory(batch) if detailed else None
@@ -190,13 +194,9 @@ class StabilityMonitor:
             current = progress[name]
             if current < threshold:
                 continue
-            triggered.append(
-                f"{name}:{current}/{budget}"
-            )
+            triggered.append(f"{name}:{current}/{budget}")
             interval = self._interval(budget)
-            self._next_thresholds[name] = (
-                (current // interval) + 1
-            ) * interval
+            self._next_thresholds[name] = ((current // interval) + 1) * interval
         return tuple(triggered)
 
 

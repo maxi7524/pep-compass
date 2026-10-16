@@ -2,18 +2,23 @@
 
 import torch
 
-from pep_compass.data.optimization import CandidateBatch
+from pep_compass.data_schemas.candidates import CandidateBatch
+from pep_compass.optimization.components.filters.configuration import DeduplicateConfig
 from pep_compass.optimization.components.filters.direct.base import DirectFilter
-from pep_compass.optimization.components.filters.manager import FilterManager
+from pep_compass.registry.components.families.filters import FilterManager
 
 
-@FilterManager.register("deduplicate")
+@FilterManager.register(
+    "deduplicate", config_type=DeduplicateConfig, display_parameters=("key",)
+)
 class DeduplicateFilter(DirectFilter):
     """Keep the first candidate for every configured identity key."""
 
     def __init__(self, key: str = "sequence") -> None:
         if key not in {"sequence", "sequence_and_latent"}:
-            raise ValueError("Deduplication key must be sequence or sequence_and_latent.")
+            raise ValueError(
+                "Deduplication key must be sequence or sequence_and_latent."
+            )
         self.key = key
 
     def _execute(self, batch: CandidateBatch, context) -> CandidateBatch:

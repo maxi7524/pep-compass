@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from pep_compass.core.specification import (
+from pep_compass.data_schemas.specification import (
     ComponentSpecification,
     FlowSpecification,
-    LoopSpecification,
     LocalEnumerationSpecification,
+    LoopSpecification,
     ParallelSpecification,
     PipelineSpecification,
     StepSpecification,
@@ -62,6 +62,7 @@ def estimate_pipeline_stability(
     input_candidates: int,
     latent_dimension: int,
     latent_element_bytes: int = 4,
+    catalog,
 ) -> StabilityEstimate:
     """Estimate candidate amplification and retained latent storage.
 
@@ -79,6 +80,7 @@ def estimate_pipeline_stability(
         input_candidates,
         path="pipeline",
         nodes=nodes,
+        catalog=catalog,
     )
     latent_bytes = (
         node.peak * latent_dimension * latent_element_bytes
@@ -101,11 +103,12 @@ def _estimate_step(
     *,
     path: str = "pipeline",
     nodes: list[NodeStabilityEstimate] | None = None,
+    catalog=None,
 ) -> _NodeEstimate:
     """Propagate an upper cardinality bound through one graph node."""
     node_records = nodes if nodes is not None else []
     if isinstance(specification, ComponentSpecification):
-        estimate = _estimate_component(specification, input_candidates)
+        estimate = _estimate_component(specification, input_candidates, catalog=catalog)
         _record_node(
             node_records,
             path,
@@ -124,6 +127,7 @@ def _estimate_step(
                 current,
                 path=f"{path}.steps[{index}]",
                 nodes=node_records,
+                catalog=catalog,
             )
             current = estimate.output
             peak = _maximum_known(peak, estimate.peak)
@@ -141,6 +145,7 @@ def _estimate_step(
                 current,
                 path=f"{path}.iteration[{index}]",
                 nodes=node_records,
+                catalog=catalog,
             )
             current = estimate.output
             peak = _maximum_known(peak, estimate.peak)
@@ -157,6 +162,7 @@ def _estimate_step(
                 input_candidates,
                 path=f"{path}.branch[{branch.name}]",
                 nodes=node_records,
+                catalog=catalog,
             )
             for branch in specification.branches
         ]
@@ -176,12 +182,14 @@ def _estimate_step(
             input_candidates,
             path=f"{path}.mutation_generator",
             nodes=node_records,
+            catalog=catalog,
         )
         filtered = _estimate_step(
             specification.filters,
             generated.output,
             path=f"{path}.filters",
             nodes=node_records,
+            catalog=catalog,
         )
         if specification.iterations is None:
             estimate = _NodeEstimate(
@@ -206,9 +214,7 @@ def _estimate_step(
         )
         if specification.include_walk_points and output is not None:
             output += (
-                input_candidates
-                * specification.trajectories
-                * specification.iterations
+                input_candidates * specification.trajectories * specification.iterations
             )
         estimate = _NodeEstimate(output, output, filtered.warnings)
         _record_node(
@@ -225,26 +231,26 @@ def _estimate_step(
 def _estimate_component(
     specification: ComponentSpecification,
     input_candidates: int | None,
+    *,
+    catalog=None,
 ) -> _NodeEstimate:
     """Apply known component-specific cardinality contracts."""
     if input_candidates is None:
         return _NodeEstimate(None, None)
-    if specification.kind == "mutation_generator":
-        maximum = specification.parameters.get("maximum_candidates")
-        if isinstance(maximum, int) and not isinstance(maximum, bool) and maximum > 0:
-            output = input_candidates * maximum
-            return _NodeEstimate(output, output)
+    from pep_compass.registry.components.contracts import component_output_bound
+
+    output = component_output_bound(
+        specification.kind,
+        specification.method,
+        specification.parameters,
+        input_candidates,
+        catalog=catalog,
+    )
+    if output is None:
         return _NodeEstimate(
-            None,
-            None,
-            (f"Unbounded mutation generator: {specification.method}",),
+            None, None, (f"Unbounded mutation generator: {specification.method}",)
         )
-    if specification.kind == "filter" and specification.method == "candidate_subset":
-        count = specification.parameters.get("count")
-        if isinstance(count, int) and not isinstance(count, bool) and count > 0:
-            output = min(input_candidates, count)
-            return _NodeEstimate(output, input_candidates)
-    return _NodeEstimate(input_candidates, input_candidates)
+    return _NodeEstimate(output, max(input_candidates, output))
 
 
 def _record_node(
@@ -257,8 +263,10 @@ def _record_node(
     """Append a public node estimate with an explicit uncertainty reason."""
     uncertainty = None
     if estimate.output is None or estimate.peak is None:
-        uncertainty = estimate.warnings[-1] if estimate.warnings else (
-            "An upstream node has no finite candidate bound."
+        uncertainty = (
+            estimate.warnings[-1]
+            if estimate.warnings
+            else ("An upstream node has no finite candidate bound.")
         )
     nodes.append(
         NodeStabilityEstimate(
@@ -280,4 +288,6 @@ def _maximum_known(*values: int | None) -> int | None:
 def _sum_known(values) -> int | None:
     """Return the sum only when every supplied bound is known."""
     materialized = tuple(values)
-    return sum(materialized) if all(value is not None for value in materialized) else None
+    return (
+        sum(materialized) if all(value is not None for value in materialized) else None
+    )

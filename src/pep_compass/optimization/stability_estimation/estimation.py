@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import sys
+from dataclasses import dataclass
 
 import torch
 
-from pep_compass.data.optimization import (
+from pep_compass.data_schemas.candidates import (
     CandidateBatch,
     ObjectField,
     OptionalField,

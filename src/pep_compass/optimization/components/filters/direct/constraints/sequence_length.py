@@ -3,7 +3,7 @@
 import torch
 
 from pep_compass.optimization.components.filters.direct.base import DirectFilter
-from pep_compass.optimization.components.filters.manager import FilterManager
+from pep_compass.registry.components.families.filters import FilterManager
 
 
 @FilterManager.register("sequence_length")
@@ -18,7 +18,8 @@ class SequenceLengthConstraint(DirectFilter):
     def _execute(self, batch, context):
         del context
         retained = [
-            index for index, sequence in enumerate(batch.sequences)
+            index
+            for index, sequence in enumerate(batch.sequences)
             if len(sequence) >= self.minimum
             and (self.maximum is None or len(sequence) <= self.maximum)
         ]

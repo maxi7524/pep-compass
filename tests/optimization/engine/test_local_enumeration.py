@@ -1,9 +1,9 @@
 """Tests for trajectory-isolated local enumeration."""
 
-import torch
 import pytest
+import torch
 
-from pep_compass.data.optimization import CandidateBatch
+from pep_compass.data_schemas.candidates import CandidateBatch
 from pep_compass.optimization.engine.execution.context import OptimizationContext
 from pep_compass.optimization.engine.operations import Flow, LocalEnumeration
 from pep_compass.optimization.pipeline import PepCompassPipeline
@@ -30,10 +30,16 @@ class PairGenerator(SuffixStep):
         super().__init__("")
 
     def _execute(self, batch, context):
-        indices = torch.arange(len(batch), device=batch.latent_origins.device).repeat_interleave(2)
+        indices = torch.arange(
+            len(batch), device=batch.latent_origins.device
+        ).repeat_interleave(2)
         expanded = batch.repeat_from_parents(indices)
         return expanded.with_sequences(
-            [f"{sequence}{suffix}" for sequence in batch.sequences for suffix in ("A", "B")]
+            [
+                f"{sequence}{suffix}"
+                for sequence in batch.sequences
+                for suffix in ("A", "B")
+            ]
         )
 
 

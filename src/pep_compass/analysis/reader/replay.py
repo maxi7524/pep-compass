@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import hashlib
 import json
+import random
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Sequence
 
@@ -79,6 +80,26 @@ class RunReplay:
         return pd.read_csv(self.root / "candidates.csv")
 
     @property
+    def terminal_candidates(self) -> pd.DataFrame:
+        """Read the final propagated batch, with a legacy primary-result fallback."""
+        path = self.result.get("terminal_path", ".")
+        return pd.read_csv(self.root / path / "candidates.csv")
+
+    def evaluated_candidates(self, objective: str) -> pd.DataFrame:
+        """Read completed observations for one objective.
+
+        :param objective: Objective identity recorded by the oracle.
+        :return: Candidate sequences and objective scores.
+        :raises KeyError: If no archive for this objective was persisted.
+        """
+        relative = self.result.get("objective_archives", {}).get(objective)
+        if relative is None:
+            if self.result.get("objective_name") == objective:
+                return self.final_candidates
+            raise KeyError(objective)
+        return pd.read_csv(self.root / relative / "candidates.csv")
+
+    @property
     def final_latents(self) -> torch.Tensor:
         """Return final candidate latent origins shaped ``(B, D)``."""
         return torch.load(
@@ -134,7 +155,9 @@ class RunReplay:
             ["trajectory_step", "execution_id"]
         )
         if "checkpoint_file" not in points.columns:
-            indices = torch.as_tensor(points["latent_index"].to_numpy(), dtype=torch.long)
+            indices = torch.as_tensor(
+                points["latent_index"].to_numpy(), dtype=torch.long
+            )
             return points.reset_index(drop=True), self.trajectory_latents.index_select(
                 0, indices
             )
@@ -218,30 +241,45 @@ class RunReplay:
         REMARK: Exact equality requires the same package revision, model weights,
         device class, and deterministic-kernel settings as the original run.
         """
+        from pep_compass.utils.randomness import random_scope
+
+        with random_scope(None, preserve_unseeded=True):
+            return self._reconstruct_local_enumeration(execution_id, device=device)
+
+    def _reconstruct_local_enumeration(
+        self, execution_id: int, *, device: str | None = None
+    ) -> LocalEnumerationReplay:
+        """Restore and execute a checkpoint inside the caller-state preservation scope."""
+        from pep_compass.analysis.reader.archives.schema import (
+            parse_pipeline_specification,
+        )
+        from pep_compass.autoencoder.factory import AutoencoderFactory
         from pep_compass.core.builder import PipelineBuilder
-        from pep_compass.data.optimization import CandidateBatch, TensorField
-        from pep_compass.optimization.engine.execution.context import OptimizationContext
+        from pep_compass.data_schemas.candidates import CandidateBatch, TensorField
+        from pep_compass.optimization.engine.execution.context import (
+            OptimizationContext,
+        )
         from pep_compass.optimization.engine.execution.state import OptimizationState
         from pep_compass.optimization.stability_estimation.monitoring import (
             NullStabilityMonitor,
         )
         from pep_compass.optimization.tracking import NullStepTracker
-        from pep_compass.runtime.configuration.pipeline import parse_pipeline_specification
-        from pep_compass.runtime.configuration.schema import AutoencoderConfiguration
-        from pep_compass.runtime.workflows.composable import ComposableWorkflow
 
         checkpoint = self.local_enumeration_checkpoint(execution_id)
         configuration = self.resolved_configuration
         autoencoder_raw = configuration["autoencoder"]
-        autoencoder_configuration = AutoencoderConfiguration(
-            method=str(autoencoder_raw["method"]),
+        autoencoder = AutoencoderFactory.build(
+            str(autoencoder_raw["method"]),
             model=str(autoencoder_raw["model"]),
             device=device or str(autoencoder_raw.get("device", "cpu")),
-            parameters=dict(autoencoder_raw.get("parameters", {})),
+            **dict(autoencoder_raw.get("parameters", {})),
         )
-        workflow = ComposableWorkflow(autoencoder_configuration)
         specification = parse_pipeline_specification(configuration["pipeline"])
-        pipeline = PipelineBuilder(workflow.autoencoder).build(specification)
+        from pep_compass.registry.components.catalog import component_catalog
+
+        pipeline = PipelineBuilder(autoencoder, catalog=component_catalog).build(
+            specification
+        )
         operations = _find_local_enumerations(pipeline.root)
         if len(operations) != 1:
             raise ValueError(
@@ -250,18 +288,26 @@ class RunReplay:
             )
 
         # Restore the boundary RNG state before executing the isolated operation.
+        if "python_rng_state" in checkpoint:
+            random.setstate(checkpoint["python_rng_state"])
+        torch.use_deterministic_algorithms(
+            checkpoint.get("torch_deterministic_algorithms", False)
+        )
+        torch.backends.cudnn.benchmark = checkpoint.get("cudnn_benchmark", False)
+        torch.backends.cudnn.deterministic = checkpoint.get(
+            "cudnn_deterministic", False
+        )
         np.random.set_state(checkpoint["numpy_global_rng_state"])
         torch.set_rng_state(checkpoint["torch_cpu_rng_state"])
         if (
-            device is not None
-            and str(device).startswith("cuda")
+            str(autoencoder.device).startswith("cuda")
             and "torch_cuda_rng_states" in checkpoint
             and torch.cuda.is_available()
         ):
             torch.cuda.set_rng_state_all(checkpoint["torch_cuda_rng_states"])
         rng = np.random.default_rng()
         rng.bit_generator.state = checkpoint["numpy_rng_state"]
-        latent_origins = checkpoint["latent_origins"].to(workflow.autoencoder.device)
+        latent_origins = checkpoint["latent_origins"].to(autoencoder.device)
         batch = CandidateBatch(checkpoint["sequences"], latent_origins)
         batch = batch.with_field(
             "lineage.candidate_id",
@@ -274,13 +320,21 @@ class RunReplay:
         if len(checkpoint["candidate_ids"]):
             state.created_candidates = int(checkpoint["candidate_ids"].max()) + 1
         context = OptimizationContext(
-            autoencoder=workflow.autoencoder,
+            autoencoder=autoencoder,
             tracker=NullStepTracker(),
             seed=checkpoint.get("seed"),
             rng=rng,
             state=state,
             stability_monitor=NullStabilityMonitor(),
         )
+        if "scope" in checkpoint:
+            from dataclasses import replace
+
+            from pep_compass.optimization.tracking import ExecutionScope
+
+            scope = {name: tuple(value) for name, value in checkpoint["scope"].items()}
+            scope["path"] = scope["path"][:-1]
+            context = replace(context, scope=ExecutionScope(**scope))
         operation = operations[0]
         operation.precompute(context)
         candidates = operation(batch, context)

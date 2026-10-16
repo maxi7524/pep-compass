@@ -9,31 +9,6 @@ optimisation pipeline.
 > - Why the packages below are split this way belongs to
 >   [Architecture Decisions](architecture-decisions.md).
 
-## Table of Contents
-
-- [Technical Architecture](#technical-architecture)
-  - [Table of Contents](#table-of-contents)
-  - [System Architecture](#system-architecture)
-    - [Core](#core)
-    - [Autoencoder](#autoencoder)
-    - [Data](#data)
-    - [Optimisation Engine](#optimisation-engine)
-    - [Runtime](#runtime)
-    - [Tracking and Analysis](#tracking-and-analysis)
-  - [Runtime Construction](#runtime-construction)
-  - [Pipeline Elements](#pipeline-elements)
-    - [Candidate Data Model](#candidate-data-model)
-    - [Step Contract](#step-contract)
-    - [Optimisation Context and State](#optimisation-context-and-state)
-  - [Execution Graph](#execution-graph)
-    - [Flow](#flow)
-    - [Loop](#loop)
-    - [Parallel and Batch Merging](#parallel-and-batch-merging)
-    - [Local Enumeration](#local-enumeration)
-  - [Runtime Implementation Notes](#runtime-implementation-notes)
-  - [Stability Estimation](#stability-estimation)
-  - [Tracking](#tracking)
-
 ## System Architecture
 
 PepCompass isolates *construction* (validating configuration and wiring
@@ -46,13 +21,10 @@ plain Python without YAML, CLI or persistence.
 
 ### Core
 
-`pep_compass.core` (`specification.py`, `builder.py`, `validation.py`,
-`estimation.py`) is the composition root. `PipelineBuilder.build(...)`
-turns a `PipelineSpecification` plus an already-constructed autoencoder into
-one executable `PepCompassPipeline`. Core validates structure and component
-parameters and can run the static stability estimator; it does not implement
-walking, mutation, filtering or scoring algorithms itself, and it does not
-know about YAML, the CLI, or where results are written.
+`core.wrapper` owns the public editable `Pipeline` and component factories.
+`core.builder` receives an explicitly prepared catalog, resolves dependencies, validates declarations through
+`core.builder.validation` and constructs the executable Step graph. Schemas and
+run settings live in `data_schemas`; algorithms live in `optimization`.
 
 ### Autoencoder
 
@@ -65,12 +37,32 @@ separates the *implementation* (`method`, e.g. `hydramp`) from the *named
 checkpoint* (`model`, e.g. `article_25`) — see
 [Architecture Decisions](architecture-decisions.md#autoencoder-not-models).
 
-### Data
+### Data schemas
 
-`pep_compass.data` holds shared data types used across the runtime:
-`optimization.py` (`CandidateBatch` and batch fields, used during execution),
-`result_schema.py` (the versioned on-disk result format) and `dataset.py` (the
-logical, lazy view of loaded results consumed by `analysis`).
+`data_schemas.graph` contains immutable `PipelineSchema`/node declarations;
+`specification` contains the neutral computation specifications consumed by the
+builder. `candidates` defines aligned candidate batches and fields, `execution`
+defines runner settings and limits, `results` defines run results, and
+`dataset`/`result_schema` define the logical analysis view and historical formats.
+The removed `data` namespace has no compatibility forwarding modules.
+
+### Registries
+
+`registry.factories.registry.Registry` implements decorator registration,
+parameter validation and service injection. Its immutable registration records
+are in `factories.definitions`; parameter helpers are in `factories.parameters`.
+`registry.components.catalog` maps component families to registries;
+`components.manager` is their shared facade, `components.loading` explicitly
+imports built-ins, and `components.contracts` exposes cardinality information.
+`components.families` owns typed family registries and their common managers;
+`components.registrations` owns built-in factory declarations. Internal SORBES,
+MUTANG and ranked-filter catalogs live in `registry.strategies`.
+`registry.models.definitions`, `models.catalog` and `models.provenance` separate
+artifact declarations, lookup/validation and build-scoped provenance capture.
+`registry.pipelines` owns preset registration, `registry.execution` owns backend
+registration, and `registry.serialization` owns scientific payload registration.
+Imports use these definition modules directly. There is no `core`/`base` alias
+or separate duplicate bootstrap path in the registry.
 
 ### Optimisation Engine
 
@@ -91,16 +83,14 @@ logical, lazy view of loaded results consumed by `analysis`).
   be constructed and run manually (no `core`, YAML or CLI required), or
   obtained from `core.builder.PipelineBuilder`.
 
-### Runtime
+### Orchestrator
 
-`pep_compass.runtime` turns a configuration file into persisted results: it
-loads and validates configuration (`configuration/`), materialises input
-tasks, grid variants and a flat execution plan (`planning/`), selects a
-`RuntimeWorkflow` that builds a `PepCompassPipeline` (`workflows/`), executes
-selected plan entries on the configured backend (`backends/`), and writes
-results and tracking output (`output/`). See
-[Runtime Construction](#runtime-construction) and the
-[User Guide](user-guide.md#commands) for the CLI surface.
+`orchestrator.configuration` composes Hydra defaults and group substitutions.
+`planning` validates and freezes independent wrapper jobs without loading weights.
+`runner.Orchestrator` delegates dispatch to decorated `backends` strategies;
+each worker invokes `Pipeline.from_schema(...).run(...)`. Server-specific Slurm
+shell templates and custom strategies require no changes to the compute engine.
+See the [orchestration guide](tutorial/orchestrator.md).
 
 ### Tracking and Analysis
 
@@ -110,45 +100,27 @@ step order. `pep_compass.analysis` reads persisted results after execution
 and does not participate in candidate transformations — see the
 [Analysis Guide](analysis-guide.md).
 
-## Runtime Construction
+## Construction and execution
 
-```text
-configuration file (YAML/JSON)
-       │
-       ▼
-load_runtime_configuration ──► validate_runtime_configuration
-       │                              (experiment/execution/tracking/autoencoder shape)
-       ▼
-materialize_execution_plan ──► input tasks × grid variants → flat ExecutionPlan
-       │
-       ▼
-RuntimeWorkflow.build_pipeline
-       │
-       ├── parse_pipeline_specification
-       │
-       └── PipelineBuilder.build
-             ├── validate_pipeline_specification
-             ├── validate_registered_components
-             ├── construct the Step tree
-             └── configure limits and stability estimation
-       │
-       ▼
-PepCompassPipeline.run(sequences, seed=...) ──► OptimizationResult
-       │
-       ▼
-ResultWriter ──► variants/<variant_id>/runs/<run_id>/{result.json, candidates.csv, ...}
+```mermaid
+flowchart TD
+  Config[Hydra defaults / YAML / overrides] --> Plan[Resolved independent-job plan]
+  Presets[Decorated predefined factories] --> Wrapper[Public Pipeline wrapper]
+  Plan --> Backend[Registered execution backend]
+  Backend --> Worker[Job / isolated worker]
+  Worker --> Wrapper
+  Wrapper --> Schema[PipelineSchema snapshot]
+  Schema --> Builder[Builder dependency resolution and validation]
+  Catalog[Component and model catalogs] --> Builder
+  Builder --> Graph[Executable Step graph]
+  Graph --> Runner[Single-graph Runner]
+  Runner --> Save[Saver / SQLite or memory]
+  Save --> Reader[AnalysisReader and explicit replay]
 ```
 
-`ComposableWorkflow` (`runtime/workflows/composable.py`) is the only
-implemented `RuntimeWorkflow` today: it builds one autoencoder once, wraps a
-`PipelineBuilder`, and parses+builds a fresh pipeline per plan entry. `dry-run`
-runs configuration and component validation plus static estimation without
-constructing an autoencoder or executing anything. `test-run` builds and
-executes a real pipeline from a copied configuration with numeric limits
-lowered (`runtime/test_run.py`) and result persistence disabled. It also
-reduces local-enumeration trajectories to one and removes a time-based
-`walk_time` bound when present, because the test policy caps fixed iteration
-counts instead.
+The same wrapper path serves manual Python and orchestrated execution. Backend
+strategy selection determines where jobs execute, not their computational graph.
+Hydra sweeps expand configurations; input batching expands jobs within each plan.
 
 ## Pipeline Elements
 
@@ -158,7 +130,7 @@ counts instead.
 point that generated the sequence, never replaced by the mean of re-encoding
 that sequence.
 
-`CandidateBatch` (`data/optimization.py`) stores sequences as one tuple,
+`CandidateBatch` (`data_schemas/candidates.py`) stores sequences as one tuple,
 latent origins as a tensor with batch dimension first, and algorithm data as
 named `fields`. It is immutable; every transformation returns another batch.
 Field types:
@@ -277,85 +249,37 @@ in the CSV table. `analysis.reader.RunReplay.local_enumeration_input` and
 `.verify_local_enumeration` (see [Analysis Guide](analysis-guide.md))
 reconstruct and verify one execution's output against that digest.
 
-## Runtime Implementation Notes
+## Execution implementation notes
 
-- **Encoder-decoder reuse**: one autoencoder instance is built once per
-  `ComposableWorkflow` and reused across every plan entry it builds a
-  pipeline for; each run still gets an independent `OptimizationContext`,
-  tracker and candidate data.
-- **Oracle batching**: a `BlackBoxOracle` splits evaluated sequences by
-  `evaluation_batch_size`, never calls the underlying model on an empty
-  batch, and always attaches a correctly-shaped (possibly empty) score field
-  so batch schema stays valid.
-- **Candidate-growth control**: MUTANG reports generated-candidate counts to
-  `OptimizationState`; mutation-choice strategies additionally bound their
-  local Cartesian product through `maximum_candidates`. Neither mechanism
-  changes the requirement that every step returns one aligned batch.
-- **Failure semantics**: the tracker records a failed step and the exception
-  propagates; `runtime.runner` persists a failed `result.json` status, and
-  `execution.continue_on_error` decides whether later, independent plan
-  entries still execute.
-- **Backends**: `local`, `subprocess` (isolated local worker processes) and
-  `slurm` (writes an array script, does not submit) — see the
-  [User Guide](user-guide.md#run).
+- Every job builds an independent wrapper graph and shared autoencoder resource.
+  A Python application can explicitly inject a resource for local use.
+- Oracles own evaluation batching. Budget thresholds stop at complete-batch
+  boundaries; already evaluated peptides remain in objective archives.
+- Failures propagate through Step and the runner. The orchestrator writes a
+  failed job status and applies `orchestrator.continue_on_error` to later jobs.
+- Completed-result skipping validates the saved schema, inputs, settings, package
+  source digest and recorded model artifacts; it never resumes partial execution.
 
-## Stability Estimation
+## Stability estimation
 
-Two independent, complementary mechanisms live in
-`optimization/stability_estimation/`:
+`core.estimation` and `optimization.stability_estimation` expose static candidate
+and memory bounds. Registered output-bound contracts are shared with graph
+validation. Unknown data-dependent bounds remain unknown. Execution statistics
+and retained step observations are available through the shared result reader.
 
-- **Static estimation** (`estimation.py`, driven by `core.estimation` during
-  `dry-run`): computes conservative upper candidate-count and latent-memory
-  bounds per graph node from declared cardinality behaviour, without executing
-  anything. A node whose output depends on data (e.g. a data-dependent
-  filter pass-through rate) is reported as an explicit unknown rather than a
-  guessed number.
-- **Runtime monitoring** (`monitoring.py`, `StabilityMonitor` /
-  `NullStabilityMonitor`, enabled by `tracking.monitor_stability`): samples
-  process RSS and CUDA allocator statistics at step boundaries
-  (`step.before:<path>`/`step.after:<path>`, plus `pipeline.input`/
-  `pipeline.output`), not inside per-operation tensor code, so sampling does
-  not force GPU synchronisation mid-operation. Snapshots are written to
-  `tracking/stability.csv`.
+## Tracking and result retention
 
-Field-lifetime pruning (dropping batch fields no later step needs) and
-explicit candidate-viability selectors are discussed as future extensions to
-this mechanism but are **not implemented** — see
-[Architecture Decisions](architecture-decisions.md#deferred-work).
+`optimization.engine.runner.Runner` creates isolated state and RNG scopes.
+`optimization.saving.saver.Saver` receives Step lifecycle events and oracle
+observations, then writes the common logical tables through a memory or SQLite
+backend. `base` retains evaluated sequence/objective entries and aggregate
+statistics. Reconstruction boundaries, trajectories, component details,
+observation history, lineage and terminal batches are independent retention
+options, described in the [wrapper guide](tutorial/wrapper.md).
 
-## Tracking
-
-`CSVStepTracker` (`runtime/output/tracking.py`) writes, per run, into
-`tracking/`:
-
-- `steps.csv` — every tracked step's timing, candidate-count and
-  oracle-call deltas, tree depth, path, and nested loop/branch indices.
-- `candidates.csv` — per-step candidate rows, written according to
-  `tracking.candidate_snapshots`: `none`, `oracle`, or `all`.
-- `trajectory_points.csv` + `checkpoints/trajectory/*.pt` — SORBES walker
-  metadata and latent checkpoint shards (written for `SorbesWalker` steps at
-  `level` `normal`/`all`).
-- `local_enumerations.csv` + `checkpoints/local_enumeration/*.pt` —
-  `LocalEnumeration` boundary metadata and input/RNG checkpoint shards (see
-  [Local Enumeration](#local-enumeration)).
-- `run.log` — run-scoped package log written by `RuntimeRunner`.
-- `replay_manifest.json` — schema version, run/variant id, resolved seed,
-  SHA-256 of the resolved configuration, Python/Torch/CUDA versions,
-  determinism flag, and git revision/dirty state — enough to judge whether a
-  later reconstruction attempt ran under matching conditions.
-
-`ExecutionScope` (`optimization/tracking/core.py`) carries the hierarchical path,
-nested loop indices, and parallel branch names/indices; entering a step,
-iteration, or branch returns a new immutable scope, so tracking identifies
-the complete branch hierarchy without adding fields to candidate batches.
-`tracking.level` (`short`/`normal`/`all`) and `max_depth` bound which step
-summaries and replay checkpoints are written without changing which steps
-execute. `candidate_snapshots` independently controls candidate-row retention;
-`store_latents`/`store_fields` control the optional columns in retained rows,
-and `field_names` can restrict serialized fields. Serialising SORBES
-tangent-space matrices for every retained candidate can dominate output size —
-enable `store_fields` only when those values are needed for analysis.
-
-See [User Guide](user-guide.md#output-files) for the complete per-run
-directory layout, and the [Analysis Guide](analysis-guide.md) for reading
-this layout back.
+Each persistent run contains `settings.json` and `results.sqlite`. Model artifact
+hashes, package source identity and resolved settings support explicit replay.
+`AnalysisReader` opens lazy table handles without reconstructing computations.
+`analysis.reader` additionally reads historical CSV/JSON/PT archives;
+`analysis.reader.archives.schema` translates their recorded declarations for
+replay. The obsolete runtime execution API and its import aliases are removed.

@@ -3,18 +3,17 @@
 import subprocess
 import sys
 
-import pep_compass.optimization.components.filters.registry  # noqa: F401
-import pep_compass.optimization.components.mutation_generators.strategies  # noqa: F401
-import pep_compass.optimization.components.walkers.strategies  # noqa: F401
-import pep_compass.optimization.components.oracles.strategies  # noqa: F401
 import pytest
 
-from pep_compass.optimization.components.filters import FilterManager
-from pep_compass.optimization.components.mutation_generators import (
+from pep_compass.registry.components.families.filters import FilterManager
+from pep_compass.registry.components.families.mutation_generators import (
     MutationGeneratorManager,
 )
-from pep_compass.optimization.components.oracles import OracleManager
-from pep_compass.optimization.components.walkers import WalkerManager
+from pep_compass.registry.components.families.oracles import OracleManager
+from pep_compass.registry.components.families.walkers import WalkerManager
+from pep_compass.registry.components.loading import load_components
+
+load_components()
 
 
 @pytest.mark.parametrize(
@@ -37,7 +36,7 @@ def test_oracle_registration_does_not_import_model_implementations() -> None:
     """Discovering oracle names must not initialize optional model stacks."""
     script = """
 import sys
-import pep_compass.optimization.components.oracles.strategies
+import pep_compass.registry.components.registrations.oracles
 
 implementation_modules = {
     'pep_compass.optimization.components.oracles.strategies.apex.oracle',

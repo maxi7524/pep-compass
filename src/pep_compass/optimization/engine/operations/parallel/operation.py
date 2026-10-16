@@ -5,15 +5,20 @@
 then delegates output combination to a merger from ``parallel.merge``.
 """
 
-from concurrent.futures import ThreadPoolExecutor
 from collections.abc import Mapping
+from concurrent.futures import ThreadPoolExecutor
+from threading import Condition
 from typing import Literal
 
-from pep_compass.data.optimization import CandidateBatch
+from pep_compass.data_schemas.candidates import CandidateBatch
 from pep_compass.optimization.engine.execution.context import OptimizationContext
-from pep_compass.optimization.engine.operations.parallel.merge import BatchMerger, ConcatenateMerger
 from pep_compass.optimization.engine.execution.step import Step
+from pep_compass.optimization.engine.operations.parallel.merge import (
+    BatchMerger,
+    ConcatenateMerger,
+)
 from pep_compass.utils.logger import get_custom_logger
+from pep_compass.utils.randomness import random_scope
 
 logger = get_custom_logger(__name__)
 ParallelExecution = Literal["sequential", "concurrent"]
@@ -42,23 +47,48 @@ class Parallel(Step):
         for index, (name, branch) in enumerate(self.branches.items()):
             branch.precompute(context.enter_branch(name, index))
 
-    def _execute(self, batch: CandidateBatch, context: OptimizationContext) -> CandidateBatch:
+    def _execute(
+        self, batch: CandidateBatch, context: OptimizationContext
+    ) -> CandidateBatch:
         """Execute branches sequentially or concurrently and merge outputs."""
         branch_items = list(self.branches.items())
+        contexts = [
+            context.enter_branch(name, index)
+            for index, (name, _) in enumerate(branch_items)
+        ]
+
+        def execute(index):
+            """Execute one branch with an isolated deterministic RNG scope."""
+            with random_scope(contexts[index].seed, serialize=False):
+                return branch_items[index][1](batch, contexts[index])
+
         if self.execution == "sequential":
-            outputs = [
-                branch(batch, context.enter_branch(name, index))
-                for index, (name, branch) in enumerate(branch_items)
-            ]
+            outputs = [execute(index) for index in range(len(branch_items))]
         else:
-            # REMARK: Branches share OptimizationState. Concurrent mutation of
-            # counters and observations requires a dedicated synchronization
-            # policy before this mode can be considered race-free.
-            logger.debug("Executing %s optimization branches concurrently.", len(branch_items))
+            # Ordered access to shared run resources
+            ## REMARK: Threads share model adapters, tracking and OptimizationState.
+            ## Order their critical sections to preserve RNG streams, IDs, budgets
+            ## and trust regions. Use runtime subprocesses for independent parallelism.
+            logger.info(
+                "Ordering %s concurrent branches sharing mutable runtime services.",
+                len(branch_items),
+            )
+            condition = Condition()
+            next_branch = [0]
+
+            def ordered_execute(index):
+                with condition:
+                    condition.wait_for(lambda: next_branch[0] == index)
+                    try:
+                        return execute(index)
+                    finally:
+                        next_branch[0] += 1
+                        condition.notify_all()
+
             with ThreadPoolExecutor(max_workers=len(branch_items)) as executor:
                 futures = [
-                    executor.submit(branch, batch, context.enter_branch(name, index))
-                    for index, (name, branch) in enumerate(branch_items)
+                    executor.submit(ordered_execute, index)
+                    for index in range(len(branch_items))
                 ]
                 outputs = [future.result() for future in futures]
         return self.merger(outputs)

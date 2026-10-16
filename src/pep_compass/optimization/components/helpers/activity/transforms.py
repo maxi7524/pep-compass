@@ -63,16 +63,14 @@ Dimension symbols: ``S`` species in the mixture.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Sequence
 
 import numpy as np
 
-from pep_compass.registry import Registry
-
-# An activity transform maps the potency sum of a mixture to an activity.
-ActivityTransform = Callable[[np.ndarray], np.ndarray]
-
-activity_transform_registry: Registry[ActivityTransform] = Registry("activity transform")
+from pep_compass.registry.strategies.activity import (
+    ActivityTransform,
+    activity_transform_registry,
+)
 
 # Typical values, stated once so that every transform shares the same defaults.
 # REMARK: The Hill coefficient of one and a maximum kill rate of one are
@@ -147,7 +145,9 @@ def hill_kill_rate(
     """
 
     if hill_coefficient <= 0.0 or max_kill_rate <= 0.0:
-        raise ValueError("hill_coefficient and max_kill_rate must be strictly positive.")
+        raise ValueError(
+            "hill_coefficient and max_kill_rate must be strictly positive."
+        )
 
     def transform(potency: np.ndarray) -> np.ndarray:
         values = _as_array(potency)

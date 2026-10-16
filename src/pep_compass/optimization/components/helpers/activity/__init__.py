@@ -14,9 +14,7 @@ from pep_compass.optimization.components.helpers.activity.transforms import (
     DEFAULT_GROWTH_RATE,
     DEFAULT_HILL_COEFFICIENT,
     DEFAULT_MAX_KILL_RATE,
-    ActivityTransform,
     activity_budget,
-    activity_transform_registry,
     build_activity_transform,
     hill_kill_rate,
     log_potency,
@@ -24,6 +22,10 @@ from pep_compass.optimization.components.helpers.activity.transforms import (
     potency_sum,
     soft_threshold,
     threshold,
+)
+from pep_compass.registry.strategies.activity import (
+    ActivityTransform,
+    activity_transform_registry,
 )
 
 __all__ = [

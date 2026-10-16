@@ -49,79 +49,52 @@ documented in [Architecture Decisions](architecture-decisions.md).
 ```text
 src/pep_compass/
   core/
-    specification.py     PipelineSpecification, ComponentSpecification, ...
-    builder.py            PipelineBuilder: specification -> PepCompassPipeline
-    validation.py         structural + registered-component validation
-    estimation.py         static candidate/memory estimation (dry-run)
-  autoencoder/
-    base.py               Autoencoder contract
-    registry.py            named model/checkpoint descriptors
-    factory.py              method + model + parameters -> Autoencoder
-    geometry.py            decoder-Jacobian-derived operations
-    strategies/hydramp/
-  data/
-    optimization.py        CandidateBatch, batch fields (runtime data model)
-    result_schema.py       versioned on-disk result format
-    dataset.py              logical, lazy view of loaded results
-  optimization/
-    engine/
-      execution/           Step, OptimizationContext, OptimizationState, OptimizationResult
-      operations/           Flow, Loop, Parallel (+ merge), LocalEnumeration
-    components/
-      walkers/
-        base.py manager.py strategies/
-      mutation_generators/
-        base.py manager.py strategies/
-      filters/
-        base.py manager.py registry.py
-        direct/{constraints,controls,optimization,structural}/
-        ranked/{base.py,scoring/{latent_geometry,model_scores,helpers},selection}/
-      oracles/
-        base.py manager.py strategies/
-      helpers/
-    stability_estimation/  estimation.py monitoring.py
-    tracking/               ExecutionScope, StepTracker
-    pipeline.py             PepCompassPipeline (public executable object)
-  runtime/
-    cli.py                  pep-compass entry point
-    configuration/          loading.py validation.py pipeline.py schema.py
-    planning/               input.py variants.py plan.py validation.py
-    workflows/               base.py (RuntimeWorkflow protocol) composable.py pogs.py
-    backends/                subprocess.py slurm.py
-    output/                  writer.py tracking.py (CSVStepTracker)
-    device.py test_run.py runner.py
-  analysis/
-    reader/                 ExperimentReader, ExperimentSelection, RunReplay, MetricsStore
-    analysis_types/locality/
-    resampling/ visualization/
+    wrapper/                public Pipeline, declarations, scopes, descriptions, graph rendering
+    builder/                graph construction, dependency resolution, validation/
+    estimation.py           static graph bounds
+  data_schemas/             graph, specification, candidates, execution, results, dataset
   registry/
-    core.py                 Registry: names, factories, services and parameter contracts
-    components.py           component-family catalog used by PipelineBuilder
-    bootstrap.py            one-time built-in registration loading
-  utils/
-    strategy_factory.py     parameter-contract compatibility helpers
+    factories/              registry.py, definitions.py, parameters.py
+    components/             catalog.py, manager.py, loading.py, contracts.py, families/, registrations/
+    strategies/             internal SORBES, MUTANG, ranked filters and activity
+    models/                 definitions.py, catalog.py, provenance.py, oracle artifacts
+    pipelines/              preset registry and explicit loading
+    execution/              execution-backend registry
+    serialization/          scientific-payload registry
+  predefined/               registered pipeline factories and default_params.py
+  autoencoder/              shared model contract, registered adapters and geometry
+  optimization/
+    components/             walkers, mutation_generators, filters, oracles, save
+    engine/                 executable Steps, operations and single-graph Runner
+    saving/                 common memory/SQLite tables, reader and replay
+    stability_estimation/
+    tracking/
+  orchestrator/             Hydra configuration, frozen plans, runner, CLI
+    backends/               decorator registry, local, subprocess, Slurm templates
+    conf/                   packaged Hydra configuration
+  analysis/                 readers, analysis modules, visualization
+  utils/                    validation, logging, device and RNG utilities
 ```
 
-Configurations belong under `assets/experiments/configs/`, with
-validation-scale examples under `assets/experiments/configs/validation/`.
-Persisted run output goes to `experiments/results/`. Executable repository
-scripts (model-weight download helpers) belong under `assets/scripts/`.
-Tests mirror this package layout under `tests/`.
+Tests mirror the implementation packages. Custom Hydra configs and server
+scripts may live in an application-owned directory. See the
+[orchestrator guide](tutorial/orchestrator.md) for working examples.
 
 ### Module Responsibilities
 
-`base.py` defines a family contract (an ABC every strategy in that family
-subclasses). `manager.py` stores named factories (`{Family}Manager`, one per
-walkers/mutation_generators/filters/oracles). `strategies/` (or, for filters,
-`registry.py` plus `direct/`/`ranked/`) contains implementations and their
-registration decorators. Do not add a new top-level package for one strategy
-when it belongs to an existing family.
+`optimization.components` defines executable family contracts and scientific
+implementations. It owns no Registry instances, family managers or registry
+modules. Typed family catalogs live in `registry.components.families`; built-in
+factory declarations load from `registry.components.registrations`. A component
+can use the central family's decorator directly. Internal algorithm catalogs are
+separate under `registry.strategies`; the fixed-order SORBES stage assembly stays
+in `optimization` because it constructs the computation.
 
 `core` wires components but does not implement their algorithms.
 `optimization` defines generic execution/data contracts *and* the science —
 it must remain runnable from plain Python without `core`, YAML, or the CLI.
-`runtime` orchestrates configuration, planning, backends and persistence but
-does not select scientific strategies implicitly.
+`orchestrator` composes configuration and dispatches independent wrapper jobs.
+Single-run persistence belongs to `optimization.saving`.
 
 ### Naming Conventions
 
@@ -146,14 +119,14 @@ field classes, `Step`, `OptimizationContext`/`OptimizationState`, and manager
 Strategy helper functions are internal unless exported explicitly.
 
 Changing a public method name or parameter requires updating the responsible
-`parameter_contract`/factory signature and the [User Guide](user-guide.md).
+registration metadata / factory signature and the [User Guide](user-guide.md).
 
 ## Adding Components
 
 ### Implementation Procedure
 
 1. Select the existing component family responsible for the behaviour.
-2. Read its `base.py`, `manager.py` and one current strategy.
+2. Read its `base.py`, central registry family module and one current strategy.
 3. Implement the smallest class satisfying the family contract.
 4. Add a factory and public registry name.
 5. Declare accepted and required parameters.
@@ -197,7 +170,7 @@ control state belong in `OptimizationState`.
 Implement the `Autoencoder` contract (`autoencoder/base.py`) in
 `autoencoder/strategies/<method>/`, providing encoding, decoding, decoder
 Jacobian and field-derivative operations used by walkers and geometry-based
-filters. Register the implementation in `autoencoder/registry.py`, and add
+filters. Register the implementation in `registry/components/families/autoencoders.py`, and add
 one or more **named model variants** (checkpoint descriptors) rather than
 hard-coding a single checkpoint — `method` selects the implementation,
 `model` selects the variant (see
@@ -302,27 +275,23 @@ picking one to implement.
 A merge policy must return one batch. Deduplication remains a separate
 filter unless deduplication is explicitly part of the merge policy contract.
 
-### Adding a Workflow
+### Adding a preset or execution backend
 
-A `RuntimeWorkflow` (`runtime/workflows/base.py`, a `Protocol`) builds one
-`PepCompassPipeline` from a raw pipeline configuration mapping:
-`build_pipeline(pipeline_configuration, *, tracker, stability_monitor) ->
-PepCompassPipeline`. `ComposableWorkflow`
-(`runtime/workflows/composable.py`) is the implemented reference: it builds
-one autoencoder, wraps `core.builder.PipelineBuilder`, and parses+builds a
-fresh pipeline per plan entry. `PogsWorkflow`
-(`runtime/workflows/pogs.py`) is the open example — currently a stub raising
-`NotImplementedError`; see [User Guide](user-guide.md#pogs) and
-[Architecture Decisions](architecture-decisions.md#pogs) before implementing
-it.
+Register a fresh `Pipeline` factory with `pep_compass.predefined.register`.
+For dispatch extensions subclass `orchestrator.backends.base.ExecutionBackend`
+and decorate it with `registry.execution.backends.register`. Import the application module using
+`--plugin` before Hydra group discovery. Constructor defaults are exposed as group
+parameters. The backend consumes a frozen plan and returns ordered job records or
+a generated scheduler script path; it must route computations through the public
+wrapper. See [server templates and plugins](tutorial/orchestrator.md).
 
 ### Strategy Registration
 
 Managers expose `register(name)`, `build(method, *, services=None,
 **parameters)`, `methods()` and `validate(method, parameters)`
-(`optimization/components/*/manager.py`) as facades over the shared
+(`registry/components/families/*.py`) as facades over the shared
 `Registry`. Built-in strategy packages are loaded once by
-`registry.load_builtin_registrations()`, which imports their module-level
+`registry.components.loading.load_components()`, which imports their module-level
 `@Manager.register(...)` decorators. Registration names must be unique
 inside their family.
 
@@ -343,8 +312,7 @@ parameter contract, since `BlackBoxOracle` factories translate parameters
 rather than exposing them 1:1:
 
 ```python
-@OracleManager.register("new_oracle")
-@parameter_contract(accepted=_COMMON | {"model_specific_param"})
+@OracleManager.register("new_oracle", accepted_parameters={"model_specific_param"})
 def build_new_oracle(**parameters):
     return _black_box_oracle("module.path", "NewBlackBox", "new_oracle", parameters)
 ```
@@ -352,14 +320,14 @@ def build_new_oracle(**parameters):
 ### Parameter Validation
 
 `Registry.validate` infers accepted and required parameters from the
-registered factory signature by default. Use explicit `accepted`/`required`
-sets through `@parameter_contract` when a factory translates parameters or
+registered factory signature by default. Use `accepted_parameters`/`required_parameters`
+on the registration decorator when a factory translates parameters or
 uses `*args`/`**kwargs` (as every oracle factory does). Service names declared
 in a registry entry are excluded from user-parameter checks and must never be
 accepted from YAML. Do not accept arbitrary unknown parameters only to ignore
 them.
 
-Every configuration grid is validated after value substitution — a method
+Every Hydra sweep configuration is validated after value substitution — a method
 grid therefore requires its parameter mapping to be accepted by every selected
 method. Family validators additionally validate the nested declarations used
 by `sorbes`, `mutang` and `ranked`.
@@ -451,23 +419,11 @@ Manager contract tests iterate over every registered strategy in a family
 and verify that registered implementations inherit the required base type.
 Extend these tests when introducing another manager or operation family.
 
-### Validation Configurations
+### Validation configurations
 
-Add or extend a small file in `assets/experiments/configs/validation/`. Each
-file should isolate one component family and use a grid for comparable
-methods or parameters. Use the mock sequence CSV under
-`data/peptides_data/`. Validate before a full run:
-
-```bash
-uv run --extra <cpu-or-cuda-extra> pep-compass dry-run \
-  assets/experiments/configs/validation/<configuration>.yaml
-
-uv run --extra <cpu-or-cuda-extra> pep-compass test-run \
-  assets/experiments/configs/validation/<configuration>.yaml
-```
-
-Then execute the smallest real variant needed to exercise the component with
-`pep-compass run`.
+Use `pep-compass plan pipeline=simple` to validate without loading models, then
+run focused deterministic fixtures and bounded wrapper computations. Hydra groups
+and overrides replace the removed runtime test-run transformation API.
 
 ## Extension Checklist (for LLMs)
 

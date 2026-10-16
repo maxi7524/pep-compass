@@ -5,7 +5,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import Literal
 
-from pep_compass.data.optimization import CandidateBatch
+from pep_compass.data_schemas.candidates import CandidateBatch
 
 MergeMethod = Literal["concatenate", "interleave", "select_best", "weighted_sample"]
 
@@ -26,8 +26,11 @@ class ConcatenateMerger(BatchMerger):
         return CandidateBatch.concatenate(batches)
 
 
-def _not_implemented(method: str) -> Callable[[Sequence[CandidateBatch]], CandidateBatch]:
+def _not_implemented(
+    method: str,
+) -> Callable[[Sequence[CandidateBatch]], CandidateBatch]:
     """Return a merge policy that reports an explicitly unsupported method."""
+
     def merge(batches: Sequence[CandidateBatch]) -> CandidateBatch:
         raise NotImplementedError(f"The {method} merge policy is not implemented yet.")
 

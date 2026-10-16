@@ -2,26 +2,29 @@
 
 from __future__ import annotations
 
-import numpy as np
 import torch
 
 from pep_compass.autoencoder.base import Autoencoder
-from pep_compass.data.optimization import (
+from pep_compass.data_schemas.candidates import (
     Candidate,
     CandidateBatch,
+    ObjectField,
+    OptionalField,
     SharedField,
     TensorField,
 )
+from pep_compass.data_schemas.execution import OptimizationLimits
+from pep_compass.data_schemas.results import OptimizationResult
 from pep_compass.optimization.engine.execution.context import OptimizationContext
-from pep_compass.optimization.engine.execution.result import OptimizationResult
+from pep_compass.optimization.engine.execution.state import OptimizationState
+from pep_compass.optimization.engine.execution.step import Step
 from pep_compass.optimization.stability_estimation.monitoring import (
     NullStabilityMonitor,
     StabilityMonitor,
 )
-from pep_compass.optimization.engine.execution.state import OptimizationLimits, OptimizationState
-from pep_compass.optimization.engine.execution.step import Step
 from pep_compass.optimization.tracking import NullStepTracker, StepTracker
 from pep_compass.utils.logger import get_custom_logger
+from pep_compass.utils.randomness import random_scope
 
 logger = get_custom_logger(__name__)
 
@@ -68,23 +71,29 @@ class PepCompassPipeline:
         :return: Final candidates and optional objective summary.
         :raises ValueError: If no starting sequence is supplied.
         """
-        # Sanity check: Empty sequences 
+        with random_scope(seed):
+            return self._run(sequences, seed=seed)
+
+    def _run(
+        self,
+        sequences: list[str],
+        *,
+        seed: int | None,
+        context=None,
+        close_tracker=True,
+    ) -> OptimizationResult:
+        """Execute one run inside the deterministic random-state boundary."""
+        # Sanity check: Empty sequences
         if not sequences:
             raise ValueError("At least one starting sequence is required.")
-
-        # Setting seed 
-        if seed is not None:
-            np.random.seed(seed)
-            torch.manual_seed(seed)
 
         # Initial candidate representation
         with torch.no_grad():
             latent_origins = self.autoencoder.encode_peptides(sequences)  # (B, D)
-        context = OptimizationContext(
+        context = context or OptimizationContext(
             autoencoder=self.autoencoder,
             tracker=self.tracker,
             seed=seed,
-            rng=np.random.default_rng(seed),
             state=OptimizationState(limits=self.limits),
             stability_monitor=self.stability_monitor,
         )
@@ -113,7 +122,8 @@ class PepCompassPipeline:
             self.stability_monitor.sample("pipeline.output", result, context.state)
             return self._summarize(result, context.state)
         finally:
-            self.tracker.close()
+            if close_tracker:
+                context.tracker.close()
 
     @staticmethod
     def _summarize(
@@ -121,71 +131,116 @@ class PepCompassPipeline:
         state: OptimizationState,
     ) -> OptimizationResult:
         """Return the complete evaluated archive for the terminal objective."""
+        terminal = batch
+        archives = {}
+        for objective, observations in state.observations.items():
+            latents = state.observation_latents.get(objective, {})
+            if not observations or not all(
+                sequence in latents for sequence in observations
+            ):
+                continue
+            sequences = tuple(observations)
+            fields = {
+                f"oracle.{objective}.score": TensorField(
+                    torch.tensor(
+                        list(observations.values()),
+                        dtype=torch.float64,
+                    )
+                ),  # (N,)
+                f"oracle.{objective}.direction": SharedField(
+                    state.objective_directions.get(objective, "minimize")
+                ),
+                f"oracle.{objective}.name": SharedField(objective),
+            }
+            lineage = state.observation_lineage.get(objective, {})
+            lineage_names = sorted(
+                {name for values in lineage.values() for name in values}
+            )
+            for name in lineage_names:
+                if all(name in lineage.get(sequence, {}) for sequence in sequences):
+                    fields[name] = TensorField(
+                        torch.tensor(
+                            [lineage[sequence][name] for sequence in sequences],
+                            dtype=torch.long,
+                        )
+                    )  # (N,)
+            archives[objective] = CandidateBatch(
+                sequences,
+                torch.stack([latents[sequence] for sequence in sequences]),
+                fields,
+            )  # latent origins: (N, D)
+
+        # Objective identity is execution state, independent of field iteration order.
+        objective = state.last_objective
+        if objective in archives:
+            batch = archives[objective]
         score_names = [
             name
             for name, value in batch.fields.items()
             if name.startswith("oracle.")
             and name.endswith(".score")
-            and isinstance(value, TensorField)
+            and isinstance(value, (TensorField, OptionalField))
         ]
-        if not score_names or len(batch) == 0:
-            return OptimizationResult(candidates=batch)
-        score_name = score_names[-1]
-        prefix = score_name.removesuffix(".score")
-        objective = prefix.removeprefix("oracle.")
-        score_field = batch.fields[score_name]
+        if objective is None and score_names:
+            objective = score_names[-1].removeprefix("oracle.").removesuffix(".score")
+        prefix = f"oracle.{objective}"
+        score_field = batch.fields.get(f"{prefix}.score")
+        valid = None
+        if isinstance(score_field, OptionalField):
+            valid = score_field.valid
+            score_field = score_field.values
+        if (
+            not isinstance(score_field, TensorField)
+            or score_field.values.ndim != 1
+            or not len(batch)
+        ):
+            return OptimizationResult(
+                candidates=batch,
+                terminal_candidates=terminal,
+                evaluated_archives=archives,
+            )
+        scores = score_field.values  # (N,)
+        finite = torch.isfinite(scores)  # (N,)
+        if valid is not None:
+            finite &= valid.to(scores.device)
+        if not finite.any():
+            return OptimizationResult(
+                candidates=batch,
+                terminal_candidates=terminal,
+                evaluated_archives=archives,
+            )
         direction_field = batch.fields.get(f"{prefix}.direction")
-        name_field = batch.fields.get(f"{prefix}.name")
-        direction = (
-            direction_field.value
-            if isinstance(direction_field, SharedField)
-            else "minimize"
-        )
-        scores = score_field.values
-        if scores.ndim != 1:
-            return OptimizationResult(candidates=batch)
-
-        # Evaluated-candidate archive
-        ## Oracle observations are the durable experiment result. The batch
-        ## propagated by the loop contains only the latest acquisition batch.
-        observations = state.observations.get(objective, {})
-        archived_latents = state.observation_latents.get(objective, {})
-        if observations and all(sequence in archived_latents for sequence in observations):
-            sequences = tuple(observations)
-            scores = torch.tensor(
-                list(observations.values()),
-                dtype=torch.float32,
-            )  # (N,)
-            latent_origins = torch.stack(
-                [archived_latents[sequence] for sequence in sequences]
-            )  # (N, D)
-            batch = CandidateBatch(sequences, latent_origins).with_field(
-                score_name,
-                TensorField(scores),
+        if isinstance(direction_field, OptionalField):
+            metadata_indices = direction_field.valid.nonzero(as_tuple=True)[
+                0
+            ]  # (N_valid,)
+            direction_field = direction_field.values
+            direction = (
+                direction_field.values[int(metadata_indices[0])]
+                if isinstance(direction_field, ObjectField) and len(metadata_indices)
+                else "minimize"
             )
-            batch = batch.with_field(
-                f"{prefix}.direction",
-                SharedField(direction),
-            ).with_field(
-                f"{prefix}.name",
-                SharedField(objective),
+        else:
+            direction = (
+                direction_field.value
+                if isinstance(direction_field, SharedField)
+                else "minimize"
             )
-        best_index = int(
-            scores.argmax().item()
-            if direction == "maximize"
-            else scores.argmin().item()
-        )
+        direction = state.objective_directions.get(objective, direction)
+        indices = finite.nonzero(as_tuple=True)[0]  # (N_valid,)
+        valid_scores = scores[indices]  # (N_valid,)
+        offset = (
+            valid_scores.argmax() if direction == "maximize" else valid_scores.argmin()
+        )  # ()
+        best_index = int(indices[offset])
         return OptimizationResult(
             candidates=batch,
             best_candidate=Candidate(
-                batch.sequences[best_index],
-                batch.latent_origins[best_index],
+                batch.sequences[best_index], batch.latent_origins[best_index]
             ),
-            best_score=float(scores[best_index].item()),
-            objective_name=(
-                str(name_field.value)
-                if isinstance(name_field, SharedField)
-                else objective
-            ),
+            best_score=float(scores[best_index]),
+            objective_name=objective,
             objective_direction=direction,
+            terminal_candidates=terminal,
+            evaluated_archives=archives,
         )

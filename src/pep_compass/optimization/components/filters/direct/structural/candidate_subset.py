@@ -6,10 +6,13 @@ from typing import Literal
 
 import torch
 
+from pep_compass.data_schemas.candidates import CandidateBatch, TensorField
+from pep_compass.optimization.components.filters.configuration import (
+    CandidateSubsetConfig,
+)
 from pep_compass.optimization.components.filters.direct.base import DirectFilter
-from pep_compass.optimization.components.filters.manager import FilterManager
-from pep_compass.data.optimization import CandidateBatch, TensorField
 from pep_compass.optimization.engine.execution.context import OptimizationContext
+from pep_compass.registry.components.families.filters import FilterManager
 from pep_compass.utils.logger import get_custom_logger
 
 logger = get_custom_logger(__name__)
@@ -17,7 +20,15 @@ logger = get_custom_logger(__name__)
 SelectionMode = Literal["random", "highest", "lowest"]
 
 
-@FilterManager.register("candidate_subset")
+@FilterManager.register(
+    "candidate_subset",
+    config_type=CandidateSubsetConfig,
+    input_fields=lambda parameters: (
+        (parameters["score_field"],) if parameters["mode"] != "random" else ()
+    ),
+    output_bound=lambda parameters, count: min(count, parameters["count"]),
+    display_parameters=("count", "mode", "score_field"),
+)
 class CandidateSubsetSelector(DirectFilter):
     """Select at most a fixed number of candidates from the complete batch.
 

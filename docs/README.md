@@ -27,3 +27,5 @@ No dedicated tutorial, reproduction guide or methodology document is currently
 maintained. The user guide is the supported entry point for running an
 experiment; scientific claims must be evaluated against the cited source model
 publications and experiment-specific material.
+
+- [Hydra orchestrator, backend plugins and server templates](tutorial/orchestrator.md)

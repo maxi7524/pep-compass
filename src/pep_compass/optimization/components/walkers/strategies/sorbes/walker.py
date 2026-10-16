@@ -3,8 +3,12 @@
 import torch
 
 from pep_compass.autoencoder.geometry import StableTangentGeometry, TangentDecomposition
-from pep_compass.autoencoder.subriemannian import PointGeometry, SubRiemannianTangentSpace, TANGENT_GEOMETRY_CONTRACT
-from pep_compass.data.optimization import CandidateBatch, ObjectField, TensorField
+from pep_compass.autoencoder.subriemannian import (
+    TANGENT_GEOMETRY_CONTRACT,
+    PointGeometry,
+    SubRiemannianTangentSpace,
+)
+from pep_compass.data_schemas.candidates import CandidateBatch, ObjectField, TensorField
 from pep_compass.optimization.components.walkers.base import Walker
 
 
@@ -19,7 +23,11 @@ class SorbesWalker(Walker):
         current = self._current_geometry(batch)
         step = self.sorbes.step(batch.latent_origins, current)
         sequences = context.autoencoder.decode_peptides(step.positions)
-        fields = dict(batch.fields)
+        fields = {
+            name: value
+            for name, value in batch.fields.items()
+            if not name.startswith("oracle.")
+        }
         point_ids = context.state.next_point_ids(len(batch))
         parent_ids = fields.get("lineage.candidate_id")
         if isinstance(parent_ids, TensorField):
@@ -32,7 +40,9 @@ class SorbesWalker(Walker):
             )
         )
         point_geometries = [
-            PointGeometry(point_ids[index], step.geometry.select(index), id(self.sorbes.geometry))
+            PointGeometry(
+                point_ids[index], step.geometry.select(index), id(self.sorbes.geometry)
+            )
             for index in range(len(batch))
         ]
         fields["tangent_geometry"] = ObjectField(point_geometries)

@@ -8,22 +8,22 @@ from typing import Any
 
 import pandas as pd
 
+from pep_compass.analysis.reader.data_schemas import SCHEMAS
+from pep_compass.analysis.reader.dataset import SelectionTableHandle
 from pep_compass.analysis.reader.entities import (
     Experiment,
     ExperimentCollection,
     ExperimentRun,
 )
 from pep_compass.analysis.reader.metrics_store import MetricsStore
-from pep_compass.analysis.reader.selection import ExperimentSelection
 from pep_compass.analysis.reader.replay import RunReplay
-from pep_compass.analysis.reader.dataset import SelectionTableHandle
-from pep_compass.analysis.reader.data_schemas import SCHEMAS
-from pep_compass.data.dataset import (
+from pep_compass.analysis.reader.selection import ExperimentSelection
+from pep_compass.data_schemas.dataset import (
     ExperimentDataset,
     RunIdentity,
     RunRecord,
 )
-from pep_compass.data.result_schema import CURRENT_RESULT_SCHEMA_VERSION
+from pep_compass.data_schemas.result_schema import CURRENT_RESULT_SCHEMA_VERSION
 
 
 def _flatten(values: dict[str, Any], prefix: str = "") -> dict[str, Any]:
@@ -94,9 +94,7 @@ class ExperimentReader:
         """Open replay checkpoints and final results for one unambiguous run."""
         matches = [run for run in self.runs if run.run_id == run_id]
         if len(matches) != 1:
-            raise KeyError(
-                f"Expected one run named {run_id!r}, found {len(matches)}."
-            )
+            raise KeyError(f"Expected one run named {run_id!r}, found {len(matches)}.")
         return RunReplay(matches[0].tracking_path.parent)
 
     def _discover(self) -> ExperimentCollection:
@@ -120,7 +118,9 @@ class ExperimentReader:
             raise FileNotFoundError(
                 f"No tracking_metadata.json or run_manifest.csv below {self.root}"
             )
-        experiments = tuple(self._manifest_experiment(root) for root in experiment_roots)
+        experiments = tuple(
+            self._manifest_experiment(root) for root in experiment_roots
+        )
         return ExperimentCollection(self.root, experiments)
 
     def _runtime_collection(
@@ -147,6 +147,7 @@ class ExperimentReader:
                 if config_path.exists()
                 else {}
             )
+            metadata.update(_flatten(config))
             runs.append(
                 ExperimentRun(
                     run_id=run_id,
@@ -239,9 +240,9 @@ class ExperimentReader:
                 "run_id": task["task_id"],
                 "experiment": root.name,
                 "experiment_id": task["experiment_id"],
-                "method": config["optimizer"].get("lebo", {}).get(
-                    "candidate_strategy", config["optimizer"]["name"]
-                ),
+                "method": config["optimizer"]
+                .get("lebo", {})
+                .get("candidate_strategy", config["optimizer"]["name"]),
                 "tracking_level": config.get("tracking", {}).get("level"),
                 **_flatten(config),
                 **grid_parameters.get(str(row["grid_id"]), {}),

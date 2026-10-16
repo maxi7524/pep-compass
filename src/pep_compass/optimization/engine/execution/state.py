@@ -9,16 +9,11 @@ observations, and trust regions through this object. ``Loop`` reads
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Any
 
 import torch
 
-
-@dataclass
-class OptimizationLimits:
-    """Optional safety limits independent from the configured step tree."""
-
-    oracle_calls: int | None = None
-    generated_candidates: int | None = None
+from pep_compass.data_schemas.execution import OptimizationLimits
 
 
 @dataclass
@@ -44,13 +39,18 @@ class OptimizationState:
     * trust-region filters update ``trust_regions``;
     * ``Loop`` consumes ``stop_requested`` at iteration boundaries.
 
-    REMARK: Parallel branches currently share this mutable object. Concurrent
-    updates are therefore not yet guaranteed to be race-free.
+    REMARK: Parallel branches share this mutable object. The Parallel operation
+    orders access to shared services, including in its threaded execution mode.
     """
 
     limits: OptimizationLimits = field(default_factory=OptimizationLimits)
     observations: dict[str, dict[str, float]] = field(default_factory=dict)
     observation_latents: dict[str, dict[str, torch.Tensor]] = field(
+        default_factory=dict
+    )
+    last_objective: str | None = None
+    objective_directions: dict[str, str] = field(default_factory=dict)
+    observation_lineage: dict[str, dict[str, dict[str, int]]] = field(
         default_factory=dict
     )
     oracle_calls: int = 0
@@ -60,6 +60,7 @@ class OptimizationState:
     created_candidates: int = 0
     stop_requested: bool = False
     trust_regions: dict[str, TrustRegionState] = field(default_factory=dict)
+    observer: Any = field(default=None, repr=False, compare=False)
 
     # Oracle-budget accounting
     def remaining_oracle_calls(self) -> int | None:
@@ -74,6 +75,9 @@ class OptimizationState:
         sequences: tuple[str, ...],
         scores: list[float],
         latent_origins: torch.Tensor | None = None,
+        *,
+        direction: str = "minimize",
+        lineage: dict[str, list[int]] | None = None,
     ) -> None:
         """Store latest objective values and update the oracle-call counter.
 
@@ -87,11 +91,24 @@ class OptimizationState:
             raise ValueError("Observation sequences and scores must have equal length.")
         if latent_origins is not None and latent_origins.shape[0] != len(sequences):
             raise ValueError("Observation latent origins must align with sequences.")
+        if direction not in {"minimize", "maximize"}:
+            raise ValueError("Objective direction must be minimize or maximize.")
+        if not torch.isfinite(torch.as_tensor(scores)).all():
+            raise ValueError("Oracle observations must be finite.")
+        if any(len(values) != len(sequences) for values in (lineage or {}).values()):
+            raise ValueError("Observation lineage must align with sequences.")
+        self.last_objective = objective
+        self.objective_directions[objective] = direction
+        stored_lineage = self.observation_lineage.setdefault(objective, {})
+        for index, sequence in enumerate(sequences):
+            stored_lineage[sequence] = {
+                name: values[index] for name, values in (lineage or {}).items()
+            }
         objective_observations = self.observations.setdefault(objective, {})
         objective_observations.update(zip(sequences, scores))
         if latent_origins is not None:
             objective_latents = self.observation_latents.setdefault(objective, {})
-            cpu_latents = latent_origins.detach().to(device="cpu", dtype=torch.float32)
+            cpu_latents = latent_origins.detach().to(device="cpu")  # (B, D)
             objective_latents.update(
                 (sequence, cpu_latents[index].clone())
                 for index, sequence in enumerate(sequences)
@@ -102,6 +119,15 @@ class OptimizationState:
             and self.oracle_calls >= self.limits.oracle_calls
         ):
             self.stop_requested = True
+        if self.observer is not None:
+            self.observer.observations(
+                objective,
+                sequences,
+                scores,
+                latent_origins,
+                direction=direction,
+                lineage=lineage,
+            )
 
     # Candidate-generation budget accounting
     def record_generated_candidates(self, count: int) -> None:

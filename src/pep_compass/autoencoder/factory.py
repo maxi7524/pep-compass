@@ -5,8 +5,8 @@ from __future__ import annotations
 from typing import Any
 
 from pep_compass.autoencoder.base import Autoencoder
-from pep_compass.autoencoder.registry import AutoencoderRegistry
-from pep_compass.registry import load_builtin_registrations
+from pep_compass.registry.components.families.autoencoders import AutoencoderRegistry
+from pep_compass.registry.components.loading import load_components
 
 
 class AutoencoderFactory:
@@ -28,8 +28,12 @@ class AutoencoderFactory:
         :param parameters: Explicit overrides for descriptor parameters.
         :return: Initialized autoencoder implementation.
         """
-        load_builtin_registrations()
+        load_components()
 
         descriptor = AutoencoderRegistry.model(method, model)
         resolved = {**descriptor.parameters, **parameters}
-        return AutoencoderRegistry.method(method)(device=device, **resolved)
+        if "device" in resolved:
+            raise ValueError(
+                "Autoencoder parameters cannot override the device service."
+            )
+        return AutoencoderRegistry.build(method, {"device": device, **resolved})

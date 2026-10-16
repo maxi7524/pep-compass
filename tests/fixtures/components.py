@@ -1,6 +1,6 @@
 """Minimal components used to validate engine composition contracts."""
 
-from pep_compass.data.optimization import CandidateBatch
+from pep_compass.data_schemas.candidates import CandidateBatch
 from pep_compass.optimization.engine.execution.context import OptimizationContext
 from pep_compass.optimization.engine.execution.step import Step
 

@@ -2,8 +2,10 @@
 
 import torch
 
-from pep_compass.data.optimization import CandidateBatch, ObjectField, TensorField
-from pep_compass.optimization.components.mutation_generators.base import MutationGenerator
+from pep_compass.data_schemas.candidates import ObjectField, TensorField
+from pep_compass.optimization.components.mutation_generators.base import (
+    MutationGenerator,
+)
 
 
 class MutangGenerator(MutationGenerator):
@@ -15,8 +17,14 @@ class MutangGenerator(MutationGenerator):
         self.requires_local_enumeration = mutang.geometry.local_enumeration_only
 
     def _execute(self, batch, context):
+        limit = context.state.limits.generated_candidates
+        if limit is not None and context.state.generated_candidates >= limit:
+            context.state.stop_requested = True
+            return batch
         sequences, parents, parent_indices, options, scored_options = [], [], [], [], []
-        for index, (generated, selected) in enumerate(self.mutang.generate(batch, context)):
+        for index, (generated, selected) in enumerate(
+            self.mutang.generate(batch, context)
+        ):
             sequences.extend(generated)
             parents.extend([batch.sequences[index]] * len(generated))
             parent_indices.extend([index] * len(generated))

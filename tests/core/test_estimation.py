@@ -1,14 +1,26 @@
 """Tests for static whole-pipeline stability estimation."""
 
+import pytest
+
 from pep_compass.core.estimation import estimate_pipeline_stability
-from pep_compass.core.specification import (
+from pep_compass.registry.components.catalog import component_catalog
+from pep_compass.registry.components.loading import load_components
+
+
+@pytest.fixture
+def catalog():
+    load_components()
+    return component_catalog
+
+
+from pep_compass.data_schemas.specification import (
     ComponentSpecification,
     FlowSpecification,
     PipelineSpecification,
 )
 
 
-def test_estimator_propagates_generator_growth_and_subset_cap() -> None:
+def test_estimator_propagates_generator_growth_and_subset_cap(catalog) -> None:
     """Known component bounds must produce a finite peak estimate."""
     specification = PipelineSpecification(
         FlowSpecification(
@@ -29,6 +41,7 @@ def test_estimator_propagates_generator_growth_and_subset_cap() -> None:
 
     estimate = estimate_pipeline_stability(
         specification,
+        catalog=catalog,
         input_candidates=2,
         latent_dimension=4,
     )
@@ -44,16 +57,15 @@ def test_estimator_propagates_generator_growth_and_subset_cap() -> None:
     assert generator.output_candidates == 16
 
 
-def test_estimator_reports_unbounded_generator() -> None:
+def test_estimator_reports_unbounded_generator(catalog) -> None:
     """Unknown generator growth must remain explicit rather than guessed."""
     specification = PipelineSpecification(
-        FlowSpecification(
-            (ComponentSpecification("mutation_generator", "mutang", {}),)
-        )
+        FlowSpecification((ComponentSpecification("mutation_generator", "mutang", {}),))
     )
 
     estimate = estimate_pipeline_stability(
         specification,
+        catalog=catalog,
         input_candidates=1,
         latent_dimension=64,
     )

@@ -1,13 +1,13 @@
 """Tests for the public manually constructed PepCompass pipeline."""
 
 import torch
+from fixtures.autoencoders import MockAutoencoder
+from fixtures.components import SuffixStep
 
-from pep_compass.data.optimization import CandidateBatch, SharedField, TensorField
+from pep_compass.data_schemas.candidates import CandidateBatch, SharedField, TensorField
 from pep_compass.optimization.engine.execution.state import OptimizationState
 from pep_compass.optimization.engine.operations.flow import Flow
 from pep_compass.optimization.pipeline import PepCompassPipeline
-from fixtures.autoencoders import MockAutoencoder
-from fixtures.components import SuffixStep
 
 
 def test_pipeline_can_be_constructed_without_core_or_runtime() -> None:

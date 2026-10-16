@@ -5,11 +5,10 @@ the loop body. Each iteration receives the previous iteration's output and a
 scope containing the iteration index.
 """
 
-from pep_compass.data.optimization import CandidateBatch
+from pep_compass.data_schemas.candidates import CandidateBatch
 from pep_compass.optimization.engine.execution.context import OptimizationContext
 from pep_compass.optimization.engine.execution.step import Step
 from pep_compass.utils.logger import get_custom_logger
-
 
 logger = get_custom_logger(__name__)
 
@@ -18,8 +17,9 @@ class Loop(Step):
     """Execute one child step a fixed number of times."""
 
     def __init__(self, body: Step, iterations: int) -> None:
-        if iterations < 0:
-            raise ValueError("Loop iterations cannot be negative.")
+        from pep_compass.utils.validation import validate_integer
+
+        validate_integer(iterations, "loop.iterations")
         self.body = body
         self.iterations = iterations
 
@@ -27,15 +27,19 @@ class Loop(Step):
         """Precompute the repeated body once."""
         self.body.precompute(context.enter_step(self.body.name))
 
-    def _execute(self, batch: CandidateBatch, context: OptimizationContext) -> CandidateBatch:
+    def _execute(
+        self, batch: CandidateBatch, context: OptimizationContext
+    ) -> CandidateBatch:
         """Execute iterations until completion or a runtime stop condition."""
         result = batch
         for index in range(self.iterations):
             if context.state.stop_requested or len(result) == 0:
                 break
             previous_result = result
+            context.iteration_started(index)
             iteration_result = self.body(result, context.enter_iteration(index))
             context.state.record_iteration()
+            context.iteration_completed(index)
 
             # Iteration commit
             ## Preserve the last valid result when a component uses an empty

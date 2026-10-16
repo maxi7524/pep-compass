@@ -1,9 +1,12 @@
 """Standalone MUTANG geometry computed explicitly from an autoencoder."""
 
 from pep_compass.autoencoder.geometry import compute_stable_tangent_geometry
+from pep_compass.optimization.components.mutation_generators.strategies.mutang.base import (
+    GeometryStrategy,
+)
 
 
-class KappaStableGeometry:
+class KappaStableGeometry(GeometryStrategy):
     """Compute independent point geometries for standalone MUTANG execution."""
 
     local_enumeration_only = False

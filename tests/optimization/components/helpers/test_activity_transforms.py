@@ -9,7 +9,6 @@ from pep_compass.optimization.components.helpers.activity import (
     DEFAULT_GROWTH_RATE,
     DEFAULT_MAX_KILL_RATE,
     activity_budget,
-    activity_transform_registry,
     build_activity_transform,
     hill_kill_rate,
     log_potency,
@@ -18,6 +17,7 @@ from pep_compass.optimization.components.helpers.activity import (
     soft_threshold,
     threshold,
 )
+from pep_compass.registry.strategies.activity import activity_transform_registry
 
 
 class TestPotencySum:
@@ -220,8 +220,12 @@ class TestLogPotency:
         """The unit is the two-fold dilution step of the MIC assay."""
 
         transform = log_potency()
-        assert float(transform(np.array(2.0))) - float(transform(np.array(1.0))) == pytest.approx(1.0)
-        assert float(transform(np.array(8.0))) - float(transform(np.array(4.0))) == pytest.approx(1.0)
+        assert float(transform(np.array(2.0))) - float(
+            transform(np.array(1.0))
+        ) == pytest.approx(1.0)
+        assert float(transform(np.array(8.0))) - float(
+            transform(np.array(4.0))
+        ) == pytest.approx(1.0)
 
     def test_the_boundary_is_zero(self) -> None:
         """At the inhibitory boundary the logarithmic potency vanishes."""
@@ -285,7 +289,14 @@ class TestTransformsAgreeOnOrdering:
     """Properties every construction must share."""
 
     @pytest.mark.parametrize(
-        "name", ["hill_kill_rate", "net_kill_rate", "potency_sum", "log_potency", "soft_threshold"]
+        "name",
+        [
+            "hill_kill_rate",
+            "net_kill_rate",
+            "potency_sum",
+            "log_potency",
+            "soft_threshold",
+        ],
     )
     def test_activity_is_non_decreasing_in_potency(self, name: str) -> None:
         """A more potent mixture is never scored as less active.
@@ -298,7 +309,9 @@ class TestTransformsAgreeOnOrdering:
         values = transform(grid)
         assert np.all(np.diff(values) > 0.0)
 
-    @pytest.mark.parametrize("name", ["hill_kill_rate", "net_kill_rate", "threshold", "soft_threshold"])
+    @pytest.mark.parametrize(
+        "name", ["hill_kill_rate", "net_kill_rate", "threshold", "soft_threshold"]
+    )
     def test_bounded_transforms_stay_bounded(self, name: str) -> None:
         """The saturating readings cannot exceed their maximum."""
 

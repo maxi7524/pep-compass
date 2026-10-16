@@ -1,10 +1,10 @@
 """Tests for explicit autoencoder method and model registration."""
 
-import pep_compass.autoencoder.strategies  # noqa: F401
 import pytest
 
+import pep_compass.registry.components.registrations.autoencoders  # noqa: F401
 from pep_compass.autoencoder.factory import AutoencoderFactory
-from pep_compass.autoencoder.registry import AutoencoderRegistry
+from pep_compass.registry.components.families.autoencoders import AutoencoderRegistry
 
 
 def test_hydramp_method_and_named_model_are_registered_separately() -> None:
