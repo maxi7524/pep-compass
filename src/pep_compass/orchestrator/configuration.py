@@ -1,4 +1,4 @@
-"""Hydra configuration groups derived from registered public factories."""
+"""Hydra configuration groups derived from direct import targets and YAML groups."""
 
 from __future__ import annotations
 
@@ -7,10 +7,6 @@ from importlib import import_module
 from pathlib import Path
 
 from hydra import compose, initialize_config_dir, initialize_config_module
-from hydra.core.config_store import ConfigStore
-
-from pep_compass.registry.components.loading import load_components
-from pep_compass.registry.pipelines.catalog import list_predefined, pipeline_registry
 
 
 @dataclass(frozen=True)
@@ -40,7 +36,7 @@ class OrchestrationSettings:
 
 
 def load_plugins(modules):
-    """Import explicitly requested registration modules before composing configs.
+    """Import explicitly requested explicit modules before composing configs.
 
     :param modules: Python module names supplied by the application owner.
     :raises ValueError: If names are not a sequence of non-empty strings.
@@ -51,59 +47,6 @@ def load_plugins(modules):
         raise ValueError("plugins must contain Python module names.")
     for name in modules:
         import_module(name)
-
-
-def register_configurations():
-    """Publish preset and backend defaults without initializing models."""
-    from dataclasses import asdict
-
-    from pep_compass.registry.execution.backends import backend_registry, load_backends
-
-    load_components()
-    load_backends()
-    store = ConfigStore.instance()
-    for name in list_predefined():
-        parameters = {
-            p["name"]: p["default"] if p["has_default"] else "???"
-            for p in pipeline_registry.describe(name)["parameters"]
-            if p["name"] not in {"seed", "device"}
-        }
-        store.store(
-            group="pipeline",
-            name=name,
-            node={"predefined": name, "parameters": parameters},
-            provider="pep_compass",
-        )
-    for name in backend_registry.names():
-        store.store(
-            group="backend",
-            name=name,
-            node={
-                "strategy": name,
-                "parameters": {
-                    p["name"]: p["default"] if p["has_default"] else "???"
-                    for p in backend_registry.describe(name)["parameters"]
-                },
-            },
-            provider="pep_compass",
-        )
-    store.store(
-        group="orchestrator",
-        name="default",
-        node=asdict(OrchestrationSettings()),
-        provider="pep_compass",
-    )
-    # REMARK: A patch preserves preset defaults; explicit null overrides a preset limit.
-    store.store(
-        group="runner",
-        name="default",
-        node={
-            "execution": {},
-            "storage": {"backend": "sqlite", "path": None},
-            "results": {},
-        },
-        provider="pep_compass",
-    )
 
 
 def compose_configuration(
@@ -118,7 +61,6 @@ def compose_configuration(
     :return: Composed OmegaConf DictConfig; no models are constructed.
     """
     load_plugins(plugins)
-    register_configurations()
     context = (
         initialize_config_module(
             version_base="1.3", config_module="pep_compass.orchestrator.conf"
@@ -142,7 +84,7 @@ def compose_configuration(
 def plugin_fingerprints(modules):
     """Hash explicitly imported plugin module files for frozen-plan identity.
 
-    :param modules: Importable registration modules.
+    :param modules: Importable explicit modules.
     :return: Mapping from module name to its source/artifact SHA-256.
     :raises ValueError: If a plugin has no inspectable file.
     """

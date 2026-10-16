@@ -36,37 +36,35 @@ def validate_integer(
         raise ValueError(f"{path} must be an integer >= {minimum}.")
 
 
-def validate_positive(value: Any, path: str) -> None:
+def validate_positive(value: Any, path: str, *, allow_zero=False) -> None:
     """Require a finite positive real value.
 
     :param value: Value to validate.
     :param path: Diagnostic configuration path.
+    :param allow_zero: Accept zero as an inclusive lower boundary.
     :raises ValueError: If the numeric constraint is violated.
     """
     if (
         isinstance(value, bool)
         or not isinstance(value, Real)
         or not isfinite(value)
-        or value <= 0
+        or (value < 0 if allow_zero else value <= 0)
     ):
-        raise ValueError(f"{path} must be finite and positive.")
+        raise ValueError(
+            f"{path} must be finite and {'non-negative' if allow_zero else 'positive'}."
+        )
 
 
-def validate_declaration(value: Any, path: str) -> tuple[str, Mapping[str, Any]]:
-    """Validate one nested strategy declaration.
+def validate_sequences(sequences):
+    """Return non-empty peptide strings before preparing any model resources.
 
-    :param value: Mapping containing method and optional parameters.
-    :param path: Diagnostic configuration path.
-    :return: Method name and parameter mapping.
-    :raises ValueError: If the declaration structure is invalid.
+    :param sequences: Iterable of non-empty peptide strings.
+    :return: Independent tuple of validated input sequences.
+    :raises ValueError: If the input is absent, empty or contains non-string values.
     """
-    if not isinstance(value, Mapping):
-        raise ValueError(f"{path} must be a mapping.")
-    validate_keys(value, {"method", "parameters"}, path)
-    method = value.get("method")
-    parameters = value.get("parameters", {})
-    if not isinstance(method, str) or not method.strip():
-        raise ValueError(f"{path}.method must be a non-empty string.")
-    if not isinstance(parameters, Mapping):
-        raise ValueError(f"{path}.parameters must be a mapping.")
-    return method, parameters
+    if sequences is None or isinstance(sequences, (str, bytes)):
+        raise ValueError("Provide a non-empty collection of peptide strings.")
+    values = tuple(sequences)
+    if not values or any(not isinstance(value, str) or not value for value in values):
+        raise ValueError("Provide a non-empty collection of peptide strings.")
+    return values

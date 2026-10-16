@@ -8,30 +8,17 @@ import json
 import math
 from collections.abc import Mapping
 from dataclasses import fields, is_dataclass
-from threading import RLock
 
 import numpy as np
 import torch
 
-from pep_compass.registry.serialization.payloads import payload_registry
 
-_builtins_loaded = False
-_payload_lock = RLock()
+def _payload_types():
+    """Return the fixed data-format types; algorithm construction is unrelated.
 
-
-def _types():
-    """Return explicitly supported scientific payload classes."""
-    with _payload_lock:
-        return _registered_types()
-
-
-def _registered_types():
-    """Initialize built-ins once while holding the reentrant codec lock."""
-    global _builtins_loaded
-    if _builtins_loaded:
-        return {
-            name: payload_registry.factory(name) for name in payload_registry.names()
-        }
+    REMARK: The codec accepts only data containers explicitly supported by this
+    file. Persisted data cannot import or construct arbitrary Python targets.
+    """
     from pep_compass.autoencoder.geometry import (
         StableTangentGeometry,
         TangentDecomposition,
@@ -45,12 +32,12 @@ def _registered_types():
         TensorField,
     )
     from pep_compass.data_schemas.execution import OptimizationLimits
-    from pep_compass.optimization.components.mutation_generators.strategies.mutang.schema import (
+    from pep_compass.optimization.engine.execution.state import TrustRegionState
+    from pep_compass.optimization.tracking import ExecutionScope
+    from pep_compass.steps.mutations.strategies.mutang.schema import (
         MutationOption,
         SelectedDirections,
     )
-    from pep_compass.optimization.engine.execution.state import TrustRegionState
-    from pep_compass.optimization.tracking import ExecutionScope
 
     declarations = {
         kind.__name__: kind
@@ -70,30 +57,7 @@ def _registered_types():
             SelectedDirections,
         )
     }
-    for name, kind in declarations.items():
-        payload_registry.register(name)(kind)
-    _builtins_loaded = True
-    return {name: payload_registry.factory(name) for name in payload_registry.names()}
-
-
-def register_payload(name):
-    """Register a custom dataclass codec through the common registry decorator.
-
-    :param name: Stable persisted type name, unique across payload definitions.
-    :return: Class decorator; decoding never imports classes named by input data.
-    :raises TypeError: If the class is not a dataclass.
-    """
-    _types()
-
-    def register(kind):
-        with _payload_lock:
-            if not is_dataclass(kind):
-                raise TypeError("Registered scientific payloads must be dataclasses.")
-            if kind in _types().values():
-                raise ValueError("This payload class already has a registered codec.")
-            return payload_registry.register(name)(kind)
-
-    return register
+    return declarations
 
 
 def encode(value):
@@ -165,7 +129,7 @@ def _encode(value, memo):
             "identity": identity,
             "items": [_encode(item, memo) for item in value],
         }
-    types = _types()
+    types = _payload_types()
     from pep_compass.autoencoder.subriemannian import SubRiemannianTangentSpace
     from pep_compass.data_schemas.candidates import CandidateBatch
 
@@ -264,7 +228,7 @@ def _decode(value, memo):
         from pep_compass.autoencoder.subriemannian import SubRiemannianTangentSpace
 
         return SubRiemannianTangentSpace(**values)
-    types = _types()
+    types = _payload_types()
     if kind not in types:
         raise ValueError(f"Unknown run-data codec: {kind!r}.")
     return types[kind](**values)

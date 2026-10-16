@@ -12,8 +12,8 @@ from tempfile import NamedTemporaryFile
 
 from omegaconf import OmegaConf
 
+from pep_compass.configuration.objects import construct, locate, plain
 from pep_compass.core.builder import PipelineBuilder
-from pep_compass.core.builder.services import resolve_schema
 from pep_compass.data_schemas.execution import RunnerSettings
 from pep_compass.data_schemas.graph import PipelineSchema
 from pep_compass.optimization.saving.provenance import source_digest
@@ -23,7 +23,6 @@ from pep_compass.orchestrator.configuration import (
     plugin_fingerprints,
 )
 from pep_compass.orchestrator.declarations import create_pipeline
-from pep_compass.registry.execution.backends import backend_registry, load_backends
 from pep_compass.utils.logger import get_custom_logger
 from pep_compass.utils.validation import validate_integer, validate_keys
 
@@ -158,14 +157,11 @@ def _identity(configuration, batches, source, working_directory, plugin_sha256):
     )
 
 
-def plan_configuration(
-    configuration, *, working_directory=None, catalog=None, autoencoder=None
-):
+def plan_configuration(configuration, *, working_directory=None, autoencoder=None):
     """Validate and freeze a wrapper computation without loading models.
 
     :param configuration: Hydra DictConfig or a plain configuration mapping.
     :param working_directory: Base for input/template/output paths.
-    :param catalog: Optional prepared Python catalog, local dispatch only.
     :param autoencoder: Optional injected Python autoencoder, local dispatch only.
     :return: Validated ExecutionPlan with resolved schema and runner settings.
     :raises ValueError: If graph, inputs or configuration contracts are invalid.
@@ -182,7 +178,6 @@ def plan_configuration(
         "configuration",
     )
     load_plugins(values.get("plugins", []))
-    load_backends()
     working = Path(working_directory or Path.cwd()).resolve()
     options = OrchestrationSettings(**values.get("orchestrator", {}))
     root = Path(options.output_dir)
@@ -191,26 +186,31 @@ def plan_configuration(
     validate_keys(patch, {"execution", "storage", "results"}, "runner")
     pipeline = create_pipeline(
         values["pipeline"],
-        catalog=catalog,
         autoencoder=autoencoder,
         execution=patch.get("execution"),
     )
-    schema = resolve_schema(pipeline.to_schema(), pipeline.catalog)
+    schema = pipeline.to_schema()
     if schema.autoencoder is None and autoencoder is None:
         raise ValueError("Declare a shared autoencoder before planning execution.")
     device = patch.get("execution", {}).get("device")
     if device is not None and schema.autoencoder is not None:
-        schema = replace(schema, autoencoder=replace(schema.autoencoder, device=device))
-    PipelineBuilder(autoencoder, catalog=pipeline.catalog).validate(schema)
+        schema = replace(
+            schema, autoencoder={**plain(schema.autoencoder), "device": device}
+        )
+    PipelineBuilder(schema=schema, autoencoder=autoencoder).validate()
     # Freeze backend-owned resources separately from computational settings.
-    backend = values.get("backend", {"strategy": "local", "parameters": {}})
-    validate_keys(backend, {"strategy", "parameters"}, "backend")
-    strategy = backend["strategy"]
-    parameters = backend_registry.configure(strategy, backend.get("parameters", {}))
-    parameters = backend_registry.factory(strategy).resolve_parameters(
-        parameters, working
+    backend = values["backend"]
+    if "_target_" not in backend:
+        raise ValueError("backend requires an explicit _target_.")
+    target = locate(backend["_target_"])
+    parameters = target.resolve_parameters(
+        {key: value for key, value in backend.items() if key != "_target_"}, working
     )
-    backend_registry.validate(strategy, parameters)
+    backend = {"_target_": backend["_target_"], **parameters}
+    from pep_compass.orchestrator.backends.base import ExecutionBackend
+
+    if not isinstance(construct(backend), ExecutionBackend):
+        raise TypeError("backend._target_ must construct ExecutionBackend.")
     batches = _inputs(values["input"], working)
     source = source_digest()
     plugins = plugin_fingerprints(values.get("plugins", []))
@@ -235,7 +235,7 @@ def plan_configuration(
         )
         entries.append(PlannedRun(index, job_id, sequences, settings, storage["path"]))
     logger.info(
-        "Planned jobs=%s preset=%s.", len(entries), values["pipeline"].get("predefined")
+        "Planned jobs=%s preset=%s.", len(entries), values["pipeline"].get("_target_")
     )
     return ExecutionPlan(
         identity,
@@ -243,7 +243,7 @@ def plan_configuration(
         schema,
         tuple(entries),
         options,
-        {"strategy": strategy, "parameters": parameters},
+        backend,
         str(working),
         str(output),
         source,
@@ -274,11 +274,10 @@ def _write_plan_once(payload, target):
         temporary.unlink()
 
 
-def save_plan(plan, *, catalog=None):
+def save_plan(plan):
     """Freeze computation identities and the exact policy of each dispatch.
 
     :param plan: Validated plan.
-    :param catalog: Optional custom component catalog for validation on reload.
     :return: Persisted plan and the exact launch artifact consumed by workers.
     :raises ValueError: If an existing artifact is corrupt or inconsistent.
     """
@@ -286,7 +285,7 @@ def save_plan(plan, *, catalog=None):
     payload = plan.to_dict()
     if _write_plan_once(payload, target):
         return plan, target
-    persisted = load_plan(target, catalog=catalog)
+    persisted = load_plan(target)
     if persisted.fingerprint != plan.fingerprint:
         raise ValueError("Frozen plan identity differs from the requested computation.")
     # Preserve graph identities while recording updated dispatch policy separately.
@@ -296,7 +295,7 @@ def save_plan(plan, *, catalog=None):
         return plan, target
     target = target.with_name(target.stem + ".launch-" + _sha(payload)[:20] + ".json")
     if not _write_plan_once(payload, target):
-        existing = load_plan(target, catalog=catalog)
+        existing = load_plan(target)
         if existing.to_dict() != payload:
             raise ValueError(
                 "Frozen launch artifact differs from the requested policy."
@@ -304,11 +303,10 @@ def save_plan(plan, *, catalog=None):
     return plan, target
 
 
-def load_plan(path, *, catalog=None):
+def load_plan(path):
     """Load and validate a frozen plan without constructing models.
 
     :param path: Versioned plan artifact.
-    :param catalog: Optional catalog for local Python validation.
     :return: Validated ExecutionPlan.
     :raises ValueError: If integrity, source code or schema validation fails.
     """
@@ -350,8 +348,8 @@ def load_plan(path, *, catalog=None):
     schema = PipelineSchema.from_dict(payload["schema"])
     from pep_compass.core.wrapper.pipeline import Pipeline
 
-    pipeline = Pipeline.from_schema(schema, catalog=catalog)
-    PipelineBuilder(catalog=pipeline.catalog).validate(schema)
+    pipeline = Pipeline.from_schema(schema)
+    pipeline.validate()
     return ExecutionPlan(
         identity,
         configuration,

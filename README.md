@@ -70,7 +70,30 @@ assets/scripts/downloads/apex/download_apex_models_full.sh
 ```
 
 > Each script installs weights below
-> `src/pep_compass/optimization/components/oracles/strategies/apex/models/<model>`.
+> `src/pep_compass/steps/oracles/strategies/apex/models/<model>`.
+
+## Python API
+
+```python
+from pep_compass import Pipeline
+from pep_compass.autoencoder import HydrAMP
+from pep_compass.steps.filters import CandidateSubset
+from pep_compass.steps.oracles import Hydrophobicity
+
+pipeline = Pipeline(
+    [CandidateSubset(count=3), Hydrophobicity()],
+    autoencoder=HydrAMP(jacobian_mode="approx"),
+)
+pipeline.describe_component(CandidateSubset)
+pipeline.show()
+compiled = pipeline.build()
+result = pipeline.run(["FLYKWWIRIGRLKL"], seed=7)
+print(result.reader.get_archive())
+result.close()
+```
+
+See [the direct API tutorial](docs/tutorial/wrapper_new.md) and
+[the executable notebook](docs/tutorial/wrapper_new.ipynb).
 
 ## Run
 

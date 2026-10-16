@@ -1,31 +1,13 @@
-# PepCompass Documentation
+# PepCompass documentation
 
-This documentation describes how to run, analyse, understand and modify
-PepCompass.
+- [Direct API tutorial](tutorial/wrapper_new.md)
+- [Executable direct API notebook](tutorial/wrapper_new.ipynb)
+- [User guide](user-guide.md)
+- [Hydra orchestration](tutorial/orchestrator.md)
+- [Technical architecture](technical-architecture.md)
+- [Developer guide](developer-guide.md)
+- [Analysis and storage](analysis-guide.md)
+- [Architecture decisions](architecture-decisions.md)
 
-## Contents
-
-### How-to guides
-
-- [User Guide](user-guide.md) — configure, validate and execute an experiment.
-- [Analysis Guide](analysis-guide.md) — read persisted experiment results and
-  compute analyses.
-
-### Library internals
-
-- [Technical Architecture](technical-architecture.md) — package boundaries,
-  runtime construction, execution graph and persisted artifacts.
-- [Architecture Decisions](architecture-decisions.md) — implemented design
-  decisions, deferred work and verified open issues.
-
-### Instructions for developers
-
-- [Developer Guide](developer-guide.md) — add or modify components and run the
-  associated validation.
-
-No dedicated tutorial, reproduction guide or methodology document is currently
-maintained. The user guide is the supported entry point for running an
-experiment; scientific claims must be evaluated against the cited source model
-publications and experiment-specific material.
-
-- [Hydra orchestrator, backend plugins and server templates](tutorial/orchestrator.md)
+The existing `tutorial/wrapper.ipynb` is retained unchanged for comparison with
+the previous API. It is not the tutorial for the current branch.

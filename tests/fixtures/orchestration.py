@@ -1,15 +1,14 @@
-"""Deterministic registered resources shared by orchestration workflow tests."""
+"""Small direct resource and pipeline constructors for integration tests."""
 
 import torch
 
+from pep_compass import Pipeline
 from pep_compass.autoencoder.base import Autoencoder
-from pep_compass.core.wrapper import Pipeline, Step
-from pep_compass.registry.components.families.autoencoders import AutoencoderRegistry
-from pep_compass.registry.models.definitions import AutoencoderModelDescriptor
-from pep_compass.registry.pipelines.catalog import register
+from pep_compass.configuration.objects import Configurable
+from pep_compass.steps.filters import CandidateSubset
+from pep_compass.steps.oracles import Hydrophobicity
 
 
-@AutoencoderRegistry.register_method("fixture_encoder")
 class FixtureAutoencoder(Autoencoder):
     """Two-dimensional encoder without files, downloads or random weights."""
 
@@ -35,30 +34,20 @@ class FixtureAutoencoder(Autoencoder):
         return encoded_sequences  # (B, 2)
 
 
-AutoencoderRegistry.register_model(
-    "fixture_encoder", AutoencoderModelDescriptor("default", {})
-)
+class FixtureResource(Configurable):
+    """Declare the deterministic encoder without allocating model state."""
+
+    def __init__(self, device="cpu"):
+        self._configure({"device": device})
+
+    def build(self, *, device=None):
+        return FixtureAutoencoder(device=device or self.configuration["device"])
 
 
-@register("fixture")
 def create(*, seed=7, count=2, device="cpu"):
-    """Return a tiny pipeline that evaluates retained input peptides.
-
-    :param seed: Reproducible RNG seed.
-    :param count: Number of selected peptides before scoring.
-    :param device: CPU resource device.
-    :return: Editable pipeline with default oracle_calls=3.
-    """
-    pipeline = Pipeline.create(
-        steps=[
-            Step.create(
-                component="filter",
-                strategy="candidate_subset",
-                parameters={"count": count},
-            ),
-            Step.create(component="oracle", strategy="hydrophobicity"),
-        ]
+    pipeline = Pipeline(
+        [CandidateSubset(count=count), Hydrophobicity()],
+        autoencoder=FixtureResource(device),
     )
-    pipeline.add_autoencoder("fixture_encoder", model="default", device=device)
     pipeline.set_runner_settings(execution={"seed": seed, "oracle_calls": 3})
     return pipeline

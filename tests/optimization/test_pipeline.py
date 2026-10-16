@@ -6,18 +6,19 @@ from fixtures.components import SuffixStep
 
 from pep_compass.data_schemas.candidates import CandidateBatch, SharedField, TensorField
 from pep_compass.optimization.engine.execution.state import OptimizationState
-from pep_compass.optimization.engine.operations.flow import Flow
-from pep_compass.optimization.pipeline import PepCompassPipeline
+from pep_compass.optimization.engine.pipeline import ExecutablePipeline
+from pep_compass.steps.flow.strategies.sequence import Flow
 
 
 def test_pipeline_can_be_constructed_without_core_or_runtime() -> None:
     """The computation API must remain independent from YAML and planning."""
-    pipeline = PepCompassPipeline(
+    pipeline = ExecutablePipeline(
         autoencoder=MockAutoencoder(),
+        schema=None,
         root=Flow([SuffixStep("X")]),
     )
 
-    result = pipeline.run(["AA"], seed=7)
+    result = pipeline._run(["AA"], seed=7)
 
     assert result.candidates.sequences == ("AAX",)
     assert result.candidates.latent_origins.shape == (1, 2)
@@ -42,7 +43,7 @@ def test_pipeline_result_contains_complete_oracle_observation_archive() -> None:
         },
     )
 
-    result = PepCompassPipeline._summarize(latest, state)
+    result = ExecutablePipeline._summarize(latest, state)
 
     assert result.candidates.sequences == ("AA", "AB")
     assert result.candidates.latent_origins.device.type == "cpu"

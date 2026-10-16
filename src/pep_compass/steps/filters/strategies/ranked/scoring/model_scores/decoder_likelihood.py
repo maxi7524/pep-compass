@@ -1,0 +1,39 @@
+"""Parent-conditioned decoder likelihood scoring used by LPBEBO."""
+
+from pep_compass.steps.filters.strategies.ranked.scoring.helpers.mutation_potentials import (
+    DEFAULT_ALPHABET,
+    DecoderLogProbabilityPotential,
+    compose_mutant_distribution,
+)
+from pep_compass.steps.filters.strategies.ranked.scoring.latent_geometry.base import (
+    MutationPoolScore,
+)
+from pep_compass.steps.filters.strategies.ranked.scoring.mutation_pool import (
+    bounded_mutations,
+)
+
+
+class DecoderLikelihoodScore(MutationPoolScore):
+    """Score complete MUTANG combinations by summed decoder log-probability."""
+
+    def __init__(self, autoencoder=None, maximum_candidates=30000, alphabet=None):
+        self._configure(
+            {"maximum_candidates": maximum_candidates, "alphabet": alphabet}
+        )
+        self.maximum_candidates = maximum_candidates
+        self.alphabet = alphabet or DEFAULT_ALPHABET
+        self.potential = DecoderLogProbabilityPotential(autoencoder, self.alphabet)
+
+    def score_group(self, parent, mutations, tangent_space, *, rng=None):
+        del tangent_space
+        bounded = bounded_mutations(
+            parent, mutations, self.alphabet, self.maximum_candidates, rng=rng
+        )
+        distribution = compose_mutant_distribution(
+            parent,
+            bounded,
+            self.potential,
+            alphabet=self.alphabet,
+            maximum_candidates=self.maximum_candidates,
+        )
+        return dict(zip(distribution.sequences, distribution.log_potentials))

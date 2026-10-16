@@ -41,7 +41,7 @@ def model_digest(model):
 class Runner:
     """Own one run's RNG, observation retention and resource finalization.
 
-    :param pipeline: Built PepCompassPipeline; operator implementations are reused.
+    :param pipeline: Built ExecutablePipeline; operator implementations are reused.
     :param schema: Immutable public graph declaration.
     :param settings: Validated defaults for this runner.
     :param model_manifest: Named model artifact provenance collected at build.
@@ -62,12 +62,9 @@ class Runner:
         :raises Exception: Original computational or persistence failure.
         """
         settings = settings or self.settings
-        if (
-            isinstance(sequences, (str, bytes))
-            or not sequences
-            or any(not isinstance(value, str) or not value for value in sequences)
-        ):
-            raise ValueError("Provide a non-empty collection of peptide strings.")
+        from pep_compass.utils.validation import validate_sequences
+
+        sequences = validate_sequences(sequences)
         if settings.execution.device is not None:
             actual = getattr(self.pipeline.autoencoder, "device", "cpu")
             if str(actual) != settings.execution.device:

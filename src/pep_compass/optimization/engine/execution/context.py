@@ -1,6 +1,6 @@
 """Runtime services propagated through the executable step tree.
 
-``PepCompassPipeline.run`` creates the root context. ``Step.__call__`` and the
+``ExecutablePipeline.run`` creates the root context. ``Step.__call__`` and the
 composite operations derive scoped copies as execution enters a step,
 iteration, or branch. All copies intentionally share ``OptimizationState``;
 only their path and branch-local random generator differ.

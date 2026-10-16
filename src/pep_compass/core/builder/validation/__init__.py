@@ -1,275 +1,226 @@
-"""Semantic validation of neutral PepCompass pipeline specifications."""
-
-from __future__ import annotations
+"""Validate ownership and symbolic field flow before loading model weights."""
 
 from collections.abc import Mapping
 from dataclasses import dataclass
 
-from pep_compass.data_schemas.specification import (
-    ComponentSpecification,
-    FlowSpecification,
-    LocalEnumerationSpecification,
-    LoopSpecification,
-    ParallelSpecification,
-    PipelineSpecification,
-    StepSpecification,
-)
-from pep_compass.utils.validation import validate_integer, validate_positive
+from pep_compass.steps.base import Step
+from pep_compass.steps.flow.strategies.sequence import Flow
+from pep_compass.utils.logger import get_custom_logger
+
+logger = get_custom_logger(__name__)
 
 
-@dataclass(frozen=True, slots=True)
-class PipelineDiagnostic:
-    """Describe a statically detectable pipeline risk or semantic collision."""
+@dataclass(frozen=True)
+class _Transfer:
+    """Summarize fields required, propagated and unconditionally produced."""
 
-    severity: str
-    code: str
-    path: str
-    message: str
+    required: frozenset
+    propagated: frozenset
+    produced: frozenset
+
+    def then(self, following):
+        """Compose two field transfers without executing either component."""
+        external = following.required - self.produced
+        unavailable = external - self.propagated
+        if unavailable:
+            raise ValueError(
+                f"Graph requires unavailable fields: {sorted(unavailable)}."
+            )
+        return _Transfer(
+            self.required | external,
+            self.propagated & following.propagated,
+            (self.produced & following.propagated) | following.produced,
+        )
 
 
-def validate_pipeline_specification(specification: PipelineSpecification) -> None:
-    """Validate a complete pipeline declaration before object construction.
+@dataclass(frozen=True)
+class _FieldFlow:
+    """Track fully populated fields separately from fields allowing partial rows."""
 
-    :param specification: Neutral pipeline declaration.
-    :raises ValueError: If limits, component declarations or graph nodes are invalid.
+    full: _Transfer
+    present: _Transfer
+
+    def then(self, following):
+        return _FieldFlow(
+            self.full.then(following.full), self.present.then(following.present)
+        )
+
+    @classmethod
+    def join(cls, branches):
+        """Concatenation preserves full fields in every branch and partial fields in any branch."""
+
+        def combine(flows, all_branches):
+            required = frozenset.union(*(flow.required for flow in flows))
+            if all_branches:
+                produced = frozenset.intersection(*(flow.produced for flow in flows))
+                propagated = frozenset.intersection(
+                    *(flow.propagated | flow.produced for flow in flows)
+                )
+            else:
+                produced = frozenset.union(*(flow.produced for flow in flows))
+                propagated = frozenset.union(*(flow.propagated for flow in flows))
+            return _Transfer(required, propagated, produced)
+
+        return cls(
+            combine([branch.full for branch in branches], True),
+            combine([branch.present for branch in branches], False),
+        )
+
+
+def _children(value):
+    """Yield the actual step objects from named graph ownership slots."""
+    if isinstance(value, Step):
+        yield value
+    elif isinstance(value, Mapping):
+        for item in value.values():
+            yield from _children(item)
+    elif isinstance(value, (tuple, list)):
+        for item in value:
+            yield from _children(item)
+    else:
+        raise TypeError("Graph ownership slots must contain Step objects.")
+
+
+def validate(schema, *, initial_fields=()):
+    """Validate graph structure and field availability without model initialization.
+
+    Each node contributes one symbolic transfer. Sequential composition, branch
+    joins and loop feedback use those summaries rather than revisiting subtrees.
+
+    :param schema: Immutable PipelineSchema.
+    :param initial_fields: Extra incoming CandidateBatch field names.
+    :return: Diagnostic records for a structurally valid graph.
+    :raises ValueError: On repeated identities or unavailable required fields.
+    :raises TypeError: If a graph child does not implement Step.
     """
-    limits = specification.limits
-    for name, value in (
-        ("oracle_calls", limits.oracle_calls),
-        ("generated_candidates", limits.generated_candidates),
-    ):
-        validate_integer(value, f"pipeline.limits.{name}", optional=True)
-    _validate_step(specification.root, "pipeline.root")
+    identities = [node.node_id for node, _, _ in schema.walk()]
+    if any(not isinstance(value, str) or not value for value in identities) or len(
+        set(identities)
+    ) != len(identities):
+        raise ValueError("Graph identities must be unique, non-empty strings.")
+    from pep_compass.data_schemas.candidates import OptionalField
 
+    base_fields = {"lineage.candidate_id", "lineage.parent_candidate_id"}
+    incoming = frozenset(base_fields | set(initial_fields))
+    incomplete = (
+        {
+            name
+            for name, value in initial_fields.items()
+            if isinstance(value, OptionalField)
+        }
+        if isinstance(initial_fields, Mapping)
+        else set()
+    )
+    full_incoming = incoming - incomplete
+    root = Flow([node.instantiate() for node in schema.steps])
+    contracts = {}
+    universe = set(incoming)
 
-def validate_registered_components(
-    specification: PipelineSpecification, *, catalog
-) -> None:
-    """Validate registered methods and parameters without constructing models."""
-    _validate_registered_step(specification.root, catalog)
+    # Resolve each declared contract once; unknown fields cannot affect a later requirement.
+    def collect(step):
+        if not isinstance(step, Step):
+            raise TypeError("Graph components must implement Step.")
+        contract = step.contract()
+        contracts[id(step)] = contract
+        universe.update(contract.required_fields)
+        universe.update(contract.produced_fields)
+        for child in _children(step.graph_children()):
+            collect(child)
 
+    collect(root)
+    universe.update(
+        {
+            "local_enumeration.center_sequence",
+            "tracking.trajectory_id",
+            "tracking.trajectory_index",
+            "tracking.trajectory_step",
+            "tracking.rng_stream_seed",
+        }
+    )
+    universe = frozenset(universe)
+    identity_transfer = _Transfer(frozenset(), universe, frozenset())
+    identity = _FieldFlow(identity_transfer, identity_transfer)
 
-def diagnose_pipeline_specification(
-    specification: PipelineSpecification,
-    *,
-    catalog=None,
-) -> tuple[PipelineDiagnostic, ...]:
-    """Return non-fatal data-flow and resource diagnostics for a valid graph."""
-    diagnostics: list[PipelineDiagnostic] = []
-    _diagnose_step(specification.root, "pipeline", diagnostics, catalog)
-    if specification.limits.generated_candidates is not None:
-        diagnostics.append(
-            PipelineDiagnostic(
-                severity="INFO",
-                code="POST_GENERATION_LIMIT",
-                path="pipeline.limits.generated_candidates",
-                message=(
-                    "The limit stops subsequent iterations after generation; "
-                    "it does not bound one mutation product before allocation."
-                ),
+    def leaf(contract):
+        propagated = frozenset(
+            field
+            for field in universe
+            if not any(
+                field.startswith(prefix) for prefix in contract.invalidated_prefixes
             )
         )
-    return tuple(diagnostics)
-
-
-def _diagnose_step(
-    specification: StepSpecification,
-    path: str,
-    diagnostics: list[PipelineDiagnostic],
-    catalog=None,
-) -> None:
-    """Inspect one graph node for known composition hazards."""
-    if isinstance(specification, ComponentSpecification):
-        from pep_compass.registry.components.contracts import component_output_bound
-
-        maximum = component_output_bound(
-            specification.kind,
-            specification.method,
-            specification.parameters,
-            1,
-            catalog=catalog,
+        produced = frozenset(contract.produced_fields)
+        return _FieldFlow(
+            _Transfer(
+                frozenset(contract.required_fields) - set(contract.optional_fields),
+                propagated,
+                produced,
+            ),
+            _Transfer(frozenset(contract.required_fields), propagated, produced),
         )
-        if specification.kind == "mutation_generator" and maximum is None:
-            diagnostics.append(
-                PipelineDiagnostic(
-                    severity="ERROR",
-                    code="UNBOUNDED_EXPANSION",
-                    path=path,
-                    message=(
-                        f"Mutation generator '{specification.method}' has no "
-                        "maximum_candidates; its output and peak memory cannot "
-                        "be bounded statically."
-                    ),
-                )
+
+    def sequence(steps, local):
+        result = identity
+        for step in steps:
+            result = result.then(summarize(step, local))
+        return result
+
+    def summarize(step, local=False):
+        if getattr(step, "requires_local_enumeration", False) and not local:
+            raise ValueError(f"{step.name} requires a LocalEnumeration context.")
+        own = leaf(contracts[id(step)])
+        slots = step.graph_children()
+        if step.kind in {"sequence", "loop"}:
+            body = sequence(slots["steps"], local)
+            if step.kind == "loop":
+                if step.iterations == 0:
+                    return own
+                # f(I) = (I intersect K) union P is idempotent. Checking required
+                # fields after one body proves availability on every feedback edge.
+                if step.iterations > 1:
+                    for transfer in (body.full, body.present):
+                        missing = transfer.required - (
+                            transfer.propagated | transfer.produced
+                        )
+                        if missing:
+                            raise ValueError(
+                                f"Loop feedback requires unavailable fields: {sorted(missing)}."
+                            )
+            return own.then(body)
+        if step.kind == "parallel":
+            branches = [
+                sequence(branch, local) for branch in slots["branches"].values()
+            ]
+            return own.then(_FieldFlow.join(branches))
+        if step.kind == "local_enumeration":
+            provided = universe & {
+                "local_enumeration.center_sequence",
+                "tracking.trajectory_id",
+                "tracking.trajectory_index",
+                "tracking.trajectory_step",
+                "tracking.rng_stream_seed",
+            }
+            initialize_transfer = _Transfer(frozenset(), universe, provided)
+            initialize = _FieldFlow(initialize_transfer, initialize_transfer)
+            walked = initialize.then(summarize(slots["walker"], True))
+            generated = walked.then(summarize(slots["mutation_generator"], True))
+            pooled = generated.then(sequence(slots["filters"], True))
+            from pep_compass.steps.flow.strategies.local_enumeration import (
+                _TRANSIENT_WALKER_FIELDS,
             )
-        return
-    if isinstance(specification, FlowSpecification):
-        for index, step in enumerate(specification.steps):
-            _diagnose_step(step, f"{path}.steps[{index}]", diagnostics, catalog)
-        return
-    if isinstance(specification, LoopSpecification):
-        kinds = _component_kinds(specification.body)
-        if "mutation_generator" in kinds and "walker" in kinds:
-            diagnostics.append(
-                PipelineDiagnostic(
-                    severity="ERROR",
-                    code="TRAJECTORY_FEEDBACK",
-                    path=path,
-                    message=(
-                        "This generic loop contains both a walker and a mutation "
-                        "generator. The complete mutation batch becomes the next "
-                        "iteration's walker input. Use local_enumeration to keep "
-                        "the trajectory and candidate pool separate."
-                    ),
-                )
-            )
-        _diagnose_step(specification.body, f"{path}.body", diagnostics, catalog)
-        return
-    if isinstance(specification, ParallelSpecification):
-        if specification.execution == "concurrent":
-            diagnostics.append(
-                PipelineDiagnostic(
-                    severity="WARNING",
-                    code="SHARED_MUTABLE_STATE",
-                    path=path,
-                    message=(
-                        "Concurrent branches share runtime services and execute in "
-                        "declared order to preserve deterministic state and RNGs."
-                    ),
-                )
-            )
-        for branch in specification.branches:
-            _diagnose_step(
-                branch.body,
-                f"{path}.branch[{branch.name}]",
-                diagnostics,
-                catalog,
-            )
-        return
-    if isinstance(specification, LocalEnumerationSpecification):
-        _diagnose_step(
-            specification.generator,
-            f"{path}.mutation_generator",
-            diagnostics,
-            catalog,
-        )
-        _diagnose_step(specification.filters, f"{path}.filters", diagnostics, catalog)
-        if not specification.filters.steps:
-            diagnostics.append(
-                PipelineDiagnostic(
-                    severity="WARNING",
-                    code="NO_LOCAL_FILTER",
-                    path=f"{path}.filters",
-                    message=(
-                        "No filter reduces each local mutation batch before it is "
-                        "retained in the complete candidate pool."
-                    ),
-                )
-            )
-        return
-    raise TypeError(f"Unsupported pipeline specification: {specification!r}")
 
+            retained = universe - set(_TRANSIENT_WALKER_FIELDS)
+            if step.include_walk_points:
+                pooled = _FieldFlow.join([walked, pooled])
+            drop = _Transfer(frozenset(), retained, frozenset())
+            return own.then(pooled).then(_FieldFlow(drop, drop))
+        return own
 
-def _component_kinds(specification: StepSpecification) -> set[str]:
-    """Return component families nested below one operation."""
-    if isinstance(specification, ComponentSpecification):
-        return {specification.kind}
-    if isinstance(specification, FlowSpecification):
-        return set().union(*(_component_kinds(step) for step in specification.steps))
-    if isinstance(specification, LoopSpecification):
-        return _component_kinds(specification.body)
-    if isinstance(specification, ParallelSpecification):
-        return set().union(
-            *(_component_kinds(branch.body) for branch in specification.branches)
-        )
-    if isinstance(specification, LocalEnumerationSpecification):
-        # LocalEnumeration owns its trajectory feedback boundary. Its walker
-        # and generator must not be interpreted as siblings of an outer loop.
-        return {"local_enumeration", *(_component_kinds(specification.filters))}
-    raise TypeError(f"Unsupported pipeline specification: {specification!r}")
-
-
-def _validate_registered_step(specification: StepSpecification, catalog) -> None:
-    """Recursively validate component registry contracts."""
-    if isinstance(specification, ComponentSpecification):
-        catalog.validate(
-            specification.kind,
-            specification.method,
-            specification.parameters,
-        )
-        return
-    if isinstance(specification, FlowSpecification):
-        for step in specification.steps:
-            _validate_registered_step(step, catalog)
-        return
-    if isinstance(specification, LoopSpecification):
-        _validate_registered_step(specification.body, catalog)
-        return
-    if isinstance(specification, ParallelSpecification):
-        for branch in specification.branches:
-            _validate_registered_step(branch.body, catalog)
-        return
-    if isinstance(specification, LocalEnumerationSpecification):
-        _validate_registered_step(specification.walker, catalog)
-        _validate_registered_step(specification.generator, catalog)
-        _validate_registered_step(specification.filters, catalog)
-        return
-    raise TypeError(f"Unsupported pipeline specification: {specification!r}")
-
-
-def _validate_step(specification: StepSpecification, path: str) -> None:
-    """Validate one node and recursively validate its children."""
-    if isinstance(specification, ComponentSpecification):
-        if (
-            not isinstance(specification.method, str)
-            or not specification.method.strip()
-        ):
-            raise ValueError(f"{path}.method cannot be empty.")
-        if not isinstance(specification.parameters, Mapping):
-            raise ValueError(f"{path}.parameters must be a mapping.")
-        return
-    if isinstance(specification, FlowSpecification):
-        for index, step in enumerate(specification.steps):
-            _validate_step(step, f"{path}.steps.{index}")
-        return
-    if isinstance(specification, LoopSpecification):
-        validate_integer(specification.iterations, f"{path}.iterations")
-        _validate_step(specification.body, f"{path}.body")
-        return
-    if isinstance(specification, ParallelSpecification):
-        if specification.execution not in {"sequential", "concurrent"}:
-            raise ValueError(f"{path}.execution is invalid.")
-        if specification.merge != "concatenate":
-            raise ValueError(f"{path}.merge is not implemented.")
-        if not specification.branches:
-            raise ValueError(f"{path}.branches cannot be empty.")
-        names = [branch.name for branch in specification.branches]
-        if len(names) != len(set(names)):
-            raise ValueError(f"{path}.branches contain duplicate names.")
-        for index, branch in enumerate(specification.branches):
-            if not branch.name:
-                raise ValueError(f"{path}.branches.{index}.name cannot be empty.")
-            _validate_step(branch.body, f"{path}.branches.{index}.body")
-        return
-    if isinstance(specification, LocalEnumerationSpecification):
-        validate_integer(specification.trajectories, f"{path}.trajectories", 1)
-        if not isinstance(specification.include_walk_points, bool):
-            raise ValueError(f"{path}.include_walk_points must be a boolean.")
-        if specification.trajectory_execution not in {"sequential", "batched"}:
-            raise ValueError(f"{path}.trajectory_execution is invalid.")
-        if (specification.iterations is None) == (specification.walk_time is None):
-            raise ValueError(f"{path} requires exactly one of iterations or walk_time.")
-        validate_integer(
-            specification.iterations, f"{path}.iterations", 1, optional=True
-        )
-        if specification.walk_time is not None:
-            validate_positive(specification.walk_time, f"{path}.walk_time")
-        if specification.walker.kind != "walker":
-            raise ValueError(f"{path}.walker must declare a walker.")
-        if specification.generator.kind != "mutation_generator":
-            raise ValueError(f"{path}.generator must declare a mutation generator.")
-        _validate_step(specification.walker, f"{path}.walker")
-        _validate_step(specification.generator, f"{path}.generator")
-        _validate_step(specification.filters, f"{path}.filters")
-        return
-    raise TypeError(f"Unsupported pipeline specification at {path}: {specification!r}")
+    flow = summarize(root)
+    missing = (flow.full.required - full_incoming) | (flow.present.required - incoming)
+    if missing:
+        raise ValueError(f"Pipeline requires unavailable fields: {sorted(missing)}.")
+    logger.debug(
+        "Validated graph nodes=%s field_names=%s.", len(identities), len(universe)
+    )
+    return []

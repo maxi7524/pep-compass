@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, Any, Literal
 if TYPE_CHECKING:
     from pep_compass.data_schemas.candidates import CandidateBatch
     from pep_compass.optimization.engine.execution.context import OptimizationContext
-    from pep_compass.optimization.engine.execution.step import Step
+    from pep_compass.steps.base import Step
 
 TrackingLevel = Literal["short", "normal", "all"]
 

@@ -1,7 +1,6 @@
-"""Reusable pipeline declarations and decorator-based preset discovery."""
+"""Ordinary preset functions; configuration and defaults live in real constructors."""
 
-from pep_compass.predefined.default_params import default_autoencoder
-from pep_compass.predefined.factory import create
-from pep_compass.registry.pipelines.catalog import list_predefined, register
+from pep_compass.predefined.lebo import create as lebo
+from pep_compass.predefined.simple import create as simple
 
-__all__ = ["default_autoencoder", "create", "list_predefined", "register"]
+__all__ = ["simple", "lebo"]

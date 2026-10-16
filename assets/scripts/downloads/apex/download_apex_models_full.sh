@@ -5,7 +5,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REPOSITORY_ROOT="$(git -C "${SCRIPT_DIR}" rev-parse --show-toplevel)"
 APEX_REPOSITORY="${APEX_REPOSITORY:-https://gitlab.com/machine-biology-group-public/apex.git}"
-TARGET_DIR="${APEX_MODELS_DIR:-${REPOSITORY_ROOT}/src/pep_compass/optimization/components/oracles/strategies/apex/models/full}"
+TARGET_DIR="${APEX_MODELS_DIR:-${REPOSITORY_ROOT}/src/pep_compass/steps/oracles/strategies/apex/models/full}"
 TEMP_DIR="$(mktemp -d)"
 
 cleanup() {

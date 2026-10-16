@@ -5,12 +5,6 @@ from __future__ import annotations
 import html
 import json
 
-from pep_compass.data_schemas.graph import (
-    LoopSpec,
-    ParallelSpec,
-    StepSpec,
-    thaw,
-)
 from pep_compass.utils.logger import get_custom_logger
 
 logger = get_custom_logger(__name__)
@@ -32,26 +26,9 @@ class GraphView(str):
         )
 
 
-def _information(node, catalog, display=None):
-    if isinstance(node, StepSpec):
-        definition = catalog.family(node.component).registry.describe(node.strategy)
-        values = catalog.family(node.component).registry.configure(
-            node.strategy, thaw(node.parameters)
-        )
-        keys = definition["display_parameters"] or list(values)[:3]
-        important = {key: values[key] for key in keys if key in values}
-        if display is not None and node.node_id in display:
-            important = display[node.node_id]
-        return f"{node.component}: {node.strategy}", important
-    if isinstance(node, LoopSpec):
-        return "loop", {"iterations": node.iterations}
-    if isinstance(node, ParallelSpec):
-        return "parallel", {"execution": node.execution, "merge": node.merge}
-    return "local_enumeration", {
-        "trajectories": node.trajectories,
-        "iterations": node.iterations,
-        "walk_time": node.walk_time,
-    }
+def _information(node):
+    component = node.instantiate()
+    return f"{node.category}: {node.label}", component.display_info()
 
 
 def _compact(value, limit=100):
@@ -59,14 +36,17 @@ def _compact(value, limit=100):
     return text if len(text) <= limit else text[: limit - 1] + "…"
 
 
-def render(schema, catalog, *, format, display=None):
+def render(schema, *, format):
     """Render identities, selected parameters, flow and resource relationships.
 
     :param schema: Immutable PipelineSchema snapshot.
-    :param catalog: Component definitions providing parameter display metadata.
     :param format: text, mermaid or svg.
     :return: A portable string; no optional system executable is required.
     """
+    if format == "object":
+        return schema
+    if format == "json":
+        return json.dumps(schema.to_dict(), indent=2, allow_nan=False)
     logger.debug(
         "Rendering pipeline format=%s root_nodes=%s.", format, len(schema.steps)
     )
@@ -74,34 +54,34 @@ def render(schema, catalog, *, format, display=None):
         lines = []
         if schema.autoencoder is not None:
             lines.append(
-                f"autoencoder: {schema.autoencoder.strategy}/{schema.autoencoder.model} [shared resource]"
+                f"autoencoder: {schema.autoencoder['_target_'].rsplit('.', 1)[-1]}/{schema.autoencoder.get('model', '')} [shared resource]"
             )
         for node, parent, position in schema.walk():
-            kind, parameters = _information(node, catalog, display)
+            kind, parameters = _information(node)
             lines.append(
                 f"{position} [{node.node_id}] {node.name or kind}: {_compact(parameters, 200)} parent={parent or 'root'}"
             )
         return "\n".join(lines) or "Empty computation graph"
     if format == "mermaid":
-        return _mermaid(schema, catalog, display)
+        return _mermaid(schema)
     if format == "svg":
-        return _svg(schema, catalog, display)
+        return _svg(schema)
     raise ValueError("format must be object, json, text, mermaid or svg.")
 
 
-def _mermaid(schema, catalog, display):
+def _mermaid(schema):
     identities = {
         node.node_id: f"n{index}" for index, (node, _, _) in enumerate(schema.walk())
     }
     positions = {node.node_id: position for node, _, position in schema.walk()}
     lines = ["flowchart TD"]
     if schema.autoencoder is not None:
-        lines.append(
-            f'  autoencoder["Autoencoder: {html.escape(schema.autoencoder.strategy)} / {html.escape(schema.autoencoder.model)}"]'
-        )
+        encoder = html.escape(schema.autoencoder["_target_"].rsplit(".", 1)[-1])
+        model = html.escape(schema.autoencoder.get("model", ""))
+        lines.append(f'  autoencoder["Autoencoder: {encoder} / {model}"]')
 
     def label(node):
-        kind, parameters = _information(node, catalog, display)
+        kind, parameters = _information(node)
         text = f"{positions[node.node_id]} · {node.name or _caption(node)} | {_caption(node)} | {node.node_id} | {_compact(parameters)}"
         return html.escape(text, quote=True).replace("\n", " ")
 
@@ -117,14 +97,11 @@ def _mermaid(schema, catalog, display):
 
     def visit(node):
         identity = identities[node.node_id]
-        if isinstance(node, StepSpec):
+        if not node.children:
             lines.append(f'  {identity}["{label(node)}"]')
             if (
                 schema.autoencoder is not None
-                and "autoencoder"
-                in catalog.family(node.component).registry.describe(node.strategy)[
-                    "services"
-                ]
+                and "autoencoder" in node.instantiate().contract().resources
             ):
                 lines.append(f"  autoencoder -. resource .-> {identity}")
             return identity, identity
@@ -134,8 +111,8 @@ def _mermaid(schema, catalog, display):
         lines.append(f'  {identity}["{label(node)}"]')
         end = identity + "_out"
         lines.append(f'  {end}(("Return to parent"))')
-        if isinstance(node, LoopSpec):
-            first, last = sequence(node.steps)
+        if node.kind in {"loop", "sequence"}:
+            first, last = sequence(node.children["steps"])
             if first is not None:
                 lines.extend(
                     (
@@ -146,8 +123,8 @@ def _mermaid(schema, catalog, display):
                 )
             else:
                 lines.append(f"  {identity} --> {end}")
-        elif isinstance(node, ParallelSpec):
-            for name, branch in node.branches.items():
+        elif node.kind == "parallel":
+            for name, branch in node.children["branches"].items():
                 first, last = sequence(branch)
                 if first is not None:
                     lines.extend(
@@ -159,9 +136,9 @@ def _mermaid(schema, catalog, display):
                 else:
                     lines.append(f"  {identity} --> {end}")
         else:
-            walker, _ = visit(node.walker)
-            generator, _ = visit(node.mutation_generator)
-            first, last = sequence(node.filters)
+            walker, _ = visit(node.children["walker"])
+            generator, _ = visit(node.children["mutation_generator"])
+            first, last = sequence(node.children["filters"])
             lines.extend(
                 (
                     f"  {identity} --> {walker}",
@@ -172,7 +149,7 @@ def _mermaid(schema, catalog, display):
             lines.append(f"  {generator} --> {first or end}")
             if last is not None:
                 lines.append(f"  {last} --> {end}")
-            if node.include_walk_points:
+            if node.parameters.get("include_walk_points", True):
                 lines.append(f"  {walker} --> {end}")
         lines.append("  end")
         return identity, end
@@ -182,18 +159,10 @@ def _mermaid(schema, catalog, display):
 
 
 def _caption(node):
-    """Keep the registered family and method visible even for a custom label."""
-    if isinstance(node, StepSpec):
-        family = node.component.replace("_", " ").capitalize()
-        return f"{family} · {node.strategy}"
-    if isinstance(node, LoopSpec):
-        return "Loop"
-    if isinstance(node, ParallelSpec):
-        return "Parallel branches"
-    return "Local enumeration"
+    return f"{node.category.replace('_', ' ').capitalize()} · {node.label}"
 
 
-def _svg(schema, catalog, display):
+def _svg(schema):
     """Route nested entry right, return left, and feedback to its actual target."""
     from textwrap import shorten, wrap
 
@@ -202,17 +171,23 @@ def _svg(schema, catalog, display):
 
     # Measure the owned subgraphs before assigning coordinates.
     def dimensions(node):
-        if isinstance(node, StepSpec):
+        if not node.children:
             return 520, 126
-        if isinstance(node, LoopSpec):
-            width, height = sequence_size(node.steps)
-        elif isinstance(node, ParallelSpec):
-            sizes = [sequence_size(branch) for branch in node.branches.values()]
+        if node.kind in {"loop", "sequence"}:
+            width, height = sequence_size(node.children["steps"])
+        elif node.kind == "parallel":
+            sizes = [
+                sequence_size(branch) for branch in node.children["branches"].values()
+            ]
             width = sum(size[0] for size in sizes) + 40 * max(0, len(sizes) - 1)
             height = max((size[1] for size in sizes), default=0)
         else:
             width, height = sequence_size(
-                (node.walker, node.mutation_generator, *node.filters)
+                (
+                    node.children["walker"],
+                    node.children["mutation_generator"],
+                    *node.children["filters"],
+                )
             )
         return width + 96, height + 178
 
@@ -284,8 +259,8 @@ def _svg(schema, catalog, display):
 
     def visit(node, x, y):
         width, height = dimensions(node)
-        _, parameters = _information(node, catalog, display)
-        leaf = isinstance(node, StepSpec)
+        _, parameters = _information(node)
+        leaf = not node.children
         caption = _caption(node)
         position = positions[node.node_id]
         compact_position = (
@@ -316,9 +291,9 @@ def _svg(schema, catalog, display):
             text(x + 12, y + 81 + index * 16, row, 11)
         if not leaf:
             body_y = y + 106
-            if isinstance(node, ParallelSpec):
+            if node.kind == "parallel":
                 branch_x = x + 64
-                for name, branch in node.branches.items():
+                for name, branch in node.children["branches"].items():
                     text(branch_x, body_y - 8, f"Branch: {name}", 11)
                     first, last = sequence(branch, branch_x, body_y)
                     if first is not None:
@@ -327,9 +302,13 @@ def _svg(schema, catalog, display):
                 note = "Merge branch outputs and return to the parent flow"
             else:
                 nodes = (
-                    node.steps
-                    if isinstance(node, LoopSpec)
-                    else (node.walker, node.mutation_generator, *node.filters)
+                    node.children["steps"]
+                    if node.kind in {"loop", "sequence"}
+                    else (
+                        node.children["walker"],
+                        node.children["mutation_generator"],
+                        *node.children["filters"],
+                    )
                 )
                 first, last = sequence(nodes, x + 64, body_y)
                 if first is not None:
@@ -338,7 +317,7 @@ def _svg(schema, catalog, display):
                     target = (x + 64 + first_width, body_y + 24)
                     start = (
                         (last[0], last[1] + 10)
-                        if isinstance(node, LoopSpec)
+                        if node.kind in {"loop", "sequence"}
                         else (x + 64 + first_width, body_y + 88)
                     )
                     path(
@@ -352,11 +331,13 @@ def _svg(schema, catalog, display):
                         owner=node.node_id,
                         dashed=True,
                         title="Next loop iteration"
-                        if isinstance(node, LoopSpec)
+                        if node.kind in {"loop", "sequence"}
                         else "Next private walker point; mutations do not feed back",
                     )
-                    if not isinstance(node, LoopSpec) and node.include_walk_points:
-                        walker_height = dimensions(node.walker)[1]
+                    if not node.kind in {"loop", "sequence"} and node.parameters.get(
+                        "include_walk_points", True
+                    ):
+                        walker_height = dimensions(node.children["walker"])[1]
                         walker_output = (x + 64, body_y + walker_height - 12)
                         path(
                             [
@@ -371,7 +352,7 @@ def _svg(schema, catalog, display):
                         )
                 note = (
                     "Repeat the body; return its final output"
-                    if isinstance(node, LoopSpec)
+                    if node.kind in {"loop", "sequence"}
                     else "Private walker feedback; mutations and filters fill the output pool"
                 )
             text(x + 32, y + height - 18, note, 11)
@@ -388,7 +369,7 @@ def _svg(schema, catalog, display):
         text(
             32,
             40,
-            f"Shared autoencoder: {schema.autoencoder.strategy} / {schema.autoencoder.model}",
+            f"Shared autoencoder: {schema.autoencoder['_target_'].rsplit('.', 1)[-1]} / {schema.autoencoder.get('model', '')}",
             14,
             True,
         )
@@ -424,3 +405,8 @@ def _text_value(value):
     if isinstance(value, float):
         return f"{value:.6g}"
     return str(value)
+
+
+def graph_view(schema, format="svg"):
+    """Create the shared notebook representation for declared or compiled graphs."""
+    return GraphView(render(schema, format=format), format)

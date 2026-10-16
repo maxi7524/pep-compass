@@ -74,15 +74,10 @@ def test_serialization_preserves_mutation_pool_aliases():
     assert restored.fields["b"].value == "second"
 
 
-def test_custom_scientific_payloads_use_registry_decorators():
-    from pep_compass.optimization.saving.serialization import register_payload
-
-    @register_payload("test_component_trace")
+def test_unsupported_payloads_are_rejected_without_dynamic_registration():
     @dataclass
     class Trace:
         values: torch.Tensor
 
-    original = Trace(torch.arange(6, dtype=torch.float64).reshape(2, 3))
-    restored = loads(dumps(original))
-    assert type(restored) is Trace
-    assert torch.equal(restored.values, original.values)
+    with pytest.raises(TypeError, match="No run-data codec"):
+        dumps(Trace(torch.arange(6, dtype=torch.float64).reshape(2, 3)))

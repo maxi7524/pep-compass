@@ -1,39 +1,32 @@
 # Architecture decisions
 
-Construction, execution and experiment dispatch have separate contracts:
-
-- `data_schemas` owns declarations, candidate data and run/result schemas.
-- `registry` owns factory metadata, discovery, validation and model artifacts.
-- `core.wrapper` presents the editable Python API and descriptions.
-- `core.builder` resolves dependencies and validates the complete graph before
-  constructing executable Steps.
-- `optimization` owns scientific components, graph execution and result storage.
-- `orchestrator` composes Hydra configs and dispatches independent wrapper runs
-  through registered execution strategies.
-- `analysis` reads common result tables and explicitly reconstructs retained
-  histories. Historical archive reading is supported without reviving the old CLI.
-
-The component registries do not depend on `core`. Default parameter resolution
-belongs to registration metadata and preset factories. A builder receives a
-prepared catalog; public wrapper construction explicitly loads built-in families.
-Named models and their artifact requirements use one shared model catalog.
-
-The editable schema and executable Step graph serve different lifecycle stages.
-Every executable graph node follows Step's lifecycle; internal algorithm
-strategies remain private to their scientific component. `prepare_call` owns
-per-call preparation rather than external wrappers guessing component internals.
-
-Use direct canonical module imports. Forwarding modules, old `runtime`/`data`
-namespace aliases and the deprecated `describe_step` spelling are removed.
-`describe_component` provides component metadata and placed-node details.
-
-Result storage uses SQLite plus a JSON settings manifest with common memory and
-disk semantics. Evaluated peptide archives differ from the terminal propagated
-batch. Whole-batch budget semantics preserve observations already computed.
-Retention controls reconstruction boundaries and component data independently
-from the `base` archive. See the [wrapper](tutorial/wrapper.md) and
-[orchestrator](tutorial/orchestrator.md) guides for the actual API.
-
-PoGS remains a future scientific integration; no unimplemented workflow stub is
-kept in the execution path. Concurrent experiment dispatch is separate from
-parallel branches inside one computation graph.
+1. Actual Python objects and Hydra `_target_` select implementations. Mutable
+   registries, managers and registration side effects are removed.
+2. Category namespaces export actual implementations under `strategies/`.
+   Package initializers contain public exports or package documentation only.
+3. `Pipeline` composes `PipelineBuilder`. Editing is implemented once by the
+   builder; `PipelineSchema` stores independent immutable declarations.
+4. Graph placements and candidate lineage have different identities. Scope
+   commits preserve child placement IDs; replacement preserves the target ID.
+5. Compilation constructs new components and binds shared resources after
+   validation. Configuration and execution state have distinct lifetimes.
+6. Constructor defaults are authoritative. Redundant forwarding configuration
+   dataclasses and duplicate preset registries are removed. Presets are functions.
+7. `Step` owns lifecycle/accounting. Internal algorithm strategies use explicit
+   interfaces and manage numerical batches internally. Family marker classes
+   with no behavior are removed.
+8. Retained abstract strategy classes define actual signatures (`score`, `select`,
+   `generate`, geometry/update calls). `ExecutionBackend` defines dispatch and
+   resource freezing. These contracts constrain implementations; they are not
+   empty category labels. Exception subclasses express distinct failure cases.
+9. Model file requirements belong to model implementations. Shared artifact
+   validation/hashing is implemented once. Named weight variants describe data;
+   they do not dispatch algorithm factories.
+10. Ranked convenience policies are composition functions returning `Ranked`,
+    avoiding empty subclasses that only choose scoring/selection defaults.
+11. Memory and SQLite share a logical result schema. Evaluated archives and the
+    outgoing batch remain separate. Replay retains state/RNG boundaries and
+    checks ordered output hashes. Unsupported payload types fail explicitly.
+12. No old import aliases, parsers, result-layout adapters or migration layer are
+    maintained on this branch. The previous notebook is preserved unchanged;
+    the supported notebook is `tutorial/wrapper_new.ipynb`.

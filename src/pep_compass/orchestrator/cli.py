@@ -8,7 +8,7 @@ import sys
 from dataclasses import asdict
 from pathlib import Path
 
-from pep_compass.orchestrator.configuration import load_plugins, register_configurations
+from pep_compass.orchestrator.configuration import load_plugins
 
 
 def main(argv=None):
@@ -20,10 +20,9 @@ def main(argv=None):
     arguments = list(sys.argv[1:] if argv is None else argv)
     if not arguments or arguments[0] in {"-h", "--help"}:
         print(
-            "pep-compass {run|plan|list|worker} [arguments]\n"
+            "pep-compass {run|plan|worker} [arguments]\n"
             "  run/plan: Hydra defaults, key=value, --config-path, --config-name, --multirun\n"
-            "  --plugin MODULE: import registrations before Hydra composition\n"
-            "  list: registered presets and execution backends\n"
+            "  --plugin MODULE: import explicit application modules\n"
             "  worker PLAN --index N [--skip-completed]: execute one frozen job"
         )
         return
@@ -36,21 +35,6 @@ def main(argv=None):
         plugins.append(arguments[index + 1])
         del arguments[index : index + 2]
     load_plugins(plugins)
-    if command == "list":
-        from pep_compass.registry.execution.backends import (
-            backend_registry,
-            load_backends,
-        )
-        from pep_compass.registry.pipelines.catalog import list_predefined
-
-        load_backends()
-        print(
-            json.dumps(
-                {"pipelines": list_predefined(), "backends": backend_registry.names()},
-                indent=2,
-            )
-        )
-        return
     if command == "worker":
         from pep_compass.orchestrator.planning import load_plan
         from pep_compass.orchestrator.runner import Orchestrator
@@ -87,8 +71,6 @@ def _hydra_entry(command, plugins):
 
     from pep_compass.orchestrator.planning import plan_configuration
     from pep_compass.orchestrator.runner import Orchestrator
-
-    register_configurations()
 
     @hydra.main(version_base="1.3", config_path="conf", config_name="config")
     def execute(configuration):

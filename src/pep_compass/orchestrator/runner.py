@@ -9,10 +9,10 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 
+from pep_compass.configuration.objects import construct
 from pep_compass.core.wrapper.pipeline import Pipeline
 from pep_compass.optimization.saving.reader import AnalysisReader
 from pep_compass.orchestrator.planning import save_plan
-from pep_compass.registry.execution.backends import backend_registry, load_backends
 from pep_compass.utils.logger import get_custom_logger
 
 logger = get_custom_logger(__name__)
@@ -32,26 +32,22 @@ class RunExecution:
 
 
 class Orchestrator:
-    """Coordinate independent Pipeline runs using registered execution strategies.
+    """Coordinate independent Pipeline runs using directly configured execution strategies.
 
-    :param catalog: Optional prepared Python catalog, local execution only.
     :param autoencoder: Optional initialized resource, local execution only.
     """
 
-    def __init__(self, *, catalog=None, autoencoder=None):
-        self.catalog, self.autoencoder = catalog, autoencoder
+    def __init__(self, *, autoencoder=None):
+        self.autoencoder = autoencoder
 
     def run(self, plan):
-        """Persist the plan and dispatch it through the registered backend.
+        """Persist the plan and dispatch it through the selected backend.
 
         :param plan: A model-free validated ExecutionPlan.
         :return: Ordered RunExecution records, or a generated Slurm script path.
         """
-        load_backends()
-        plan, path = save_plan(plan, catalog=self.catalog)
-        backend = backend_registry.build(
-            plan.backend["strategy"], plan.backend["parameters"]
-        )
+        plan, path = save_plan(plan)
+        backend = construct(plan.backend)
         return backend.run(self, plan, path)
 
     def run_entry(self, plan, entry, *, skip_completed=None):
@@ -93,11 +89,13 @@ class Orchestrator:
                 )
 
                 device = entry.settings.execution.device or (
-                    plan.schema.autoencoder.device if plan.schema.autoencoder else "cpu"
+                    plan.schema.autoencoder.get("device", "cpu")
+                    if plan.schema.autoencoder
+                    else "cpu"
                 )
                 validate_execution_device(device, inspect_torch_runtime())
                 pipeline = Pipeline.from_schema(
-                    plan.schema, catalog=self.catalog, autoencoder=self.autoencoder
+                    plan.schema, autoencoder=self.autoencoder
                 )
                 pipeline.set_runner_settings(**entry.settings.to_dict())
                 pipeline.run(entry.sequences)

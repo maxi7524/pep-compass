@@ -6,7 +6,6 @@ import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from pep_compass.orchestrator.backends.base import ExecutionBackend
-from pep_compass.registry.execution.backends import register
 from pep_compass.utils.logger import get_custom_logger
 from pep_compass.utils.validation import validate_integer
 
@@ -73,7 +72,6 @@ def execute_worker(plan, entry, plan_path):
     )
 
 
-@register("subprocess")
 class SubprocessBackend(ExecutionBackend):
     """Dispatch independent jobs in bounded isolated Python processes.
 
@@ -85,9 +83,9 @@ class SubprocessBackend(ExecutionBackend):
         self.max_workers = max_workers
 
     def run(self, orchestrator, plan, plan_path):
-        if orchestrator.autoencoder is not None or orchestrator.catalog is not None:
+        if orchestrator.autoencoder is not None:
             raise ValueError(
-                "Isolated workers require serializable registered resources; use plugins."
+                "Isolated workers require serializable resource declarations with direct import targets."
             )
         records = []
         with ThreadPoolExecutor(max_workers=self.max_workers) as pool:

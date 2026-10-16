@@ -60,7 +60,7 @@ class Saver(StepTracker):
 
     def begin_step(self, step, batch, scope, context):
         """Begin a measured invocation and optionally capture its replay input."""
-        from pep_compass.optimization.engine.operations.local_enumeration import (
+        from pep_compass.steps.flow.strategies.local_enumeration import (
             LocalEnumeration,
         )
 
@@ -128,7 +128,6 @@ class Saver(StepTracker):
 
     def end_step(self, handle, step, input_batch, output_batch, scope, context):
         """Complete metadata and optional component/trajectory snapshots."""
-        from pep_compass.optimization.components.walkers.base import Walker
 
         self.backend.execute(
             "UPDATE step_executions SET output_count=?,duration_seconds=?,status='completed',phase='execute' WHERE execution_id=?",
@@ -143,7 +142,7 @@ class Saver(StepTracker):
                     handle["checkpoint"],
                 ),
             )
-        if self.settings.reconstruction == "trajectories" and isinstance(step, Walker):
+        if self.settings.reconstruction == "trajectories" and step.category == "walker":
             self.capture(
                 output_batch,
                 name="trajectory_point",
@@ -240,7 +239,7 @@ class Saver(StepTracker):
             self._evaluations += 1
 
     def capture(self, batch, *, name, context=None, kind="explicit"):
-        """Save a requested batch snapshot; explicit requests override base retention."""
+        """Snapshot a requested batch snapshot; explicit requests override base retention."""
         payload = self.backend.payload(batch)
         self.backend.execute(
             "INSERT INTO candidate_sets(name,node_id,execution_id,kind,payload_id) VALUES (?,?,?,?,?)",

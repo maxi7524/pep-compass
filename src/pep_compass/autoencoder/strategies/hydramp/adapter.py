@@ -13,7 +13,11 @@ from pep_compass.autoencoder.strategies.hydramp.architecture import (
     HydrAMPDecoder,
     HydrAMPEncoder,
 )
-from pep_compass.registry.models.catalog import model_catalog
+from pep_compass.optimization.saving.artifacts import (
+    FileArtifact,
+    ModelArtifacts,
+    resolve_artifacts,
+)
 from pep_compass.utils.logger import get_custom_logger
 from pep_compass.utils.sequence_utils import to_one_hot, translate_generated_peptide
 
@@ -63,20 +67,22 @@ class HydrampAutoencoder(Autoencoder, nn.Module):
 
     def _load_weights(self) -> None:
         """Load state dictionaries for the selected bundled HydrAMP model."""
-        # Direct adapter use explicitly loads its model declarations.
-        if self.model_name not in model_catalog.names("autoencoder.hydramp"):
-            from pep_compass.registry.components.loading import load_components
-
-            load_components("autoencoder")
         started_at = perf_counter()
         weights_dir = Path(__file__).parent / "models" / self.model_name
         if not weights_dir.is_dir():
             raise FileNotFoundError(
                 f"HydrAMP weights directory does not exist: {weights_dir}"
             )
-        _, paths = model_catalog.resolve(
-            "autoencoder.hydramp",
-            self.model_name,
+        paths = resolve_artifacts(
+            ModelArtifacts(
+                "autoencoder.hydramp",
+                self.model_name,
+                self.model_name,
+                (
+                    FileArtifact("encoder_weights.pickle"),
+                    FileArtifact("decoder_weights.pickle"),
+                ),
+            ),
             root=Path(__file__).parent / "models",
         )
         encoder_path, decoder_path = paths

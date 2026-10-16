@@ -1,40 +1,20 @@
-"""PepCompass package without eager initialization of compute dependencies."""
+"""Public Python API without registration or eager model initialization."""
 
-from typing import TYPE_CHECKING, Any
-
-if TYPE_CHECKING:
-    from pep_compass.core.wrapper import (
-        LocalEnumeration,
-        Loop,
-        Parallel,
-        Pipeline,
-        Step,
-    )
-    from pep_compass.optimization.pipeline import PepCompassPipeline
-
-__all__ = [
-    "PepCompassPipeline",
-    "Pipeline",
-    "Step",
-    "Loop",
-    "Parallel",
-    "LocalEnumeration",
-]
+__all__ = ["Pipeline", "PipelineBuilder", "PipelineSchema"]
 
 
-def __getattr__(name: str) -> Any:
-    """Load the compute API only when it is explicitly requested.
+def __getattr__(name):
+    """Load explicitly requested interfaces without initializing model weights."""
+    if name == "Pipeline":
+        from pep_compass.core.wrapper.pipeline import Pipeline
 
-    This keeps configuration and analysis imports usable after a lightweight
-    installation. Executing a pipeline still requires one device extra, such
-    as ``pep-compass[cpu]`` or ``pep-compass[cu126]``.
-    """
-    if name == "PepCompassPipeline":
-        from pep_compass.optimization.pipeline import PepCompassPipeline
+        return Pipeline
+    if name == "PipelineBuilder":
+        from pep_compass.core.builder.builder import PipelineBuilder
 
-        return PepCompassPipeline
-    if name in {"Pipeline", "Step", "Loop", "Parallel", "LocalEnumeration"}:
-        from pep_compass.core import wrapper
+        return PipelineBuilder
+    if name == "PipelineSchema":
+        from pep_compass.data_schemas.graph import PipelineSchema
 
-        return getattr(wrapper, name)
+        return PipelineSchema
     raise AttributeError(name)

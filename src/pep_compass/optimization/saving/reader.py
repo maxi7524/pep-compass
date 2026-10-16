@@ -203,16 +203,104 @@ class AnalysisReader:
             else pd.DataFrame(columns=table.columns)
         )
 
-    def reconstruct_local_enumeration(
-        self, checkpoint_id, *, autoencoder=None, catalog=None
-    ):
+    def get_checkpoints(self):
+        """Return retained replay boundaries without loading their tensor payloads."""
+        return self._table_frame("checkpoints")
+
+    def get_boundary_input(self, execution_id):
+        """Load the input CandidateBatch retained for one operation invocation.
+
+        :param execution_id: Step execution identity from get_checkpoints().
+        :return: Original aligned input batch with latent origins and fields.
+        :raises DataUnavailableError: If no reconstruction boundary was retained.
+        """
+        row = self.backend.execute(
+            "SELECT payload_id FROM checkpoints WHERE execution_id=?",
+            (int(execution_id),),
+        ).fetchone()
+        if row is None:
+            raise DataUnavailableError("No retained boundary for this execution.")
+        return self.backend.load_payload(row[0])["batch"]
+
+    def get_trajectories(self):
+        """Load walker-produced sequences, metadata and aligned latent positions.
+
+        :return: Pair of a metadata DataFrame and a tensor shaped (N, D).
+        :raises DataUnavailableError: If trajectory retention was disabled.
+        """
+        import torch
+
+        from pep_compass.data_schemas.candidates import (
+            ObjectField,
+            OptionalField,
+            TensorField,
+        )
+
+        if (
+            self.settings["runner_settings"]["storage"]["reconstruction"]
+            != "trajectories"
+        ):
+            raise DataUnavailableError(
+                "Enable reconstruction='trajectories' to retain walk points."
+            )
+        rows, latents = [], []
+        cursor = self.backend.execute(
+            "SELECT execution_id,payload_id FROM candidate_sets WHERE kind='trajectory' ORDER BY set_id"
+        )
+        for execution_id, payload_id in cursor:
+            batch = self.backend.load_payload(payload_id)
+            for index, sequence in enumerate(batch.sequences):
+                record = {
+                    "execution_id": execution_id,
+                    "sequence": sequence,
+                    "latent_index": len(rows),
+                }
+                for name in (
+                    "tracking.trajectory_id",
+                    "tracking.trajectory_index",
+                    "tracking.trajectory_step",
+                    "lineage.candidate_id",
+                ):
+                    field = batch.fields.get(name)
+                    if isinstance(field, OptionalField):
+                        field = field.values if bool(field.valid[index]) else None
+                    if isinstance(field, (TensorField, ObjectField)):
+                        value = field.values[index]
+                        record[name.split(".")[-1]] = (
+                            value.item() if isinstance(value, torch.Tensor) else value
+                        )
+                rows.append(record)
+            latents.append(batch.latent_origins)
+        frame = pd.DataFrame(
+            rows,
+            columns=[
+                "execution_id",
+                "sequence",
+                "latent_index",
+                "trajectory_id",
+                "trajectory_index",
+                "trajectory_step",
+                "candidate_id",
+            ],
+        )
+        return frame, torch.cat(latents, dim=0) if latents else torch.empty(
+            (0, 0)
+        )  # (N, D)
+
+    def reconstruct_local_enumeration(self, checkpoint_id, *, autoencoder=None):
         """Re-execute one retained boundary and verify ordered output sequences."""
         from pep_compass.optimization.saving.replay import reconstruct
 
-        return reconstruct(
-            self, checkpoint_id, autoencoder=autoencoder, catalog=catalog
-        )
+        return reconstruct(self, checkpoint_id, autoencoder=autoencoder)
 
     def close(self):
         """Release the reader-owned connection, including a memory database."""
         self.backend.close()
+
+    def __enter__(self):
+        """Return this lazy reader for deterministic resource cleanup."""
+        return self
+
+    def __exit__(self, kind, value, traceback):
+        self.close()
+        return False

@@ -34,22 +34,21 @@ class ReplayResult:
         )
 
 
-def reconstruct(reader, checkpoint_id, *, autoencoder=None, catalog=None):
+def reconstruct(reader, checkpoint_id, *, autoencoder=None):
     """Rebuild one named operation, restore state and verify its output.
 
     :param reader: Reader of a run with retained reconstruction boundaries.
     :param checkpoint_id: Stable persisted checkpoint identity.
     :param autoencoder: Required for originally injected, unnamed resources.
-    :param catalog: Optional explicitly prepared custom component catalog.
     :return: ReplayResult with a digest verdict; no oracle is rerun implicitly.
     """
     from pep_compass.core.builder import PipelineBuilder
     from pep_compass.data_schemas.graph import PipelineSchema
     from pep_compass.optimization.engine.inspection import find_step
-    from pep_compass.optimization.engine.operations.local_enumeration import (
+    from pep_compass.optimization.engine.runner import model_digest
+    from pep_compass.steps.flow.strategies.local_enumeration import (
         LocalEnumeration,
     )
-    from pep_compass.optimization.engine.runner import model_digest
 
     row = reader.backend.execute(
         "SELECT * FROM checkpoints WHERE checkpoint_id=?", (checkpoint_id,)
@@ -72,17 +71,10 @@ def reconstruct(reader, checkpoint_id, *, autoencoder=None, catalog=None):
         )
         if target is None:
             raise ValueError("Checkpoint refers to a missing graph declaration.")
-        if catalog is None:
-            from pep_compass.registry.components.catalog import component_catalog
-            from pep_compass.registry.components.loading import load_components
-
-            load_components()
-            catalog = component_catalog
-        builder = PipelineBuilder(autoencoder, catalog=catalog)
-        compiled = builder.build(
-            PipelineSchema((target,), autoencoder=schema.autoencoder),
-            initial_fields=checkpoint["batch"].fields,
-        )
+        compiled = PipelineBuilder(
+            schema=PipelineSchema((target,), autoencoder=schema.autoencoder),
+            autoencoder=autoencoder,
+        ).build(initial_fields=checkpoint["batch"].fields)
         expected = reader.settings["reproducibility"]["autoencoder_sha256"]
         if expected is not None and model_digest(compiled.autoencoder) != expected:
             raise ValueError("Autoencoder weights differ from the recorded run.")

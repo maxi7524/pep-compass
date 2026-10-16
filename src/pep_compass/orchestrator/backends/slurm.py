@@ -6,7 +6,6 @@ from string import Template
 
 from pep_compass.orchestrator.backends.base import ExecutionBackend
 from pep_compass.orchestrator.backends.subprocess import worker_command
-from pep_compass.registry.execution.backends import register
 from pep_compass.utils.logger import get_custom_logger
 
 logger = get_custom_logger(__name__)
@@ -15,7 +14,6 @@ DEFAULT_TEMPLATE_PATH = (
 )
 
 
-@register("slurm")
 class SlurmBackend(ExecutionBackend):
     """Generate a portable array script; submission remains an explicit user action.
 
@@ -62,9 +60,9 @@ class SlurmBackend(ExecutionBackend):
         return values
 
     def run(self, orchestrator, plan, plan_path):
-        if orchestrator.autoencoder is not None or orchestrator.catalog is not None:
+        if orchestrator.autoencoder is not None:
             raise ValueError(
-                "Slurm jobs require serializable registered resources; use plugins."
+                "Slurm jobs require serializable resource declarations with direct import targets."
             )
         template = (
             self.template

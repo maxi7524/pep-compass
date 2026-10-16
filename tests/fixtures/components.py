@@ -2,13 +2,14 @@
 
 from pep_compass.data_schemas.candidates import CandidateBatch
 from pep_compass.optimization.engine.execution.context import OptimizationContext
-from pep_compass.optimization.engine.execution.step import Step
+from pep_compass.steps.base import Step
 
 
 class SuffixStep(Step):
     """Append a configured suffix to every candidate sequence."""
 
     def __init__(self, suffix: str) -> None:
+        self._configure({"suffix": suffix})
         self.suffix = suffix
 
     def _execute(

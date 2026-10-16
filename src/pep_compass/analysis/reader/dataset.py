@@ -6,8 +6,8 @@ from collections.abc import Iterator, Sequence
 
 import pandas as pd
 
-from pep_compass.analysis.reader.data_schemas import get_schema
 from pep_compass.analysis.reader.selection import ExperimentSelection
+from pep_compass.optimization.saving.reader import AnalysisReader
 
 
 class SelectionTableHandle:
@@ -20,9 +20,10 @@ class SelectionTableHandle:
     @property
     def columns(self) -> tuple[str, ...]:
         """Return source columns available from the first existing table."""
-        schema = get_schema(self.table)
-        paths = self.selection.paths(self.table)
-        return tuple(schema.inspect(paths[0])) if paths else ()
+        if not self.selection.runs:
+            return ()
+        with AnalysisReader(self.selection.runs[0].tracking_path) as reader:
+            return reader.tables[self.table].columns
 
     def count_rows(self) -> int:
         """Count selected rows without materializing the table."""

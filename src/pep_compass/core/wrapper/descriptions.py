@@ -1,4 +1,4 @@
-"""Tabular presentation of registry definitions and declared components."""
+"""Discover public exports and present constructor documentation as tables."""
 
 from __future__ import annotations
 
@@ -103,7 +103,7 @@ def _definition_rows(definition, section="", values=None, *, technical=False):
 
 
 def description_frame(value, *, technical=False):
-    """Return one DataFrame for catalog choices or a complete detailed definition.
+    """Return one DataFrame for public choices or a complete detailed definition.
 
     :param value: Raw wrapper description records.
     :return: Catalog table or long-form detail table, retaining nested definitions.
@@ -130,7 +130,9 @@ def description_frame(value, *, technical=False):
             ],
         )
     if "node" not in value:
-        rows = _definition_rows(value, technical=technical)
+        rows = _definition_rows(
+            value, values=value.get("configuration"), technical=technical
+        )
     else:
         node = value["node"]
         rows = [
@@ -244,3 +246,100 @@ def present_description(value, mode="display", *, technical=False):
     else:
         print(readable.to_string(index=False))
     return None
+
+
+def definition(value):
+    """Describe the real constructor and its resolved values without loading weights."""
+    import inspect
+
+    from pep_compass.configuration.objects import Configurable, plain
+    from pep_compass.steps.base import Step
+
+    target = (
+        value if inspect.isclass(value) or inspect.isfunction(value) else type(value)
+    )
+    prose, help_text = _doc_parts(inspect.getdoc(target) or "")
+    if inspect.isclass(target):
+        for parent in reversed(target.__mro__[1:]):
+            _, inherited_help = _doc_parts(inspect.getdoc(parent) or "")
+            help_text = {**inherited_help, **help_text}
+        _, constructor_help = _doc_parts(inspect.getdoc(target.__init__) or "")
+        help_text.update(constructor_help)
+    parameters = []
+    for name, parameter in inspect.signature(target).parameters.items():
+        if parameter.kind in {
+            inspect.Parameter.VAR_POSITIONAL,
+            inspect.Parameter.VAR_KEYWORD,
+        }:
+            continue
+        has_default = parameter.default is not inspect.Parameter.empty
+        parameters.append(
+            {
+                "name": name,
+                "type": str(parameter.annotation)
+                if parameter.annotation is not inspect.Parameter.empty
+                else "",
+                "required": not has_default,
+                "has_default": has_default,
+                "default": plain(parameter.default) if has_default else None,
+                "description": help_text.get(name, ""),
+            }
+        )
+    result = {
+        "component": getattr(
+            target,
+            "category",
+            target.__module__.split(".")[-2] if "." in target.__module__ else "custom",
+        ),
+        "strategy": target.__name__,
+        "description": prose,
+        "parameters": parameters,
+    }
+    result["nested_strategies"] = {
+        name: [] for name in getattr(target, "stage_parameters", ())
+    }
+    if isinstance(value, Configurable):
+        result["configuration"] = value.configuration
+        result["nested_strategies"] = {
+            key: [definition(child)]
+            for key, child in vars(value).items()
+            if isinstance(child, Configurable) and not isinstance(child, Step)
+        }
+    if isinstance(value, Step):
+        contract = value.contract()
+        result.update(
+            services=list(contract.resources),
+            input_fields=list(contract.required_fields),
+            output_fields=list(contract.produced_fields),
+            optional_inputs=list(contract.optional_fields),
+        )
+    return result
+
+
+def available(category=None):
+    """Read __all__ from public namespaces; no mutable catalogs or plugin scans."""
+    from importlib import import_module
+
+    names = (
+        (category,)
+        if category
+        else (
+            "filters",
+            "flow",
+            "mutations",
+            "oracles",
+            "saving",
+            "walkers",
+            "autoencoder",
+        )
+    )
+    records = []
+    for name in names:
+        module = import_module(
+            "pep_compass." + (name if name == "autoencoder" else "steps." + name)
+        )
+        for exported in module.__all__:
+            item = definition(getattr(module, exported))
+            item["component"] = name
+            records.append(item)
+    return records
