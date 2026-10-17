@@ -222,7 +222,7 @@ def test_composition_agrees_with_analytical_sequence_model(operators):
             )
             expected = [s + token for s in expected] + [s + "R" for s in expected]
     result = Pipeline(steps, autoencoder=FixtureResource()).run(
-        ["AA"], seed=7, storage={"save_terminal": True}
+        ["AA"], seed=7, storage={"reconstruction": "trajectories"}
     )
     assert list(result.reader.get_final_batch().sequences) == expected
     result.close()
@@ -234,8 +234,12 @@ def test_real_simple_preset_preserves_frozen_reference_exactly():
     reference = json.loads(
         (Path(__file__).parents[1] / "mock_data/direct_reference.json").read_text()
     )
-    result = simple().run(["FLYKWWIRIGRLKL"], storage={"save_terminal": True})
-    assert result.reader.get_archive().to_dict("records") == reference["archive"]
+    result = simple().run(
+        ["FLYKWWIRIGRLKL"], storage={"reconstruction": "trajectories"}
+    )
+    columns = ["objective", "sequence", "score", "direction", "evaluation_index"]
+    expected = [{key: row[key] for key in columns} for row in reference["archive"]]
+    assert result.reader.get_archive()[columns].to_dict("records") == expected
     assert list(result.reader.get_final_batch().sequences) == reference["terminal"]
     result.close()
 

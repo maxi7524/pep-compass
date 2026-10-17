@@ -8,7 +8,15 @@ def validate_bacteria_indices(
     *,
     pathogen_count: int,
 ) -> tuple[int, ...] | None:
-    """Normalize and validate configured pathogen columns."""
+    """Normalize and validate configured pathogen columns.
+
+    :param value: Value consumed by this conversion or transformation.
+    :type value: str | Sequence[int]
+    :param pathogen_count: Pathogen count.
+    :type pathogen_count: int
+    :return: Result of this operation.
+    :rtype: tuple[int, ...] | None
+    """
     if value == "all":
         return None
     if isinstance(value, str) or not value:

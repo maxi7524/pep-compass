@@ -1,14 +1,21 @@
 """Scoped deterministic random state for backend execution."""
 
+from __future__ import annotations
+
 import random
 from contextlib import contextmanager, nullcontext
 from threading import RLock
+from typing import TYPE_CHECKING
 
 import numpy as np
 import torch
 
 from pep_compass.utils.logger import get_custom_logger
 from pep_compass.utils.validation import validate_integer
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
+
 
 logger = get_custom_logger(__name__)
 
@@ -20,6 +27,9 @@ def seed_generators(seed: int) -> None:
 
     :param seed: Non-negative integer seed.
     :raises ValueError: If the seed is invalid.
+
+    :type seed: int
+    :rtype: None
     """
     validate_integer(seed, "seed")
     random.seed(seed)
@@ -30,7 +40,7 @@ def seed_generators(seed: int) -> None:
 @contextmanager
 def random_scope(
     seed: int | None, *, serialize: bool = True, preserve_unseeded: bool = False
-):
+) -> Iterator[None]:
     """Seed and restore process RNGs and deterministic Torch kernel settings.
 
     :param seed: Seed for a reproducible execution, or null to retain the stream.
@@ -41,6 +51,12 @@ def random_scope(
     REMARK: Branch execution is ordered by Parallel because model adapters and
     third-party libraries may consume process-global RNGs and mutable state.
     Separate runtime subprocesses provide independent concurrent runs.
+
+    :type seed: int | None
+    :type serialize: bool
+    :type preserve_unseeded: bool
+    :return: Result of this operation.
+    :rtype: Iterator[None]
     """
     with _run_lock if serialize else nullcontext():
         if seed is None and not preserve_unseeded:

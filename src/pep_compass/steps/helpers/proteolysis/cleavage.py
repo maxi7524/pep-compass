@@ -67,6 +67,9 @@ def _default_merops_root() -> Path:
     The module lives at
     ``src/pep_compass/steps/helpers/proteolysis`` so the
     repository root is six parents up.
+
+    :return: Result of this operation.
+    :rtype: Path
     """
     return Path(__file__).resolve().parents[5] / "data" / "merops"
 
@@ -78,7 +81,7 @@ def load_protease_panel(
     weights: Sequence[float] | None = None,
     device: str | torch.device = "cpu",
 ) -> ProteasePanel:
-    """Load and concatenate MEROPS specificity matrices for the given datasets.
+    r"""Load and concatenate MEROPS specificity matrices for the given datasets.
 
     :param dataset_ids: Integer dataset id or ids. Ids 0-33 are the APEX
         pathogen columns (in ``PredictorAPEX(path="all").pathogen_list`` order),
@@ -86,12 +89,19 @@ def load_protease_panel(
         Defaults to human serum (id 35).
     :param merops_root: Directory containing ``index.json`` and the per-dataset
         folders. Defaults to the repository ``data/merops``.
-    :param kind: ``"logprob"`` (specificity matrix :math:`M_\\pi`, the default)
+    :param kind: ``"logprob"`` (specificity matrix :math:`M_\pi`, the default)
         or ``"counts"`` (raw cleavage counts).
-    :param weights: Optional protease weights :math:`\\rho_\\pi`, one per row of
+    :param weights: Optional protease weights :math:`\rho_\pi`, one per row of
         the concatenated panel. Defaults to uniform ones.
     :param device: Device for the returned tensors.
     :return: A :class:`ProteasePanel` spanning all requested datasets.
+
+    :type dataset_ids: int | Iterable[int]
+    :type merops_root: str | Path | None
+    :type kind: str
+    :type weights: Sequence[float] | None
+    :type device: str | torch.device
+    :rtype: ProteasePanel
     """
     if isinstance(dataset_ids, int):
         dataset_ids = [dataset_ids]
@@ -174,8 +184,8 @@ class CleavagePotential(MutationPotential):
         temperature: float = 1.0,
         device: str | torch.device = "cpu",
         reduction: str = "sum",
-    ):
-        """Initialize the cleavage potential from a protease panel.
+    ) -> None:
+        r"""Initialize the cleavage potential from a protease panel.
 
         :param panel: Proteases with specificity matrices and weights.
         :param variant: ``"additive"``, ``"product"``, or ``"meanfield"``.
@@ -183,23 +193,32 @@ class CleavagePotential(MutationPotential):
         :param background: Residue distribution :math:`q_a` over the 20 amino
             acids used for subsites that fall outside the peptide. Defaults to
             uniform.
-        :param temperature: Softmax temperature :math:`\\tau` for the mean-field
+        :param temperature: Softmax temperature :math:`\tau` for the mean-field
             variant.
         :param device: Device for computation.
         :param reduction: How to aggregate the per-bond, per-protease scores
             into a single susceptibility. One of:
 
             * ``"sum"`` (default) -- weighted sum over the whole panel,
-              :math:`\\sum_\\pi \\rho_\\pi(\\cdot)`, with bonds combined as the
+              :math:`\sum_\pi \rho_\pi(\cdot)`, with bonds combined as the
               ``variant`` dictates. This is the original panel-wide behaviour.
             * ``"max_protease"`` -- keep only the single dominant protease,
-              :math:`\\max_\\pi \\rho_\\pi(\\cdot)`, so susceptibility is set by
+              :math:`\max_\pi \rho_\pi(\cdot)`, so susceptibility is set by
               the most aggressive enzyme; bonds are still combined per
               ``variant``.
             * ``"max_cut"`` -- the single most-likely cut event: maximum over
-              both proteases and bonds, :math:`\\max_\\pi \\max_b \\rho_\\pi
-              R(\\pi, b)`. This overrides the variant's over-bond aggregation.
+              both proteases and bonds, :math:`\max_\pi \max_b \rho_\pi
+              R(\pi, b)`. This overrides the variant's over-bond aggregation.
         :raises ValueError: If ``variant`` or ``reduction`` is unsupported.
+
+        :type panel: ProteasePanel
+        :type variant: str
+        :type alphabet: list[str] | None
+        :type background: torch.Tensor | Sequence[float] | None
+        :type temperature: float
+        :type device: str | torch.device
+        :type reduction: str
+        :rtype: None
         """
         if variant not in {"additive", "product", "meanfield"}:
             raise ValueError("variant must be 'additive', 'product', or 'meanfield'")
@@ -246,6 +265,10 @@ class CleavagePotential(MutationPotential):
             MEROPS amino acids, shape ``(B, L, 20)``.
         :param lengths: Number of real residues in each sequence, shape ``(B,)``.
         :return: Panel-aggregated potential per sequence, shape ``(B,)``.
+
+        :type distributions: torch.Tensor
+        :type lengths: torch.Tensor
+        :rtype: torch.Tensor
         """
         batch, grid, _ = distributions.shape
         n_bonds = max(grid - 1, 0)
@@ -311,6 +334,9 @@ class CleavagePotential(MutationPotential):
 
         :param per_protease: Per-protease scores, shape ``(B, N)``.
         :return: Aggregated score per sequence, shape ``(B,)``.
+
+        :type per_protease: torch.Tensor
+        :rtype: torch.Tensor
         """
         weighted = per_protease * self.weights  # (B, N)
         if self.reduction == "sum":
@@ -320,7 +346,13 @@ class CleavagePotential(MutationPotential):
     def _sequences_to_distributions(
         self, sequences: Sequence[str]
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        """Build one-hot residue distributions and lengths for peptides."""
+        """Build one-hot residue distributions and lengths for peptides.
+
+        :param sequences: Peptide sequences in input order.
+        :type sequences: Sequence[str]
+        :return: Result of this operation.
+        :rtype: tuple[torch.Tensor, torch.Tensor]
+        """
         lengths = [len(sequence) for sequence in sequences]
         grid = max(max(lengths, default=1), 1)
         distributions = np.zeros(
@@ -344,6 +376,9 @@ class CleavagePotential(MutationPotential):
             ``V == len(alphabet)``. A single ``(L, V)`` input is accepted.
         :return: Potential per sequence, shape ``(B,)``.
         :raises ValueError: If the vocabulary axis does not match ``alphabet``.
+
+        :type decoder_output: torch.Tensor
+        :rtype: torch.Tensor
         """
         if decoder_output.ndim == 2:
             decoder_output = decoder_output.unsqueeze(0)
@@ -367,6 +402,9 @@ class CleavagePotential(MutationPotential):
 
         :param sequences: Peptide strings.
         :return: Potential per sequence, shape ``(len(sequences),)``.
+
+        :type sequences: Sequence[str]
+        :rtype: torch.Tensor
         """
         if len(sequences) == 0:
             return torch.empty(0, device=self.device)
@@ -384,6 +422,9 @@ class CleavagePotential(MutationPotential):
 
         :param sequences: Peptide strings.
         :return: One length-``(L-1,)`` array per sequence (empty if ``L < 2``).
+
+        :type sequences: Sequence[str]
+        :rtype: list[np.ndarray]
         """
         if len(sequences) == 0:
             return []
@@ -422,7 +463,7 @@ class CleavagePotential(MutationPotential):
     def sequence_bond_protease_rates(
         self, sequences: Sequence[str]
     ) -> tuple[list[np.ndarray], list[str]]:
-        r"""Return local MEROPS values for every bond and protease.
+        """Return local MEROPS values for every bond and protease.
 
         For ``product`` each array contains unweighted ``R_(pi,b)`` values;
         other variants return their corresponding local expected scores.
@@ -430,6 +471,9 @@ class CleavagePotential(MutationPotential):
 
         :param sequences: Peptide strings.
         :return: Per-sequence arrays and matching protease codes.
+
+        :type sequences: Sequence[str]
+        :rtype: tuple[list[np.ndarray], list[str]]
         """
         if not sequences:
             return [], list(self.codes)
@@ -474,6 +518,9 @@ class CleavagePotential(MutationPotential):
 
         :param sequences: Peptide strings.
         :return: ``(rates, codes)`` with ``rates`` shape ``(len(sequences), N)``.
+
+        :type sequences: Sequence[str]
+        :rtype: tuple[np.ndarray, list[str]]
         """
         if len(sequences) == 0:
             return np.zeros((0, self.matrices.shape[0]), dtype=np.float64), list(
@@ -525,6 +572,10 @@ class CleavagePotential(MutationPotential):
         :param parent_peptide: Parent peptide sequence.
         :param mutations: Candidate amino-acid indices grouped by position.
         :return: Nested per-position, per-residue :math:`\Delta_{cleav}`.
+
+        :type parent_peptide: str
+        :type mutations: dict[int, list[int]]
+        :rtype: dict[int, dict[int, float]]
         """
         if not mutations:
             return {}

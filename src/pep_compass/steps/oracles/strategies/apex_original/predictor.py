@@ -1,19 +1,26 @@
+from __future__ import annotations
+
 import math
 import pickle
 from dataclasses import dataclass, field
 from pathlib import Path
 from time import perf_counter
+from typing import TYPE_CHECKING
 
 import numpy as np
 import torch
 from tqdm import tqdm
 
+from pep_compass.steps.oracles.strategies.apex.artifacts import resolve_apex_weights
 from pep_compass.steps.oracles.strategies.apex_original.utils import (
     make_vocab,
     onehot_encoding,
 )
-from pep_compass.steps.oracles.strategies.apex.artifacts import resolve_apex_weights
 from pep_compass.utils.logger import get_custom_logger
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
 
 logger = get_custom_logger(__name__)
 
@@ -97,8 +104,17 @@ APEX_MODEL_VARIANTS: dict[str, APEXModelVariant] = {
 class APEXUnpickler(pickle.Unpickler):
     """Custom unpickler that maps old module names to current ones."""
 
-    def find_class(self, module, name):
+    def find_class(self, module: str, name: str) -> object:
         # Map old top-level module names to the correct package paths
+        """Find class.
+
+        :param module: Module.
+        :type module: str
+        :param name: Name identifying this object or recorded artifact.
+        :type name: str
+        :return: Result of this operation.
+        :rtype: object
+        """
         if module == "APEX_models":
             module = "pep_compass.steps.oracles.strategies.apex_original.APEX_models"
         elif module == "AMP_DL_model_twohead":
@@ -113,7 +129,14 @@ class APEXPickleModule:
     Unpickler = APEXUnpickler
 
     # Delegate everything else to pickle
-    def __getattr__(self, name):
+    def __getattr__(self, name: str) -> object:
+        """Getattr.
+
+        :param name: Name identifying this object or recorded artifact.
+        :type name: str
+        :return: Result of this operation.
+        :rtype: object
+        """
         return getattr(pickle, name)
 
 
@@ -130,11 +153,23 @@ class PredictorAPEX:
 
     def __init__(
         self,
-        device="cpu",
-        batch_size=3000,
-        model="default",
+        device: str | torch.device = "cpu",
+        batch_size: int = 3000,
+        model: str = "default",
         models_directory: str | Path | None = None,
-    ):
+    ) -> None:
+        """Initialize this object with the declared configuration.
+
+        :param device: Computation device accepted by the numerical backend.
+        :type device: str | torch.device
+        :param batch_size: Batch size.
+        :type batch_size: int
+        :param model: Named model variant.
+        :type model: str
+        :param models_directory: Optional external model root replacing packaged artifacts.
+        :type models_directory: str | Path | None
+        :rtype: None
+        """
         if (
             not isinstance(batch_size, int)
             or isinstance(batch_size, bool)
@@ -186,12 +221,16 @@ class PredictorAPEX:
 
     # Use pretrained APEX models to predict species-specific antimicrobial activity (i.e., minimum inhibitory concentration [MIC]; unit: uM)
     # 8 pretrained APEX models are provided, and predictions are averaged
-    def predict(self, seq_list, use_tqdm: bool = False):
+    def predict(self, seq_list: Sequence[str], use_tqdm: bool = False) -> np.ndarray:
         """Predict MIC values averaged across the configured ensemble.
 
         :param seq_list: Peptide strings.
         :param use_tqdm: Display optional model and batch progress bars.
         :return: MIC matrix shaped ``(B, P)``.
+
+        :type seq_list: Sequence[str]
+        :type use_tqdm: bool
+        :rtype: np.ndarray
         """
         if not seq_list:
             return np.empty((0, len(self.pathogen_list)), dtype=np.float32)

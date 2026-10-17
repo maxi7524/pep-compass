@@ -9,10 +9,10 @@ import os
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from tempfile import NamedTemporaryFile
+from typing import TYPE_CHECKING
 
 from omegaconf import OmegaConf
 
-from pep_compass.configuration.objects import construct, locate, plain
 from pep_compass.core.builder import PipelineBuilder
 from pep_compass.data_schemas.execution import RunnerSettings
 from pep_compass.data_schemas.graph import PipelineSchema
@@ -23,17 +23,41 @@ from pep_compass.orchestrator.configuration import (
     plugin_fingerprints,
 )
 from pep_compass.orchestrator.declarations import create_pipeline
+from pep_compass.utils.configuration import construct, locate, plain
 from pep_compass.utils.logger import get_custom_logger
 from pep_compass.utils.validation import validate_integer, validate_keys
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping, Sequence
+
+    from omegaconf import DictConfig
+
+    from pep_compass.autoencoder.base import Autoencoder
+    from pep_compass.autoencoder.resource import AutoencoderResource
+
 
 logger = get_custom_logger(__name__)
 
 
-def _json(value):
+def _json(value: object) -> str:
+    """Json.
+
+    :param value: Value consumed by this conversion or transformation.
+    :type value: object
+    :return: Result of this operation.
+    :rtype: str
+    """
     return json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False)
 
 
-def _sha(value):
+def _sha(value: object) -> str:
+    """Sha.
+
+    :param value: Value consumed by this conversion or transformation.
+    :type value: object
+    :return: Result of this operation.
+    :rtype: str
+    """
     return hashlib.sha256(_json(value).encode()).hexdigest()
 
 
@@ -64,12 +88,20 @@ class ExecutionPlan:
     plugin_sha256: dict[str, str]
 
     @property
-    def path(self):
-        """Return the immutable plan artifact path."""
+    def path(self) -> Path:
+        """Return the immutable plan artifact path.
+
+        :return: Result of this operation.
+        :rtype: Path
+        """
         return Path(self.output_directory) / "plans" / (self.fingerprint + ".json")
 
-    def to_dict(self):
-        """Return the portable, versioned JSON plan payload."""
+    def to_dict(self) -> dict[str, object]:
+        """Return the portable, versioned JSON plan payload.
+
+        :return: Result of this operation.
+        :rtype: dict[str, object]
+        """
         return {
             "format_version": 1,
             "fingerprint": self.fingerprint,
@@ -88,7 +120,18 @@ class ExecutionPlan:
         }
 
 
-def _inputs(configuration, working_directory):
+def _inputs(
+    configuration: Mapping[str, object], working_directory: Path
+) -> tuple[tuple[str, ...], ...]:
+    """Inputs.
+
+    :param configuration: Resolved configuration for this operation.
+    :type configuration: Mapping[str, object]
+    :param working_directory: Working directory.
+    :type working_directory: Path
+    :return: Result of this operation.
+    :rtype: tuple[tuple[str, ...], ...]
+    """
     validate_keys(
         configuration, {"sequences", "path", "column", "mode", "limit"}, "input"
     )
@@ -138,8 +181,29 @@ def _inputs(configuration, working_directory):
     return (sequences,) if mode == "batch" else tuple((item,) for item in sequences)
 
 
-def _identity(configuration, batches, source, working_directory, plugin_sha256):
+def _identity(
+    configuration: Mapping[str, object],
+    batches: Sequence[Sequence[str]],
+    source: str,
+    working_directory: str | Path,
+    plugin_sha256: Mapping[str, str],
+) -> str:
     # REMARK: Dispatch and skip/failure policy do not alter computation identity.
+    """Identity.
+
+    :param configuration: Resolved configuration for this operation.
+    :type configuration: Mapping[str, object]
+    :param batches: Batches.
+    :type batches: Sequence[Sequence[str]]
+    :param source: Source.
+    :type source: str
+    :param working_directory: Working directory.
+    :type working_directory: str | Path
+    :param plugin_sha256: Plugin sha256.
+    :type plugin_sha256: Mapping[str, str]
+    :return: Result of this operation.
+    :rtype: str
+    """
     config = json.loads(_json(configuration))
     config.pop("backend", None)
     config["orchestrator"] = {
@@ -157,7 +221,12 @@ def _identity(configuration, batches, source, working_directory, plugin_sha256):
     )
 
 
-def plan_configuration(configuration, *, working_directory=None, autoencoder=None):
+def plan_configuration(
+    configuration: DictConfig | Mapping[str, object],
+    *,
+    working_directory: str | Path | None = None,
+    autoencoder: AutoencoderResource | Autoencoder | None = None,
+) -> ExecutionPlan:
     """Validate and freeze a wrapper computation without loading models.
 
     :param configuration: Hydra DictConfig or a plain configuration mapping.
@@ -165,6 +234,11 @@ def plan_configuration(configuration, *, working_directory=None, autoencoder=Non
     :param autoencoder: Optional injected Python autoencoder, local dispatch only.
     :return: Validated ExecutionPlan with resolved schema and runner settings.
     :raises ValueError: If graph, inputs or configuration contracts are invalid.
+
+    :type configuration: DictConfig | Mapping[str, object]
+    :type working_directory: str | Path | None
+    :type autoencoder: AutoencoderResource | Autoencoder | None
+    :rtype: ExecutionPlan
     """
     # Resolve configuration and validate declarations without model construction.
     values = (
@@ -251,8 +325,15 @@ def plan_configuration(configuration, *, working_directory=None, autoencoder=Non
     )
 
 
-def _write_plan_once(payload, target):
-    """Publish a complete JSON plan atomically without replacing existing files."""
+def _write_plan_once(payload: bytes, target: Path) -> None:
+    """Publish a complete JSON plan atomically without replacing existing files.
+
+    :param payload: Payload.
+    :type payload: bytes
+    :param target: Target.
+    :type target: Path
+    :rtype: None
+    """
     target.parent.mkdir(parents=True, exist_ok=True)
     with NamedTemporaryFile(
         mode="w", encoding="utf-8", dir=target.parent, delete=False
@@ -274,12 +355,15 @@ def _write_plan_once(payload, target):
         temporary.unlink()
 
 
-def save_plan(plan):
+def save_plan(plan: ExecutionPlan) -> Path:
     """Freeze computation identities and the exact policy of each dispatch.
 
     :param plan: Validated plan.
     :return: Persisted plan and the exact launch artifact consumed by workers.
     :raises ValueError: If an existing artifact is corrupt or inconsistent.
+
+    :type plan: ExecutionPlan
+    :rtype: Path
     """
     target = plan.path
     payload = plan.to_dict()
@@ -303,12 +387,15 @@ def save_plan(plan):
     return plan, target
 
 
-def load_plan(path):
+def load_plan(path: str | Path) -> ExecutionPlan:
     """Load and validate a frozen plan without constructing models.
 
     :param path: Versioned plan artifact.
     :return: Validated ExecutionPlan.
     :raises ValueError: If integrity, source code or schema validation fails.
+
+    :type path: str | Path
+    :rtype: ExecutionPlan
     """
     envelope = json.loads(Path(path).read_text(encoding="utf-8"))
     payload = envelope["payload"]

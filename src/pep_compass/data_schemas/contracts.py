@@ -1,5 +1,7 @@
 """Explicit data-flow and resource requirements of a configured component."""
 
+from __future__ import annotations
+
 from dataclasses import dataclass
 
 
@@ -20,7 +22,10 @@ class StepContract:
     invalidated_prefixes: tuple[str, ...] = ()
     resources: tuple[str, ...] = ()
 
-    def __post_init__(self):
-        """Require partial-input permissions to refer to required input fields."""
+    def __post_init__(self) -> None:
+        """Require partial-input permissions to refer to required input fields.
+
+        :rtype: None
+        """
         if set(self.optional_fields) - set(self.required_fields):
             raise ValueError("Partial-input permissions must name required fields.")

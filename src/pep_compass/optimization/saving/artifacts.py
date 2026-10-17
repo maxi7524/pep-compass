@@ -1,12 +1,20 @@
 """Direct artifact validation and build-scoped model provenance."""
 
+from __future__ import annotations
+
 import hashlib
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from pep_compass.utils.logger import get_custom_logger
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
+    from typing import Never
+
 
 logger = get_custom_logger(__name__)
 _artifact_capture = ContextVar("pep_compass_artifact_capture", default=None)
@@ -38,13 +46,19 @@ class ModelArtifacts:
     download_script: str | None = None
     base_directory: Path | None = None
 
-    def resolve(self, model=None, *, root=None):
+    def resolve(
+        self, model: str | None = None, *, root: str | Path | None = None
+    ) -> tuple[Path, ...]:
         """Validate this declared variant against its model-owned default root.
 
         :param model: Optional expected variant name.
         :param root: Optional external root replacing base_directory.
         :return: Deterministically ordered validated artifact paths.
         :raises ValueError: If the variant or base directory is invalid.
+
+        :type model: str | None
+        :type root: str | Path | None
+        :rtype: tuple[Path, ...]
         """
         if model is not None and model != self.name:
             raise ValueError(f"Unknown model variant: {model!r}.")
@@ -55,8 +69,12 @@ class ModelArtifacts:
 
 
 @contextmanager
-def capture_model_artifacts():
-    """Collect files actually opened while preparing an executable graph."""
+def capture_model_artifacts() -> Iterator[list[object]]:
+    """Collect files actually opened while preparing an executable graph.
+
+    :return: Result of this operation.
+    :rtype: Iterator[list[object]]
+    """
     records = []
     token = _artifact_capture.set(records)
     try:
@@ -65,7 +83,16 @@ def capture_model_artifacts():
         _artifact_capture.reset(token)
 
 
-def _missing(descriptor, detail):
+def _missing(descriptor: ModelArtifacts, detail: str) -> Never:
+    """Missing.
+
+    :param descriptor: Descriptor.
+    :type descriptor: ModelArtifacts
+    :param detail: Detail.
+    :type detail: str
+    :return: Result of this operation.
+    :rtype: Never
+    """
     hint = (
         f" Run {descriptor.download_script} to install the model."
         if descriptor.download_script
@@ -74,13 +101,19 @@ def _missing(descriptor, detail):
     raise FileNotFoundError(f"{detail}.{hint}")
 
 
-def resolve_artifacts(descriptor, *, root):
+def resolve_artifacts(
+    descriptor: ModelArtifacts, *, root: str | Path | None
+) -> tuple[Path, ...]:
     """Validate explicit artifact requirements and capture file SHA-256 values.
 
     :param descriptor: ModelArtifacts supplied directly by a model implementation.
     :param root: Base directory for its relative paths.
     :return: Deterministically ordered file/directory paths.
     :raises FileNotFoundError: If any declared artifact is missing/incomplete.
+
+    :type descriptor: ModelArtifacts
+    :type root: str | Path | None
+    :rtype: tuple[Path, ...]
     """
     provider, name = descriptor.provider, descriptor.name
     directory = Path(root) / descriptor.directory

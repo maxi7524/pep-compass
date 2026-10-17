@@ -77,14 +77,13 @@ assets/scripts/downloads/apex/download_apex_models_full.sh
 ```python
 from pep_compass import Pipeline
 from pep_compass.autoencoder import HydrAMP
-from pep_compass.steps.filters import CandidateSubset
-from pep_compass.steps.oracles import Hydrophobicity
+import pep_compass.steps as ps  # ps - PipelineSteps
 
 pipeline = Pipeline(
-    [CandidateSubset(count=3), Hydrophobicity()],
+    [ps.filters.CandidateSubset(count=3), ps.oracles.Hydrophobicity()],
     autoencoder=HydrAMP(jacobian_mode="approx"),
 )
-pipeline.describe_component(CandidateSubset)
+pipeline.describe_component(ps.filters.CandidateSubset)
 pipeline.show()
 compiled = pipeline.build()
 result = pipeline.run(["FLYKWWIRIGRLKL"], seed=7)
@@ -92,8 +91,8 @@ print(result.reader.get_archive())
 result.close()
 ```
 
-See [the direct API tutorial](docs/tutorial/wrapper_new.md) and
-[the executable notebook](docs/tutorial/wrapper_new.ipynb).
+See [the direct API tutorial](docs/artefacts/wrapper_new.md) and
+[the executable notebook](docs/tutorial/wrapper_tutorial.ipynb).
 
 ## Run
 
@@ -104,13 +103,13 @@ uv run --extra cpu pep-compass run --multirun pipeline=simple ++runner.execution
 ```
 
 The Hydra CLI lives in `src/pep_compass/orchestrator/cli.py` and executes the public
-Python wrapper. See the [orchestrator guide](docs/tutorial/orchestrator.md) for YAML
+Python wrapper. See the [orchestrator guide](docs/artefacts/orchestrator.md) for YAML
 composition, independent workers, Slurm templates and migration from old commands.
 
 ## Guides
 
 - [User Guide](docs/user-guide.md) — configure and execute an experiment.
-- [Analysis Guide](docs/analysis-guide.md) — inspect persisted results with
+- [Analysis Guide](docs/artefacts/analysis-guide.md) — inspect persisted results with
   `analysis.reader`.
 - [Technical Architecture](docs/technical-architecture.md) — inspect internal
   component and data flow.
@@ -123,7 +122,7 @@ The complete documentation entry page is [docs/README.md](docs/README.md).
 - [User Guide](docs/user-guide.md)
 - [Technical Architecture](docs/technical-architecture.md)
 - [Developer Guide](docs/developer-guide.md)
-- [Analysis Guide](docs/analysis-guide.md)
+- [Analysis Guide](docs/artefacts/analysis-guide.md)
 - [Architecture Decisions](docs/architecture-decisions.md)
 
 ## Citation

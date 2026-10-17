@@ -1,10 +1,17 @@
 """Executable position update preserved from the repository main branch."""
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 import torch
 
 from pep_compass.steps.walkers.strategies.sorbes.position_update.base import (
     PositionUpdateStrategy,
 )
+
+if TYPE_CHECKING:
+    from pep_compass.steps.walkers.strategies.sorbes.schema import SorbesDirections
 
 
 class MainPositionUpdate(PositionUpdateStrategy):
@@ -13,6 +20,14 @@ class MainPositionUpdate(PositionUpdateStrategy):
     acceleration_coefficient = 0.5
 
     def __init__(self, *, epsilon: float, delta_max: float) -> None:
+        """Initialize this object with the declared configuration.
+
+        :param epsilon: Epsilon.
+        :type epsilon: float
+        :param delta_max: Delta max.
+        :type delta_max: float
+        :rtype: None
+        """
         from pep_compass.utils.validation import validate_positive
 
         validate_positive(epsilon, "MainPositionUpdate.epsilon")
@@ -21,7 +36,23 @@ class MainPositionUpdate(PositionUpdateStrategy):
         self.epsilon = epsilon
         self.delta_max = delta_max
 
-    def __call__(self, positions, directions, acceleration):
+    def __call__(
+        self,
+        positions: torch.Tensor,
+        directions: SorbesDirections,
+        acceleration: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Call.
+
+        :param positions: Positions.
+        :type positions: torch.Tensor
+        :param directions: Direction-selection strategy or sampled numerical directions.
+        :type directions: SorbesDirections
+        :param acceleration: Acceleration.
+        :type acceleration: torch.Tensor
+        :return: Result of this operation.
+        :rtype: tuple[torch.Tensor, torch.Tensor]
+        """
         epsilon = self._bounded_epsilon(directions.active, acceleration)
         update = (
             epsilon[:, None] * directions.active
@@ -30,7 +61,18 @@ class MainPositionUpdate(PositionUpdateStrategy):
         )  # (B, D)
         return positions + update, epsilon.square()
 
-    def _bounded_epsilon(self, velocity, acceleration):
+    def _bounded_epsilon(
+        self, velocity: torch.Tensor, acceleration: torch.Tensor
+    ) -> torch.Tensor:
+        """Bounded epsilon.
+
+        :param velocity: Velocity.
+        :type velocity: torch.Tensor
+        :param acceleration: Acceleration.
+        :type acceleration: torch.Tensor
+        :return: Result of this operation.
+        :rtype: torch.Tensor
+        """
         nominal = torch.full(
             (velocity.shape[0],),
             self.epsilon,

@@ -22,7 +22,6 @@ class LengthOracle(Step):
             "length",
             batch.sequences,
             scores,
-            batch.latent_origins,
             direction="maximize",
             lineage=lineage,
         )

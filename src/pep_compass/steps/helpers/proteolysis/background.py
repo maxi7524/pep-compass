@@ -22,12 +22,17 @@ from __future__ import annotations
 import json
 from collections import Counter
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import numpy as np
 
 from pep_compass.steps.helpers.proteolysis.cleavage import (
     MEROPS_AMINO_ACIDS,
 )
+
+if TYPE_CHECKING:
+    from typing import TextIO
+
 
 # Location written by the acquisition script, relative to the repository root.
 HUMAN_PROTEOME_COMPOSITION = (
@@ -40,6 +45,9 @@ def uniform_background(n_amino_acids: int = len(MEROPS_AMINO_ACIDS)) -> np.ndarr
 
     :param n_amino_acids: Size of the residue alphabet.
     :return: Uniform distribution over the alphabet, shape ``(A,)``.
+
+    :type n_amino_acids: int
+    :rtype: np.ndarray
     """
 
     return np.full(n_amino_acids, 1.0 / n_amino_acids)  # (A,)
@@ -58,6 +66,10 @@ def normalize_background(
     :return: Distribution summing to one, shape ``(A,)``.
     :raises ValueError: If the distribution has the wrong length, is not strictly
         positive, or does not sum to a positive value.
+
+    :type background: np.ndarray | None
+    :type n_amino_acids: int
+    :rtype: np.ndarray
     """
 
     if background is None:
@@ -92,6 +104,10 @@ def amino_acid_background_from_fasta(
     :return: Tuple of the residue distribution ``(A,)`` and the raw counts,
         including a ``"non_standard"`` entry and a ``"n_sequences"`` entry.
     :raises ValueError: If the file contains no residue of the alphabet.
+
+    :type path: str | Path
+    :type alphabet: str
+    :rtype: tuple[np.ndarray, dict[str, int]]
     """
 
     path = Path(path)
@@ -134,6 +150,10 @@ def load_amino_acid_background(
     :param alphabet: Residue alphabet, in the column order of the MEROPS matrices.
     :return: Residue distribution, shape ``(A,)``.
     :raises KeyError: If a residue of the alphabet is absent from the file.
+
+    :type path: str | Path
+    :type alphabet: str
+    :rtype: np.ndarray
     """
 
     payload = json.loads(Path(path).read_text(encoding="utf-8"))
@@ -144,11 +164,14 @@ def load_amino_acid_background(
     return normalize_background(values, len(alphabet))
 
 
-def _open_text(path: Path):
+def _open_text(path: Path) -> TextIO:
     """Open a plain or gzip-compressed text file.
 
     :param path: File to open.
     :return: Context manager yielding text lines.
+
+    :type path: Path
+    :rtype: TextIO
     """
 
     if path.suffix == ".gz":

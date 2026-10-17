@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 import torch
 
@@ -10,6 +10,10 @@ from pep_compass.data_schemas.candidates import CandidateBatch, ObjectField, Ten
 from pep_compass.optimization.engine.execution.context import OptimizationContext
 from pep_compass.steps.base import Step
 from pep_compass.utils.logger import get_custom_logger
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
 
 logger = get_custom_logger(__name__)
 TrajectoryExecution = Literal["sequential", "batched"]
@@ -68,13 +72,33 @@ class LocalEnumeration(Step):
         *,
         walker: Step,
         mutation_generator: Step,
-        filters=(),
+        filters: Sequence[Step] = (),
         trajectories: int = 1,
         iterations: int | None = None,
         walk_time: float | None = None,
         include_walk_points: bool = True,
         trajectory_execution: TrajectoryExecution = "batched",
     ) -> None:
+        """Initialize this object with the declared configuration.
+
+        :param walker: Walker.
+        :type walker: Step
+        :param mutation_generator: Mutation generator.
+        :type mutation_generator: Step
+        :param filters: Filters.
+        :type filters: Sequence[Step]
+        :param trajectories: Independent trajectories per input seed.
+        :type trajectories: int
+        :param iterations: Number of complete logical iterations.
+        :type iterations: int | None
+        :param walk_time: Walk time.
+        :type walk_time: float | None
+        :param include_walk_points: Include walk points.
+        :type include_walk_points: bool
+        :param trajectory_execution: Trajectory execution.
+        :type trajectory_execution: TrajectoryExecution
+        :rtype: None
+        """
         self._configure(
             dict(
                 trajectories=trajectories,
@@ -122,7 +146,14 @@ class LocalEnumeration(Step):
                     "LocalEnumeration walker geometry does not satisfy MUTANG shared geometry."
                 )
 
-    def graph_children(self):
+    def graph_children(
+        self,
+    ) -> dict[str, Step | tuple[Step, ...] | dict[str, tuple[Step, ...]]]:
+        """Graph children.
+
+        :return: Result of this operation.
+        :rtype: dict[str, Step | tuple[Step, ...] | dict[str, tuple[Step, ...]]]
+        """
         return {
             "walker": self.walker,
             "mutation_generator": self.mutation_generator,
@@ -130,7 +161,12 @@ class LocalEnumeration(Step):
         }
 
     def precompute(self, context: OptimizationContext) -> None:
-        """Precompute each reusable child exactly once."""
+        """Precompute each reusable child exactly once.
+
+        :param context: Scoped execution services, shared run state and random generator.
+        :type context: OptimizationContext
+        :rtype: None
+        """
         self.walker.precompute(context.enter_step(self.walker.name))
         self.mutation_generator.precompute(
             context.enter_step(self.mutation_generator.name)
@@ -142,7 +178,15 @@ class LocalEnumeration(Step):
         batch: CandidateBatch,
         context: OptimizationContext,
     ) -> CandidateBatch:
-        """Execute private trajectories and collect their candidate emissions."""
+        """Execute private trajectories and collect their candidate emissions.
+
+        :param batch: Incoming aligned candidate batch.
+        :type batch: CandidateBatch
+        :param context: Scoped execution services, shared run state and random generator.
+        :type context: OptimizationContext
+        :return: Result of this operation.
+        :rtype: CandidateBatch
+        """
         if self.trajectory_execution == "batched":
             return self._execute_batched(batch, context)
         return self._execute_sequential(batch, context)
@@ -152,7 +196,15 @@ class LocalEnumeration(Step):
         batch: CandidateBatch,
         context: OptimizationContext,
     ) -> CandidateBatch:
-        """Execute one trajectory at a time as a correctness reference."""
+        """Execute one trajectory at a time as a correctness reference.
+
+        :param batch: Incoming aligned candidate batch.
+        :type batch: CandidateBatch
+        :param context: Scoped execution services, shared run state and random generator.
+        :type context: OptimizationContext
+        :return: Result of this operation.
+        :rtype: CandidateBatch
+        """
         # Local enumeration
         ## Keep each trajectory private to prevent mutation-tree expansion
         emissions: list[CandidateBatch] = []
@@ -196,6 +248,13 @@ class LocalEnumeration(Step):
         SORBES, decoder geometry and MUTANG therefore receive one tensor batch
         instead of repeated one-row calls. With a walk-time bound, a Boolean
         active set removes completed trajectories between steps.
+
+        :param batch: Incoming aligned candidate batch.
+        :type batch: CandidateBatch
+        :param context: Scoped execution services, shared run state and random generator.
+        :type context: OptimizationContext
+        :return: Result of this operation.
+        :rtype: CandidateBatch
         """
         # Deterministic trajectory RNG stream
         ## Isolate SORBES Torch draws from unrelated pipeline operations
@@ -216,7 +275,15 @@ class LocalEnumeration(Step):
         batch: CandidateBatch,
         context: OptimizationContext,
     ) -> CandidateBatch:
-        """Execute one isolated deterministic RNG stream for a trajectory batch."""
+        """Execute one isolated deterministic RNG stream for a trajectory batch.
+
+        :param batch: Incoming aligned candidate batch.
+        :type batch: CandidateBatch
+        :param context: Scoped execution services, shared run state and random generator.
+        :type context: OptimizationContext
+        :return: Result of this operation.
+        :rtype: CandidateBatch
+        """
         # Trajectory initialization
         ## Repeat every seed into an independent logical trajectory
         parent_indices = torch.arange(
@@ -277,7 +344,17 @@ class LocalEnumeration(Step):
         context: OptimizationContext,
         trajectory_index: int,
     ) -> CandidateBatch:
-        """Attach replay identity to one sequential trajectory."""
+        """Attach replay identity to one sequential trajectory.
+
+        :param batch: Incoming aligned candidate batch.
+        :type batch: CandidateBatch
+        :param context: Scoped execution services, shared run state and random generator.
+        :type context: OptimizationContext
+        :param trajectory_index: Trajectory index.
+        :type trajectory_index: int
+        :return: Result of this operation.
+        :rtype: CandidateBatch
+        """
         device = batch.latent_origins.device
         seed = -1 if context.seed is None else context.seed
         identifier = "/".join(context.scope.path)
@@ -303,7 +380,15 @@ class LocalEnumeration(Step):
         batch: CandidateBatch,
         context: OptimizationContext,
     ) -> CandidateBatch:
-        """Attach row identities for one deterministic batched RNG stream."""
+        """Attach row identities for one deterministic batched RNG stream.
+
+        :param batch: Incoming aligned candidate batch.
+        :type batch: CandidateBatch
+        :param context: Scoped execution services, shared run state and random generator.
+        :type context: OptimizationContext
+        :return: Result of this operation.
+        :rtype: CandidateBatch
+        """
         count = len(batch)
         device = batch.latent_origins.device
         seed = -1 if context.seed is None else context.seed
@@ -326,8 +411,14 @@ class LocalEnumeration(Step):
         )
 
     @staticmethod
-    def _advance_trajectory_index(batch):
-        """Advance the zero-based call index after recording one walker output."""
+    def _advance_trajectory_index(batch: CandidateBatch) -> CandidateBatch:
+        """Advance the zero-based call index after recording one walker output.
+
+        :param batch: Incoming aligned candidate batch.
+        :type batch: CandidateBatch
+        :return: Result of this operation.
+        :rtype: CandidateBatch
+        """
         return batch.with_field(
             "tracking.trajectory_step",
             TensorField(batch.fields["tracking.trajectory_step"].values + 1),
@@ -338,7 +429,15 @@ class LocalEnumeration(Step):
         seed: CandidateBatch,
         context: OptimizationContext,
     ) -> list[CandidateBatch]:
-        """Run one trajectory while retaining candidates outside its state."""
+        """Run one trajectory while retaining candidates outside its state.
+
+        :param seed: Random seed; None leaves the caller-selected unseeded behavior.
+        :type seed: CandidateBatch
+        :param context: Scoped execution services, shared run state and random generator.
+        :type context: OptimizationContext
+        :return: Result of this operation.
+        :rtype: list[CandidateBatch]
+        """
         # Trajectory point
         current = seed.with_field(
             "local_enumeration.center_sequence",
@@ -376,7 +475,15 @@ class LocalEnumeration(Step):
         point: CandidateBatch,
         context: OptimizationContext,
     ) -> CandidateBatch:
-        """Generate MUTANG candidates and apply configured local filters."""
+        """Generate MUTANG candidates and apply configured local filters.
+
+        :param point: Point.
+        :type point: CandidateBatch
+        :param context: Scoped execution services, shared run state and random generator.
+        :type context: OptimizationContext
+        :return: Result of this operation.
+        :rtype: CandidateBatch
+        """
         generated = self.mutation_generator(point, context)
         filtered = self.filters(generated, context)
         return filtered.without_fields(_TRANSIENT_WALKER_FIELDS)
@@ -387,7 +494,17 @@ class LocalEnumeration(Step):
         elapsed: float,
         context: OptimizationContext,
     ) -> bool:
-        """Evaluate the configured trajectory bound and global stop state."""
+        """Evaluate the configured trajectory bound and global stop state.
+
+        :param iteration: Iteration.
+        :type iteration: int
+        :param elapsed: Elapsed.
+        :type elapsed: float
+        :param context: Scoped execution services, shared run state and random generator.
+        :type context: OptimizationContext
+        :return: Result of this operation.
+        :rtype: bool
+        """
         if context.state.stop_requested:
             return False
         if self.iterations is not None:
@@ -400,13 +517,27 @@ class LocalEnumeration(Step):
         iteration: int,
         context: OptimizationContext,
     ) -> bool:
-        """Return whether a non-empty batch may start another SORBES step."""
+        """Return whether a non-empty batch may start another SORBES step.
+
+        :param iteration: Iteration.
+        :type iteration: int
+        :param context: Scoped execution services, shared run state and random generator.
+        :type context: OptimizationContext
+        :return: Result of this operation.
+        :rtype: bool
+        """
         if context.state.stop_requested:
             return False
         return self.iterations is None or iteration < self.iterations
 
     def _time_increment(self, point: CandidateBatch) -> float:
-        """Return adjusted SORBES time or a unit step for fixed iterations."""
+        """Return adjusted SORBES time or a unit step for fixed iterations.
+
+        :param point: Point.
+        :type point: CandidateBatch
+        :return: Result of this operation.
+        :rtype: float
+        """
         if self.walk_time is None:
             return 1.0
         field = point.fields.get("walker.adjusted_time_step")
@@ -421,7 +552,13 @@ class LocalEnumeration(Step):
         return increment
 
     def _time_increments(self, points: CandidateBatch) -> torch.Tensor:
-        """Return one positive adjusted time increment per active trajectory."""
+        """Return one positive adjusted time increment per active trajectory.
+
+        :param points: Points.
+        :type points: CandidateBatch
+        :return: Result of this operation.
+        :rtype: torch.Tensor
+        """
         if self.walk_time is None:
             return torch.ones(
                 len(points),

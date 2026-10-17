@@ -1,43 +1,111 @@
+from __future__ import annotations
+
 # from tools_GeneFt import *
-from Bio import SeqIO
-from Bio.SeqRecord import SeqRecord
-from Bio.Seq import Seq
 import os
 from glob import glob
-import pandas as pd
+from typing import TYPE_CHECKING
+
 import numpy as np
+import pandas as pd
+from Bio import SeqIO
+from Bio.Seq import Seq
+from Bio.SeqRecord import SeqRecord
+
 # from tools.base import GetFolder
 from tools.base import *
 from tools.cdhit import *
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+    from pathlib import Path
+
+
 host_specie = "escherichia coli"
-target_species = ["staphylococcus aureus", "enterococcus faecium", "streptococcus pneumoniae", "bacillus subtilis"]
+target_species = [
+    "staphylococcus aureus",
+    "enterococcus faecium",
+    "streptococcus pneumoniae",
+    "bacillus subtilis",
+]
 vip_species = ["escherichia coli", "staphylococcus aureus"]
 unnatural_amino_acids = ["B", "J", "O", "U", "Z", "X"]
-largest_MIC = 10000; def_bias = 3.8; def_scale = 1/6;
-def_lrParas = {"lr": 5e-4 ,"decay_rate": 0.92, "decay_steps": 25, "patience": 15, "monitor": "loss"}
+largest_MIC = 10000
+def_bias = 3.8
+def_scale = 1 / 6
+def_lrParas = {
+    "lr": 5e-4,
+    "decay_rate": 0.92,
+    "decay_steps": 25,
+    "patience": 15,
+    "monitor": "loss",
+}
 def_hyperParaDict = {"layer_num": 1, "dropOutRate": 0.4, "filter_num": 32, "epoch": 200}
-def_fts = \
-['type8raac9glmd3lambda-correlation', 'type8raac7glmd3lambda-correlation', 'QSOrder_lmd4', 'QSOrder_lmd3', 'QSOrder_lmd2',
- 'QSOrder_lmd1', 'QSOrder_lmd0', 'type5raac15glmd4lambda-correlation', 'type7raac10glmd3lambda-correlation',
- 'type5raac8glmd2lambda-correlation', 'type3Braac9glmd3lambda-correlation', 'type2raac15glmd4lambda-correlation',
- 'type2raac8glmd2lambda-correlation', 'type8raac14glmd1lambda-correlation']
+def_fts = [
+    "type8raac9glmd3lambda-correlation",
+    "type8raac7glmd3lambda-correlation",
+    "QSOrder_lmd4",
+    "QSOrder_lmd3",
+    "QSOrder_lmd2",
+    "QSOrder_lmd1",
+    "QSOrder_lmd0",
+    "type5raac15glmd4lambda-correlation",
+    "type7raac10glmd3lambda-correlation",
+    "type5raac8glmd2lambda-correlation",
+    "type3Braac9glmd3lambda-correlation",
+    "type2raac15glmd4lambda-correlation",
+    "type2raac8glmd2lambda-correlation",
+    "type8raac14glmd1lambda-correlation",
+]
 
 # largest_MIC = 10000;  EC pMIC range: -3.7781512503836434 ~ 2.1630917510364918
 # largest_MIC = 10; def_bias = 1; def_scale = 1/3.2; #  EC pMIC range: -0.9997855462266436 ~ 2.1630917510364918
 
-def getOriSepcieLocation(specie_name):
+
+def getOriSepcieLocation(specie_name: str) -> str:
+    """Get ori sepcie location.
+
+    :param specie_name: Specie name.
+    :type specie_name: str
+    :return: Result of this operation.
+    :rtype: str
+    """
     fld = GetOriFolder()
-    sepcie_path = os.path.join(fld.data_dir,  "specie_%s.csv" % specie_name.replace(' ', '-'))
+    sepcie_path = os.path.join(
+        fld.data_dir, "specie_%s.csv" % specie_name.replace(" ", "-")
+    )
     return sepcie_path
 
-def getSepcieLocation(specie_name):
+
+def getSepcieLocation(specie_name: str) -> tuple[str, object]:
+    """Get sepcie location.
+
+    :param specie_name: Specie name.
+    :type specie_name: str
+    :return: Result of this operation.
+    :rtype: tuple[str, object]
+    """
     from tools.base import GetFolder, abbreviation
+
     fld = GetFolder()
     abb = abbreviation(specie_name)
-    sepcie_path = os.path.join(fld.data_dir,  "%s.csv" % abb)
+    sepcie_path = os.path.join(fld.data_dir, "%s.csv" % abb)
     return sepcie_path, abb
 
-def controlSeqsLengthRange(infos, shorest_len=5, largerest_len=60):
+
+def controlSeqsLengthRange(
+    infos: pd.DataFrame, shorest_len: int = 5, largerest_len: int = 60
+) -> pd.DataFrame:
+    """Control seqs length range.
+
+    :param infos: Infos.
+    :type infos: pd.DataFrame
+    :param shorest_len: Shorest len.
+    :type shorest_len: int
+    :param largerest_len: Largerest len.
+    :type largerest_len: int
+    :return: Result of this operation.
+    :rtype: pd.DataFrame
+    """
     infos = infos.copy()
     seqs = infos["SEQUENCE"].to_list()
     for seq in seqs:
@@ -46,13 +114,44 @@ def controlSeqsLengthRange(infos, shorest_len=5, largerest_len=60):
             infos = infos[infos["SEQUENCE"] != seq]
     return infos
 
-def controlMICvalue(infos, largest_MIC=largest_MIC):
+
+def controlMICvalue(
+    infos: pd.DataFrame, largest_MIC: float = largest_MIC
+) -> pd.DataFrame:
+    """Control micvalue.
+
+    :param infos: Infos.
+    :type infos: pd.DataFrame
+    :param largest_MIC: Largest mic.
+    :type largest_MIC: float
+    :return: Result of this operation.
+    :rtype: pd.DataFrame
+    """
     infos = infos.copy()
-    infos = infos[infos['TARGET ACTIVITY - CONCENTRATION - PROCED'] < largest_MIC]
+    infos = infos[infos["TARGET ACTIVITY - CONCENTRATION - PROCED"] < largest_MIC]
     return infos
 
-class GetOriSpecieInfo():
-    def __init__(self, specie_name="escherichia coli", control_seqLens=True, control_MIC=True, largest_MIC=largest_MIC):
+
+class GetOriSpecieInfo:
+    def __init__(
+        self,
+        specie_name: str = "escherichia coli",
+        control_seqLens: bool = True,
+        control_MIC: bool = True,
+        largest_MIC: float = largest_MIC,
+    ) -> None:
+        """Initialize this object with the declared configuration.
+
+        :param specie_name: Specie name.
+        :type specie_name: str
+        :param control_seqLens: Control seqlens.
+        :type control_seqLens: bool
+        :param control_MIC: Control mic.
+        :type control_MIC: bool
+        :param largest_MIC: Largest mic.
+        :type largest_MIC: float
+        :rtype: None
+        """
         self.specie_path = getOriSepcieLocation(specie_name)
         self.specie_abb = abbreviation(specie_name)
         specie_info = pd.read_csv(self.specie_path)
@@ -60,22 +159,50 @@ class GetOriSpecieInfo():
         ind = pd.isna(specie_info["N TERMINUS"]) & pd.isna(specie_info["C TERMINUS"])
         specie_info = specie_info[ind]
         if control_seqLens:
-            specie_info = controlSeqsLengthRange(specie_info, shorest_len=5, largerest_len=60)
+            specie_info = controlSeqsLengthRange(
+                specie_info, shorest_len=5, largerest_len=60
+            )
         if control_MIC:
             specie_info = controlMICvalue(specie_info, largest_MIC=largest_MIC)
         self.specie_info = specie_info
-        self.pMIC_name = '%s_pMIC' % self.specie_abb
-        self.MIC_name = '%s_MIC' % self.specie_abb
-        self.pMIC = -np.log10(self.specie_info['TARGET ACTIVITY - CONCENTRATION - PROCED'])
+        self.pMIC_name = "%s_pMIC" % self.specie_abb
+        self.MIC_name = "%s_MIC" % self.specie_abb
+        self.pMIC = -np.log10(
+            self.specie_info["TARGET ACTIVITY - CONCENTRATION - PROCED"]
+        )
         self.specie_info[self.pMIC_name] = self.pMIC
-        self.mic = self.specie_info['TARGET ACTIVITY - CONCENTRATION - PROCED'].to_list()
+        self.mic = self.specie_info[
+            "TARGET ACTIVITY - CONCENTRATION - PROCED"
+        ].to_list()
         self.specie_info[self.MIC_name] = self.mic
         fastas = self.specie_info[["ID", "SEQUENCE", self.MIC_name, self.pMIC_name]]
         self.fastas = fastas
         self.colnames = fastas.columns.to_list()
         printDataInfo("%s Info: " % specie_name, self.specie_path, self.specie_info)
 
-def getPathsFormOnlySpeciePathRepVal(specie_name="escherichia coli", threshold=largest_MIC, del_novel=False, cdhit_flag=False, rep_tuple=0):
+
+def getPathsFormOnlySpeciePathRepVal(
+    specie_name: str = "escherichia coli",
+    threshold: float = largest_MIC,
+    del_novel: bool = False,
+    cdhit_flag: bool = False,
+    rep_tuple: int = 0,
+) -> tuple[dict[object, object], object]:
+    """Get paths form only specie path rep val.
+
+    :param specie_name: Specie name.
+    :type specie_name: str
+    :param threshold: Threshold.
+    :type threshold: float
+    :param del_novel: Del novel.
+    :type del_novel: bool
+    :param cdhit_flag: Cdhit flag.
+    :type cdhit_flag: bool
+    :param rep_tuple: Rep tuple.
+    :type rep_tuple: int
+    :return: Result of this operation.
+    :rtype: tuple[dict[object, object], object]
+    """
     paths = {}
     fld = GetFolder()
     abb = abbreviation(specie_name)
@@ -90,7 +217,10 @@ def getPathsFormOnlySpeciePathRepVal(specie_name="escherichia coli", threshold=l
     train_name, test_name = "train-%s" % file_name, "test-%s" % file_name
     if cdhit_flag:
         file_name = "%s.csv" % abb
-        train_name, test_name = "train_cdhit_%s" % file_name, "test_cdhit_%s" % file_name
+        train_name, test_name = (
+            "train_cdhit_%s" % file_name,
+            "test_cdhit_%s" % file_name,
+        )
     train_path = os.path.join(test_dir, train_name)
     test_path = os.path.join(test_dir, test_name)
     tra_path = os.path.join(val_dir, "tra-%s" % train_name)
@@ -103,8 +233,30 @@ def getPathsFormOnlySpeciePathRepVal(specie_name="escherichia coli", threshold=l
     return paths, abb
 
 
-def getPathsFormOnlySpeciePath(specie_name="escherichia coli", threshold=largest_MIC, del_novel=False, cdhit_flag=False, rep=0):
+def getPathsFormOnlySpeciePath(
+    specie_name: str = "escherichia coli",
+    threshold: float = largest_MIC,
+    del_novel: bool = False,
+    cdhit_flag: bool = False,
+    rep: int = 0,
+) -> tuple[dict[object, object], object]:
+    """Get paths form only specie path.
+
+    :param specie_name: Specie name.
+    :type specie_name: str
+    :param threshold: Threshold.
+    :type threshold: float
+    :param del_novel: Del novel.
+    :type del_novel: bool
+    :param cdhit_flag: Cdhit flag.
+    :type cdhit_flag: bool
+    :param rep: Rep.
+    :type rep: int
+    :return: Result of this operation.
+    :rtype: tuple[dict[object, object], object]
+    """
     from tools.base import GetFolder, abbreviation
+
     paths = {}
     fld = GetFolder()
     abb = abbreviation(specie_name)
@@ -119,7 +271,10 @@ def getPathsFormOnlySpeciePath(specie_name="escherichia coli", threshold=largest
     train_name, test_name = "train-%s" % file_name, "test-%s" % file_name
     if cdhit_flag:
         file_name = "%s.csv" % abb
-        train_name, test_name = "train_cdhit_%s" % file_name, "test_cdhit_%s" % file_name
+        train_name, test_name = (
+            "train_cdhit_%s" % file_name,
+            "test_cdhit_%s" % file_name,
+        )
     train_path = os.path.join(test_dir, train_name)
     test_path = os.path.join(test_dir, test_name)
     tra_path = os.path.join(val_dir, "tra-%s" % train_name)
@@ -131,11 +286,33 @@ def getPathsFormOnlySpeciePath(specie_name="escherichia coli", threshold=largest
     paths["val-train"] = val_path
     return paths, abb
 
-class GetSpecieInfo():
-    def __init__(self, specie_name="escherichia coli", del_novel=False, cdhit_flag=False, rep=0):
+
+class GetSpecieInfo:
+    def __init__(
+        self,
+        specie_name: str = "escherichia coli",
+        del_novel: bool = False,
+        cdhit_flag: bool = False,
+        rep: int = 0,
+    ) -> None:
+        """Initialize this object with the declared configuration.
+
+        :param specie_name: Specie name.
+        :type specie_name: str
+        :param del_novel: Del novel.
+        :type del_novel: bool
+        :param cdhit_flag: Cdhit flag.
+        :type cdhit_flag: bool
+        :param rep: Rep.
+        :type rep: int
+        :rtype: None
+        """
         from tools.base import printDataInfo
+
         self.specie_path, self.abb = getSepcieLocation(specie_name)
-        paths, abb = getPathsFormOnlySpeciePath(specie_name, del_novel=del_novel, cdhit_flag=cdhit_flag, rep=rep)
+        paths, abb = getPathsFormOnlySpeciePath(
+            specie_name, del_novel=del_novel, cdhit_flag=cdhit_flag, rep=rep
+        )
         self.abb = abb
         self.specie_path, self.train_path = paths[abb], paths["train"]
         self.test_path, self.tra_train_path = paths["test"], paths["tra-train"]
@@ -145,35 +322,102 @@ class GetSpecieInfo():
         self.fastas = self.specie_info
         printDataInfo("%s Info: " % specie_name, self.specie_path, self.specie_info)
         self.train_fastas = pd.read_csv(self.train_path)
-        printDataInfo("%s train Info: " % specie_name, self.train_path, self.train_fastas)
+        printDataInfo(
+            "%s train Info: " % specie_name, self.train_path, self.train_fastas
+        )
         self.test_fastas = pd.read_csv(self.test_path)
         printDataInfo("%s test Info: " % specie_name, self.test_path, self.test_fastas)
         self.tra_train_fastas = pd.read_csv(self.tra_train_path)
-        printDataInfo("%s tra of train Info: " % specie_name, self.tra_train_path, self.tra_train_fastas)
+        printDataInfo(
+            "%s tra of train Info: " % specie_name,
+            self.tra_train_path,
+            self.tra_train_fastas,
+        )
         self.val_train_fastas = pd.read_csv(self.val_train_path)
-        printDataInfo("%s val of train Info: " % specie_name, self.val_train_path, self.val_train_fastas)
+        printDataInfo(
+            "%s val of train Info: " % specie_name,
+            self.val_train_path,
+            self.val_train_fastas,
+        )
 
 
-def writeFastasfromInfo(info, columns, path):
+def writeFastasfromInfo(
+    info: pd.DataFrame, columns: Sequence[str], path: str | Path
+) -> None:
+    """Write fastasfrom info.
+
+    :param info: Info.
+    :type info: pd.DataFrame
+    :param columns: Column names to project in the requested order.
+    :type columns: Sequence[str]
+    :param path: Input or output path used by this operation.
+    :type path: str | Path
+    :rtype: None
+    """
     fastas = info[columns]
     fastas.to_csv(path, index=False)
     return
 
-def splitRndTrainTestFromWholePath(file_path, x=20):
+
+def splitRndTrainTestFromWholePath(
+    file_path: str | Path, x: int = 20
+) -> tuple[str, str]:
+    """Split rnd train test from whole path.
+
+    :param file_path: File path.
+    :type file_path: str | Path
+    :param x: X.
+    :type x: int
+    :return: Result of this operation.
+    :rtype: tuple[str, str]
+    """
     spl_path = file_path.split("/")
-    train_path = os.path.join("/".join(spl_path[:-1]), "train-%dPercent-%s" % (100-x, spl_path[-1]))
-    test_path = os.path.join("/".join(spl_path[:-1]), "test-%dPercent-%s" % (x, spl_path[-1]))
+    train_path = os.path.join(
+        "/".join(spl_path[:-1]), "train-%dPercent-%s" % (100 - x, spl_path[-1])
+    )
+    test_path = os.path.join(
+        "/".join(spl_path[:-1]), "test-%dPercent-%s" % (x, spl_path[-1])
+    )
     df = pd.read_csv(file_path)
-    test = df.sample(frac=x/100, replace=False).copy()
+    test = df.sample(frac=x / 100, replace=False).copy()
     train = handleInfos(df, test).infos1DelInfos2()
     test.to_csv(test_path)
-    print("whole sample: ", len(df), "\ntrain sample: ", len(train), "\ntest sample: ", len(test))
-    print("saved %d percent samples of whole set (%s): \n\t%s" % (x, spl_path[-1], test_path))
+    print(
+        "whole sample: ",
+        len(df),
+        "\ntrain sample: ",
+        len(train),
+        "\ntest sample: ",
+        len(test),
+    )
+    print(
+        "saved %d percent samples of whole set (%s): \n\t%s"
+        % (x, spl_path[-1], test_path)
+    )
     train.to_csv(train_path)
-    print("saved %d percent samples of whole set (%s): \n\t%s" % (100-x, spl_path[-1], train_path))
+    print(
+        "saved %d percent samples of whole set (%s): \n\t%s"
+        % (100 - x, spl_path[-1], train_path)
+    )
     return train_path, test_path
 
-def splitValidationFromTrain(file_path, x=10, rep=0, valDoNotRep=True):
+
+def splitValidationFromTrain(
+    file_path: str | Path, x: int = 10, rep: int = 0, valDoNotRep: bool = True
+) -> tuple[str, str]:
+    """Split validation from train.
+
+    :param file_path: File path.
+    :type file_path: str | Path
+    :param x: X.
+    :type x: int
+    :param rep: Rep.
+    :type rep: int
+    :param valDoNotRep: Valdonotrep.
+    :type valDoNotRep: bool
+    :return: Result of this operation.
+    :rtype: tuple[str, str]
+    """
     spl_path = file_path.split("/")
     if not valDoNotRep:
         rep_dir = os.path.join("/".join(spl_path[:-1]), "val%d" % rep)
@@ -183,16 +427,45 @@ def splitValidationFromTrain(file_path, x=10, rep=0, valDoNotRep=True):
     tra_path = os.path.join(rep_dir, "tra-%s" % (spl_path[-1]))
     val_path = os.path.join(rep_dir, "val-%s" % (spl_path[-1]))
     df = pd.read_csv(file_path)
-    val = df.sample(frac=x/100, replace=False).copy()
+    val = df.sample(frac=x / 100, replace=False).copy()
     train = handleInfos(df, val).infos1DelInfos2()
     val.to_csv(val_path)
-    print("train sample: ", len(df), "\ntra train sample: ", len(train), "\nval train sample: ", len(val))
-    print("saved %d percent samples of trainset (%s): \n\t%s" % (x, spl_path[-1], val_path))
+    print(
+        "train sample: ",
+        len(df),
+        "\ntra train sample: ",
+        len(train),
+        "\nval train sample: ",
+        len(val),
+    )
+    print(
+        "saved %d percent samples of trainset (%s): \n\t%s"
+        % (x, spl_path[-1], val_path)
+    )
     train.to_csv(tra_path)
-    print("saved %d percent samples of trainset (%s): \n\t%s" % (100-x, spl_path[-1], tra_path))
+    print(
+        "saved %d percent samples of trainset (%s): \n\t%s"
+        % (100 - x, spl_path[-1], tra_path)
+    )
     return tra_path, val_path
 
-def splitTestFromAll(file_path, x=10, rep=0, valDoNotRep=True):
+
+def splitTestFromAll(
+    file_path: str | Path, x: int = 10, rep: int = 0, valDoNotRep: bool = True
+) -> tuple[str, str]:
+    """Split test from all.
+
+    :param file_path: File path.
+    :type file_path: str | Path
+    :param x: X.
+    :type x: int
+    :param rep: Rep.
+    :type rep: int
+    :param valDoNotRep: Valdonotrep.
+    :type valDoNotRep: bool
+    :return: Result of this operation.
+    :rtype: tuple[str, str]
+    """
     spl_path = file_path.split("/")
     if valDoNotRep:
         rep_dir = os.path.join("/".join(spl_path[:-1]), str(rep))
@@ -202,17 +475,54 @@ def splitTestFromAll(file_path, x=10, rep=0, valDoNotRep=True):
     train_path = os.path.join(rep_dir, "train-%s" % (spl_path[-1]))
     test_path = os.path.join(rep_dir, "test-%s" % (spl_path[-1]))
     df = pd.read_csv(file_path)
-    test = df.sample(frac=x/100, replace=False).copy()
+    test = df.sample(frac=x / 100, replace=False).copy()
     train = handleInfos(df, test).infos1DelInfos2()
     test.to_csv(test_path)
-    print("all sample: ", len(df), "\ntrain sample: ", len(train), "\ntest sample: ", len(test))
-    print("saved %d percent samples of trainset (%s): \n\t%s" % (x, spl_path[-1], test_path))
+    print(
+        "all sample: ",
+        len(df),
+        "\ntrain sample: ",
+        len(train),
+        "\ntest sample: ",
+        len(test),
+    )
+    print(
+        "saved %d percent samples of trainset (%s): \n\t%s"
+        % (x, spl_path[-1], test_path)
+    )
     train.to_csv(train_path)
-    print("saved %d percent samples of trainset (%s): \n\t%s" % (100-x, spl_path[-1], train_path))
+    print(
+        "saved %d percent samples of trainset (%s): \n\t%s"
+        % (100 - x, spl_path[-1], train_path)
+    )
     return train_path, test_path
 
-def geneAlltest(host_specie="escherichia coli", target_specie="staphylococcus aureus", onlyMrg=True, cdhit=True):
-    mrg = GetMergeInfo(host_specie=host_specie, target_specie=target_specie, onlyMrg=onlyMrg, cdhit=cdhit)
+
+def geneAlltest(
+    host_specie: str = "escherichia coli",
+    target_specie: str = "staphylococcus aureus",
+    onlyMrg: bool = True,
+    cdhit: bool = True,
+) -> pd.DataFrame:
+    """Gene alltest.
+
+    :param host_specie: Host specie.
+    :type host_specie: str
+    :param target_specie: Target specie.
+    :type target_specie: str
+    :param onlyMrg: Onlymrg.
+    :type onlyMrg: bool
+    :param cdhit: Cdhit.
+    :type cdhit: bool
+    :return: Result of this operation.
+    :rtype: pd.DataFrame
+    """
+    mrg = GetMergeInfo(
+        host_specie=host_specie,
+        target_specie=target_specie,
+        onlyMrg=onlyMrg,
+        cdhit=cdhit,
+    )
     df = pd.concat((mrg.test_fastas, mrg.novel_fastas))
     path = mrg.mrg_path
     spl_path = path.split("/")
@@ -221,13 +531,19 @@ def geneAlltest(host_specie="escherichia coli", target_specie="staphylococcus au
     print("saved all test of %s merge %s: \n\t%s" % (host_specie, target_specie, path))
     return df
 
-def PreProcessedSpecies(host_specie="escherichia coli", target_specie="staphylococcus aureus"):
-    """
-    control the sequence length in [5,60], MIC value < 1000 μM;
+
+def PreProcessedSpecies(
+    host_specie: str = "escherichia coli", target_specie: str = "staphylococcus aureus"
+) -> dict[object, object]:
+    """control the sequence length in [5,60], MIC value < 1000 μM;
     split the merge data to train/ test/ novel datasets
     :param host_specie:
     :param target_specie:
     :return:
+
+    :type host_specie: str
+    :type target_specie: str
+    :rtype: dict[object, object]
     """
     # read original host specie info and save fastas to data folder
     paths = {}
@@ -244,21 +560,33 @@ def PreProcessedSpecies(host_specie="escherichia coli", target_specie="staphyloc
     print("saved %s fastas to: \n\t%s" % (target_specie, tgt_path))
     fld = GetMdlFolder(host_specie=host_specie, target_specie=target_specie)
     # save intersection of hst and tgt
-    colnames = getMergeFastaColnames(host_specie=host_specie, target_specie=target_specie).colnames
-    mrg_info, pmicr_name = handleInfos(hst.fastas, tgt.fastas).infos1IntersectInfos2(hst_abb, tgt_abb)
+    colnames = getMergeFastaColnames(
+        host_specie=host_specie, target_specie=target_specie
+    ).colnames
+    mrg_info, pmicr_name = handleInfos(hst.fastas, tgt.fastas).infos1IntersectInfos2(
+        hst_abb, tgt_abb
+    )
     mrg_info = mrg_info[colnames].copy()
-    mrg_path, hst_abb, tgt_abb, mrg_abb = getMergePath(host_specie=host_specie, target_specie=target_specie)
+    mrg_path, hst_abb, tgt_abb, mrg_abb = getMergePath(
+        host_specie=host_specie, target_specie=target_specie
+    )
     mrg_info.to_csv(mrg_path, index=False)
     # mrg_abb = "%s_mrg_%s" % (tgt_abb, hst_abb)
     paths[mrg_abb] = mrg_path
     print("saved %s merged %s to: \n\t%s" % (host_specie, target_specie, mrg_path))
     # split merge to train test novel
-    paths[mrg_abb] = SplitMerge2TrainTestNovel(host_specie=host_specie, target_specie=target_specie)
+    paths[mrg_abb] = SplitMerge2TrainTestNovel(
+        host_specie=host_specie, target_specie=target_specie
+    )
     # since we have generated the novel and test dataset, then we can use GetMergeInfo() now.
     # save all-test of hst and tgt
-    all_test = geneAlltest(host_specie=host_specie, target_specie=target_specie, onlyMrg=True, cdhit=True)
+    all_test = geneAlltest(
+        host_specie=host_specie, target_specie=target_specie, onlyMrg=True, cdhit=True
+    )
     # save del merge all-test of hst and tgt
-    mrg = GetMergeInfo(host_specie=host_specie, target_specie=target_specie, onlyMrg=True, cdhit=True)
+    mrg = GetMergeInfo(
+        host_specie=host_specie, target_specie=target_specie, onlyMrg=True, cdhit=True
+    )
     hst_del_mrg = handleInfos(hst.fastas, all_test).infos1DelInfos2()
     hst_name, train_name = os.path.basename(hst_path), os.path.basename(mrg.mrg_path)
     hst_del_mrg_name = "%s-del-all_test-%s" % (hst_name.split(".csv")[0], train_name)
@@ -278,14 +606,27 @@ def PreProcessedSpecies(host_specie="escherichia coli", target_specie="staphyloc
         tra_path, val_path = splitValidationFromTrain(path)
     return paths
 
-def PreProcessedSpeciesWithoutCDhit(host_specie="escherichia coli", target_specie="staphylococcus aureus", x=20, threshold=largest_MIC):
-    """
-    control the sequence length in [5,60], MIC value < 1000 μM;
+
+def PreProcessedSpeciesWithoutCDhit(
+    host_specie: str = "escherichia coli",
+    target_specie: str = "staphylococcus aureus",
+    x: int = 20,
+    threshold: float = largest_MIC,
+) -> dict[object, object]:
+    """control the sequence length in [5,60], MIC value < 1000 μM;
     split the merge data to train/ test/ novel datasets
     :param host_specie:
     :param target_specie:
     x is the percent of test ratio compare to whole
     :return:
+
+    :type host_specie: str
+    :type target_specie: str
+    :param x: X.
+    :type x: int
+    :param threshold: Threshold.
+    :type threshold: float
+    :rtype: dict[object, object]
     """
     # read original host specie info and save fastas to data folder
     paths = {}
@@ -302,54 +643,94 @@ def PreProcessedSpeciesWithoutCDhit(host_specie="escherichia coli", target_speci
     print("saved %s fastas to: \n\t%s" % (target_specie, tgt_path))
     fld = GetMdlFolder(host_specie=host_specie, target_specie=target_specie)
     # save intersection of hst and tgt
-    colnames = getMergeFastaColnames(host_specie=host_specie, target_specie=target_specie).colnames
-    mrg_info, pmicr_name = handleInfos(hst.fastas, tgt.fastas).infos1IntersectInfos2(hst_abb, tgt_abb)
+    colnames = getMergeFastaColnames(
+        host_specie=host_specie, target_specie=target_specie
+    ).colnames
+    mrg_info, pmicr_name = handleInfos(hst.fastas, tgt.fastas).infos1IntersectInfos2(
+        hst_abb, tgt_abb
+    )
     mrg_info = mrg_info[colnames].copy()
-    mrg_path, hst_abb, tgt_abb, mrg_abb = getMergePath(host_specie=host_specie, target_specie=target_specie)
+    mrg_path, hst_abb, tgt_abb, mrg_abb = getMergePath(
+        host_specie=host_specie, target_specie=target_specie
+    )
     mrg_info.to_csv(mrg_path, index=False)
     # mrg_abb = "%s_mrg_%s" % (tgt_abb, hst_abb)
     paths[mrg_abb] = mrg_path
     print("saved %s merged %s to: \n\t%s" % (host_specie, target_specie, mrg_path))
     # split merge to train and test randomly, and keep ratio to 8 : 2
-    mrg_train_path, mrg_test_path = splitRndTrainTestFromWholePath(file_path=mrg_path, x=x)
+    mrg_train_path, mrg_test_path = splitRndTrainTestFromWholePath(
+        file_path=mrg_path, x=x
+    )
     # since we have generated the novel and test dataset, then we can use GetMergeInfo() now.
     # save del merge test of hst and tgt
-    mrg = GetMergeInfo(host_specie=host_specie, target_specie=target_specie, onlyMrg=True, cdhit=False, x=x)
+    mrg = GetMergeInfo(
+        host_specie=host_specie,
+        target_specie=target_specie,
+        onlyMrg=True,
+        cdhit=False,
+        x=x,
+    )
     hst_del_mrg_test = handleInfos(hst.fastas, mrg.test_fastas).infos1DelInfos2()
     hst_name, test_name = os.path.basename(hst_path), os.path.basename(mrg.test_path)
     hst_del_mrg_name = "%s-del-%s" % (hst_name.split(".csv")[0], test_name)
-    hst_del_mrg_test_path = os.path.join(fld.data_dir, "MIC%s" % threshold, hst_del_mrg_name)
+    hst_del_mrg_test_path = os.path.join(
+        fld.data_dir, "MIC%s" % threshold, hst_del_mrg_name
+    )
     hst_del_mrg_test.to_csv(hst_del_mrg_test_path, index=False)
     paths["%s_del_%s" % (hst_abb, mrg_abb)] = hst_del_mrg_test_path
-    print("saved %s delete test of %s to: \n\t%s" % (host_specie, mrg_abb, hst_del_mrg_test_path))
+    print(
+        "saved %s delete test of %s to: \n\t%s"
+        % (host_specie, mrg_abb, hst_del_mrg_test_path)
+    )
     tgt_del_mrg_test = handleInfos(tgt.fastas, mrg.test_fastas).infos1DelInfos2()
     tgt_name = os.path.basename(tgt_path)
     tgt_del_mrg_test_name = "%s-del-%s" % (tgt_name.split(".csv")[0], test_name)
-    tgt_del_mrg_test_path = os.path.join(fld.data_dir, "MIC%s" % threshold, tgt_del_mrg_test_name)
+    tgt_del_mrg_test_path = os.path.join(
+        fld.data_dir, "MIC%s" % threshold, tgt_del_mrg_test_name
+    )
     tgt_del_mrg_test.to_csv(tgt_del_mrg_test_path, index=False)
     paths["%s_del_%s" % (tgt_abb, mrg_abb)] = tgt_del_mrg_test_path
-    print("saved %s delete test of %s to: \n\t%s" % (host_specie, mrg_abb, tgt_del_mrg_test_path))
+    print(
+        "saved %s delete test of %s to: \n\t%s"
+        % (host_specie, mrg_abb, tgt_del_mrg_test_path)
+    )
     for path in [hst_del_mrg_test_path, tgt_del_mrg_test_path]:
         tra_path, val_path = splitValidationFromTrain(path)
     return paths
 
 
-def getSingleSpeciePath(specie="escherichia coli"):
-    """
-    control the sequence length in [5,60], MIC value < 1000 μM;
+def getSingleSpeciePath(specie: str = "escherichia coli") -> None:
+    """control the sequence length in [5,60], MIC value < 1000 μM;
     split the merge data to train/ test/ novel datasets
     :param specie: specie name
     :return:
+
+    :type specie: str
+    :rtype: None
     """
     path, abb = getSpeciePath(specie)
     return
 
-def PreProcessedSingleSpecies(specie="escherichia coli", x=10, reps=3, valDoNotRep=True):
-    """
-    control the sequence length in [5,60], MIC value < 1000 μM;
+
+def PreProcessedSingleSpecies(
+    specie: str = "escherichia coli",
+    x: int = 10,
+    reps: int = 3,
+    valDoNotRep: bool = True,
+) -> dict[object, object]:
+    """control the sequence length in [5,60], MIC value < 1000 μM;
     split the single data to train (tra-train/val-train) / test datasets ratio = 9:1 randomly
     :param specie: specie name
     :return:
+
+    :type specie: str
+    :param x: X.
+    :type x: int
+    :param reps: Reps.
+    :type reps: int
+    :param valDoNotRep: Valdonotrep.
+    :type valDoNotRep: bool
+    :rtype: dict[object, object]
     """
     # read original host specie info and save fastas to data folder
     paths = {}
@@ -362,44 +743,77 @@ def PreProcessedSingleSpecies(specie="escherichia coli", x=10, reps=3, valDoNotR
     print("saved %s fastas to: \n\t%s" % (specie, path))
     if valDoNotRep:
         for i in range(reps):
-            train_path, test_path = splitTestFromAll(path, x=x, rep=i, valDoNotRep=valDoNotRep)
-            tra_path, val_path = splitValidationFromTrain(train_path, x=x, rep=i, valDoNotRep=valDoNotRep)
+            train_path, test_path = splitTestFromAll(
+                path, x=x, rep=i, valDoNotRep=valDoNotRep
+            )
+            tra_path, val_path = splitValidationFromTrain(
+                train_path, x=x, rep=i, valDoNotRep=valDoNotRep
+            )
             paths["%s-tra-train%d" % (abb, i)] = tra_path
             paths["%s-val-train%d" % (abb, i)] = val_path
             paths["%s-train%d" % (abb, i)] = train_path
             paths["%s-test%d" % (abb, i)] = test_path
     else:
         for i in range(reps):
-            train_path, test_path = splitTestFromAll(path, x=x, rep=i, valDoNotRep=valDoNotRep)
+            train_path, test_path = splitTestFromAll(
+                path, x=x, rep=i, valDoNotRep=valDoNotRep
+            )
             for j in range(reps):
-                tra_path, val_path = splitValidationFromTrain(train_path, x=x, rep=j, valDoNotRep=valDoNotRep)
+                tra_path, val_path = splitValidationFromTrain(
+                    train_path, x=x, rep=j, valDoNotRep=valDoNotRep
+                )
                 paths["%s-tra%d-train%d" % (abb, j, i)] = tra_path
                 paths["%s-val%d-train%d" % (abb, j, i)] = val_path
             paths["%s-train%d" % (abb, i)] = train_path
             paths["%s-test%d" % (abb, i)] = test_path
     return paths
 
-def PreProcessedSingleSpeciesDelNovel(specie="escherichia coli", cdhit_flag=False):
-    """
-    control the sequence length in [5,60], MIC value < 1000 μM;
+
+def PreProcessedSingleSpeciesDelNovel(
+    specie: str = "escherichia coli", cdhit_flag: bool = False
+) -> dict[str, str]:
+    """control the sequence length in [5,60], MIC value < 1000 μM;
     split the single-novel data to train (tra-train, val-train), test  datasets randomly 9:1
     :param specie: specie name
     :return:
+
+    :type specie: str
+    :param cdhit_flag: Cdhit flag.
+    :type cdhit_flag: bool
+    :rtype: dict[str, str]
     """
     # read original host specie info and save fastas to data folder
     paths = SplitSpecie2TrainValTestNovel(specie=specie, thr=0, cdhit_flag=cdhit_flag)
     return paths
 
-def preProcessAllData():
+
+def preProcessAllData() -> None:
+    """Pre process all data.
+
+    :rtype: None
+    """
     host_specie = "escherichia coli"
-    target_species = ["staphylococcus aureus", "enterococcus faecium", "streptococcus pneumoniae", "bacillus subtilis"]
+    target_species = [
+        "staphylococcus aureus",
+        "enterococcus faecium",
+        "streptococcus pneumoniae",
+        "bacillus subtilis",
+    ]
     # do preprocessing uncomment next two lines
     for target_specie in target_species:
-        paths = PreProcessedSpecies(host_specie=host_specie, target_specie=target_specie)
+        paths = PreProcessedSpecies(
+            host_specie=host_specie, target_specie=target_specie
+        )
 
     # print data informations:
     print("\n\n*****************Starting print single specie info*****************")
-    for specie_name in ["escherichia coli", "staphylococcus aureus", "enterococcus faecium", "streptococcus pneumoniae", "bacillus subtilis"]:
+    for specie_name in [
+        "escherichia coli",
+        "staphylococcus aureus",
+        "enterococcus faecium",
+        "streptococcus pneumoniae",
+        "bacillus subtilis",
+    ]:
         spe = GetSpecieInfo(specie_name)
     print("\n\n*****************Starting print merge info*****************")
     for target_specie in target_species:

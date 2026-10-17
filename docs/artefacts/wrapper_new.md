@@ -7,19 +7,18 @@ or load model weights. Ordinary preset functions live in `pep_compass.predefined
 
 ```python
 from pep_compass import Pipeline
-from pep_compass.autoencoder import HydrAMP
-from pep_compass.steps.filters import CandidateSubset
-from pep_compass.steps.oracles import Hydrophobicity
+import pep_compass.steps as ps  # ps - PipelineSteps
+import pep_compass.autoencoder as ae
 
-pipeline = Pipeline(autoencoder=HydrAMP(jacobian_mode="approx"))
-node_id = pipeline.add_component(CandidateSubset(count=3))
-pipeline.add_component(Hydrophobicity())
+pipeline = Pipeline(autoencoder=ae.HydrAMP(jacobian_mode="approx"))
+node_id = pipeline.add_component(ps.filters.CandidateSubset(count=3))
+pipeline.add_component(ps.oracles.Hydrophobicity())
 pipeline.describe()
 pipeline.describe_component(node_id=node_id)
-pipeline.replace_component(node_id, CandidateSubset(count=2))
+pipeline.replace_component(node_id, ps.filters.CandidateSubset(count=2))
 compiled = pipeline.build()
 result = pipeline.run(["FLYKWWIRIGRLKL"], seed=7)
-print(result.reader.get_archive())
+print(result.archive)
 result.close()
 ```
 
@@ -54,24 +53,32 @@ notebook documents every setting and default. Per-run overrides do not modify
 wrapper defaults. Oracle limits apply before a new evaluation batch; an entire
 completed batch remains in the archive even if it crosses the threshold.
 
-The run bundle contains `settings.json` and `results.sqlite`. The `base` profile
-retains evaluated sequences and compact execution/iteration statistics. These
-are independent options:
+The run bundle contains `settings.json` and `results.sqlite`. Every actual
+peptide/objective evaluation is retained in `evaluations`, independently of later
+selection. The archive is a SQL view over those records. A run-local cache avoids
+scoring the same sequence again for an identical configured objective, including
+duplicates within a batch. Only newly scored unique sequences consume the oracle
+budget. Different configurations cannot silently share the same objective field.
 
-| Option | Default | Retained information |
+| Option | Default | Meaning |
 | --- | --- | --- |
-| `save_terminal` | `False` | Outgoing aligned batch, separate from the evaluated archive |
-| `save_observation_history` | `False` | Repeated evaluations, not only latest sequence/objective values |
-| `save_lineage` | `False` | Archive candidate and parent identities |
-| `component_data` | `none` | `summary`: display metadata; `full`: metadata and aligned output fields |
-| `reconstruction` | `none` | `boundaries`: input/state/RNG replay checkpoints; `trajectories`: also walker outputs |
-| `flush_every` | `1` | Transaction interval, without sampling or dropping rows |
+| `metrics_level` | `basic` | `none`: invocation identities only; `basic`: step/iteration timings, counts and sampled process RSS; `basic_and_components`: additionally aggregated internal stages |
+| `save_lineage` | `True` | Ordered batch members and compressed pairwise/broadcast parent relations; unscored ancestor strings are unnecessary |
+| `component_data` | `none` | `summary`: display metadata; `full`: metadata and shared output-field artifacts, excluding peptide-string provenance columns |
+| `reconstruction` | `none` | `boundaries`: input/state/RNG replay checkpoints; `trajectories`: also ordered step outputs, walker points and the actual graph output |
+| `flush_every` | `1` | Commit after this many completed step/iteration events; never sample or discard evaluation rows |
 
-`Snapshot("label")` explicitly retains a batch at its graph position.
-`RunResult.save(path)` exports already retained data. Memory and persistent storage
-use the same SQL schema. `AnalysisReader` opens one bundle; `ExperimentReader`
-discovers collections and exposes lazy projected scans through the shared table
-contract. Missing retained data raises `DataUnavailableError`.
+`Snapshot("label")` names a batch reference and requires `boundaries` or
+`trajectories`. `RunResult.save(path)` exports retained data without recomputing.
+Memory and persistent storage share the SQL schema. `AnalysisReader` opens one
+bundle; `ExperimentReader` discovers collections and exposes projected scans.
+Use `reader.get_evaluations()` for all actual scoring records, `get_archive()` for
+unique evaluated sequence/objective pairs, and `get_lineage()` for structural
+relations. The `evaluation_records` and `evaluation_archive` views expose sequence
+strings by joining the sole `peptides` table. Missing reconstruction data raises
+`DataUnavailableError`; it is never replaced with an unrelated evaluated batch.
+
+See [the run data contract](../run-data-contract.md) for keys, retention and replay.
 
 Replay is explicit: `reader.reconstruct_local_enumeration(checkpoint_id)` builds
 only that fragment, restores saved state and RNGs, and verifies ordered output
@@ -79,4 +86,4 @@ against the recorded digest. It requires the recorded package source and model
 identity. Locality analyses additionally require trajectories and a retained
 candidate batch. Old CSV/PT readers and declaration formats are removed.
 
-The full runnable sequence is in [wrapper_new.ipynb](wrapper_new.ipynb).
+The full runnable sequence is in [wrapper_tutorial.ipynb](../tutorial/wrapper_tutorial.ipynb).

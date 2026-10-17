@@ -7,33 +7,27 @@ import json
 import sqlite3
 from pathlib import Path
 from threading import RLock
+from typing import TYPE_CHECKING
 
+from pep_compass.optimization.saving.schema import FORMAT_VERSION, SCHEMA
 from pep_compass.optimization.saving.serialization import dumps, loads
 from pep_compass.utils.logger import get_custom_logger
 
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+
 logger = get_custom_logger(__name__)
 
-FORMAT_VERSION = 1
 
-SCHEMA = """
-CREATE TABLE runs(run_id TEXT PRIMARY KEY, status TEXT NOT NULL, settings_sha256 TEXT NOT NULL, summary_json TEXT NOT NULL);
-CREATE TABLE step_executions(execution_id INTEGER PRIMARY KEY, node_id TEXT, parent_execution_id INTEGER, scope_json TEXT, input_count INTEGER, output_count INTEGER, duration_seconds REAL, status TEXT, phase TEXT, error TEXT);
-CREATE TABLE iterations(iteration_id INTEGER PRIMARY KEY, node_id TEXT, iteration_index INTEGER, scope_json TEXT, trajectories INTEGER, elapsed_seconds REAL, duration_seconds REAL, interval_seconds REAL);
-CREATE TABLE peptides(sequence TEXT PRIMARY KEY);
-CREATE TABLE evaluated_peptides(objective TEXT, sequence TEXT, score REAL, direction TEXT, evaluation_index INTEGER, first_evaluation_index INTEGER, lineage_json TEXT, PRIMARY KEY(objective,sequence));
-CREATE TABLE observations(observation_id INTEGER PRIMARY KEY, objective TEXT, sequence TEXT, score REAL, direction TEXT, lineage_json TEXT);
-CREATE TABLE candidate_sets(set_id INTEGER PRIMARY KEY, name TEXT, node_id TEXT, execution_id INTEGER, kind TEXT, payload_id TEXT);
-CREATE TABLE component_records(record_id INTEGER PRIMARY KEY, node_id TEXT, execution_id INTEGER, name TEXT, payload_id TEXT);
-CREATE TABLE checkpoints(checkpoint_id INTEGER PRIMARY KEY, node_id TEXT, execution_id INTEGER, scope_json TEXT, phase TEXT, payload_id TEXT, output_count INTEGER, output_sha256 TEXT);
-CREATE TABLE tensor_payloads(payload_id TEXT PRIMARY KEY, codec_version INTEGER, data BLOB NOT NULL);
-CREATE INDEX evaluated_objective ON evaluated_peptides(objective);
-CREATE INDEX execution_node ON step_executions(node_id,execution_id);
-CREATE INDEX checkpoints_node ON checkpoints(node_id,execution_id);
-"""
+def canonical_json(value: object) -> str:
+    """Serialize run settings deterministically, rejecting opaque objects.
 
-
-def canonical_json(value):
-    """Serialize run settings deterministically, rejecting opaque objects."""
+    :param value: Value consumed by this conversion or transformation.
+    :type value: object
+    :return: Result of this operation.
+    :rtype: str
+    """
     return json.dumps(value, sort_keys=True, indent=2, allow_nan=False)
 
 
@@ -45,7 +39,17 @@ class SQLiteStorageBackend:
     :raises FileExistsError: If output would overwrite an existing run bundle.
     """
 
-    def __init__(self, settings, path=None):
+    def __init__(
+        self, settings: dict[str, object], path: str | Path | None = None
+    ) -> None:
+        """Initialize this object with the declared configuration.
+
+        :param settings: Validated settings or a resolved settings manifest.
+        :type settings: dict[str, object]
+        :param path: Input or output path used by this operation.
+        :type path: str | Path | None
+        :rtype: None
+        """
         self.path = Path(path).resolve() if path is not None else None
         self.lock = RLock()
         self.closed = False
@@ -62,6 +66,7 @@ class SQLiteStorageBackend:
             check_same_thread=False,
         )
         self.connection.row_factory = sqlite3.Row
+        self.connection.execute("PRAGMA foreign_keys = ON")
         self.connection.executescript(SCHEMA)
         self.connection.execute(f"PRAGMA user_version = {FORMAT_VERSION}")
         self.connection.execute(
@@ -84,13 +89,29 @@ class SQLiteStorageBackend:
             self.path,
         )
 
-    def execute(self, statement, parameters=()):
-        """Execute an internal parameterized statement under the backend lock."""
+    def execute(
+        self, statement: str, parameters: Sequence[object] = ()
+    ) -> sqlite3.Cursor:
+        """Execute an internal parameterized statement under the backend lock.
+
+        :param statement: Statement.
+        :type statement: str
+        :param parameters: Named configuration values consumed by this operation.
+        :type parameters: Sequence[object]
+        :return: Result of this operation.
+        :rtype: sqlite3.Cursor
+        """
         with self.lock:
             return self.connection.execute(statement, parameters)
 
-    def payload(self, value):
-        """Store a content-addressed, typed payload and return its identity."""
+    def payload(self, value: object) -> str:
+        """Store a content-addressed, typed payload and return its identity.
+
+        :param value: Value consumed by this conversion or transformation.
+        :type value: object
+        :return: Result of this operation.
+        :rtype: str
+        """
         data = dumps(value)
         identity = hashlib.sha256(data).hexdigest()
         self.execute(
@@ -98,8 +119,14 @@ class SQLiteStorageBackend:
         )
         return identity
 
-    def load_payload(self, identity):
-        """Read one explicitly requested payload and check its checksum."""
+    def load_payload(self, identity: str) -> object:
+        """Read one explicitly requested payload and check its checksum.
+
+        :param identity: Identity.
+        :type identity: str
+        :return: Result of this operation.
+        :rtype: object
+        """
         row = self.execute(
             "SELECT data FROM tensor_payloads WHERE payload_id=?", (identity,)
         ).fetchone()
@@ -110,13 +137,22 @@ class SQLiteStorageBackend:
             raise ValueError("Run payload checksum mismatch.")
         return loads(data)
 
-    def flush(self):
-        """Commit every buffered record without dropping intermediate events."""
+    def flush(self) -> None:
+        """Commit every buffered record without dropping intermediate events.
+
+        :rtype: None
+        """
         with self.lock:
             self.connection.commit()
 
-    def export(self, path):
-        """Copy retained data and immutable settings to a new run bundle."""
+    def export(self, path: str | Path) -> Path:
+        """Copy retained data and immutable settings to a new run bundle.
+
+        :param path: Input or output path used by this operation.
+        :type path: str | Path
+        :return: Result of this operation.
+        :rtype: Path
+        """
         target = Path(path).resolve()
         target.mkdir(parents=True, exist_ok=True)
         if (target / "results.sqlite").exists() or (target / "settings.json").exists():
@@ -130,18 +166,14 @@ class SQLiteStorageBackend:
         logger.info("Exported retained run data path=%s.", target)
         return target
 
-    def close(self):
-        """Commit pending records and release the storage connection."""
+    def close(self) -> None:
+        """Commit pending records and release the storage connection.
+
+        :rtype: None
+        """
         with self.lock:
             if self.closed:
                 return
             self.connection.commit()
             self.connection.close()
             self.closed = True
-
-
-class MemoryStorageBackend(SQLiteStorageBackend):
-    """Use SQLite's in-memory database for exactly the same logical schema."""
-
-    def __init__(self, settings):
-        super().__init__(settings)

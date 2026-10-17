@@ -8,12 +8,19 @@ import os
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from tempfile import NamedTemporaryFile
+from typing import TYPE_CHECKING
 
-from pep_compass.configuration.objects import construct
 from pep_compass.core.wrapper.pipeline import Pipeline
 from pep_compass.optimization.saving.reader import AnalysisReader
 from pep_compass.orchestrator.planning import save_plan
+from pep_compass.utils.configuration import construct
 from pep_compass.utils.logger import get_custom_logger
+
+if TYPE_CHECKING:
+    from pep_compass.autoencoder.base import Autoencoder
+    from pep_compass.autoencoder.resource import AutoencoderResource
+    from pep_compass.orchestrator.planning import ExecutionPlan, PlannedRun
+
 
 logger = get_custom_logger(__name__)
 
@@ -37,26 +44,48 @@ class Orchestrator:
     :param autoencoder: Optional initialized resource, local execution only.
     """
 
-    def __init__(self, *, autoencoder=None):
+    def __init__(
+        self, *, autoencoder: AutoencoderResource | Autoencoder | None = None
+    ) -> None:
+        """Initialize this object with the declared configuration.
+
+        :param autoencoder: Shared numerical model or deferred resource, as declared by the parameter type.
+        :type autoencoder: AutoencoderResource | Autoencoder | None
+        :rtype: None
+        """
         self.autoencoder = autoencoder
 
-    def run(self, plan):
+    def run(self, plan: ExecutionPlan) -> tuple[RunExecution, ...] | Path:
         """Persist the plan and dispatch it through the selected backend.
 
         :param plan: A model-free validated ExecutionPlan.
         :return: Ordered RunExecution records, or a generated Slurm script path.
+
+        :type plan: ExecutionPlan
+        :rtype: tuple[RunExecution, ...] | Path
         """
         plan, path = save_plan(plan)
         backend = construct(plan.backend)
         return backend.run(self, plan, path)
 
-    def run_entry(self, plan, entry, *, skip_completed=None):
+    def run_entry(
+        self,
+        plan: ExecutionPlan,
+        entry: PlannedRun,
+        *,
+        skip_completed: bool | None = None,
+    ) -> RunExecution:
         """Execute or validate one job with exclusive output ownership.
 
         :param plan: Frozen experiment plan.
         :param entry: One job from that plan.
         :param skip_completed: Optional launch-policy override.
         :return: Terminal status. Existing incomplete output is never overwritten.
+
+        :type plan: ExecutionPlan
+        :type entry: PlannedRun
+        :type skip_completed: bool | None
+        :rtype: RunExecution
         """
         # Acquire exclusive ownership before examining or creating output.
         root = Path(plan.output_directory)
@@ -137,7 +166,16 @@ class Orchestrator:
                 temporary.unlink(missing_ok=True)
         return record
 
-    def _completed(self, plan, entry):
+    def _completed(self, plan: ExecutionPlan, entry: PlannedRun) -> bool:
+        """Completed.
+
+        :param plan: Plan.
+        :type plan: ExecutionPlan
+        :param entry: Entry.
+        :type entry: PlannedRun
+        :return: Result of this operation.
+        :rtype: bool
+        """
         reader = AnalysisReader(entry.path)
         try:
             manifest, summary = reader.settings, reader.summary

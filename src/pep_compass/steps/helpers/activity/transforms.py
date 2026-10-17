@@ -67,7 +67,9 @@ from collections.abc import Callable, Sequence
 
 import numpy as np
 
-ActivityTransform = Callable[[np.ndarray], np.ndarray]
+ActivityTransform = Callable[
+    [np.ndarray | Sequence[float] | float], np.ndarray | np.floating
+]
 
 # Typical values, stated once so that every transform shares the same defaults.
 # REMARK: The Hill coefficient of one and a maximum kill rate of one are
@@ -87,7 +89,7 @@ DEFAULT_GROWTH_RATE = DEFAULT_MAX_KILL_RATE / 2.0
 def potency_sum(
     concentrations: np.ndarray | Sequence[float],
     mic_values: np.ndarray | Sequence[float],
-) -> np.ndarray:
+) -> np.ndarray | np.floating:
     r"""Summarize a mixture of species by its fractional inhibitory concentration.
 
     :param concentrations: Molar concentration of each species, shape ``(..., S)``.
@@ -96,6 +98,10 @@ def potency_sum(
     :return: Potency sum :math:`\psi`, shape ``(...)``.
     :raises ValueError: If a MIC is not strictly positive, which would make the
         ratio undefined.
+
+    :type concentrations: np.ndarray | Sequence[float]
+    :type mic_values: np.ndarray | Sequence[float]
+    :rtype: np.ndarray | np.floating
     """
 
     concentration_array = np.asarray(concentrations, dtype=np.float64)  # (..., S)
@@ -111,6 +117,9 @@ def _as_array(potency: np.ndarray | Sequence[float] | float) -> np.ndarray:
     :param potency: Potency sum, any shape.
     :return: Float array of the same shape.
     :raises ValueError: If the potency sum is negative.
+
+    :type potency: np.ndarray | Sequence[float] | float
+    :rtype: np.ndarray
     """
 
     values = np.asarray(potency, dtype=np.float64)
@@ -138,6 +147,10 @@ def hill_kill_rate(
         unit time. Fixes the unit of the integrated budget.
     :return: Transform mapping a potency sum to a kill rate.
     :raises ValueError: If either parameter is not strictly positive.
+
+    :type hill_coefficient: float
+    :type max_kill_rate: float
+    :rtype: ActivityTransform
     """
 
     if hill_coefficient <= 0.0 or max_kill_rate <= 0.0:
@@ -145,7 +158,16 @@ def hill_kill_rate(
             "hill_coefficient and max_kill_rate must be strictly positive."
         )
 
-    def transform(potency: np.ndarray) -> np.ndarray:
+    def transform(
+        potency: np.ndarray | Sequence[float] | float,
+    ) -> np.ndarray | np.floating:
+        """Transform.
+
+        :param potency: Potency.
+        :type potency: np.ndarray | Sequence[float] | float
+        :return: Result of this operation.
+        :rtype: np.ndarray | np.floating
+        """
         values = _as_array(potency)
         raised = np.power(values, hill_coefficient)
         return max_kill_rate * raised / (raised + 1.0)
@@ -182,6 +204,11 @@ def net_kill_rate(
     :raises ValueError: If the parameters are not positive, or if the growth rate
         is not below the maximum kill rate, in which case no potency can ever
         produce net killing.
+
+    :type hill_coefficient: float
+    :type max_kill_rate: float
+    :type growth_rate: float
+    :rtype: ActivityTransform
     """
 
     if growth_rate <= 0.0:
@@ -192,7 +219,16 @@ def net_kill_rate(
         )
     kill = hill_kill_rate(hill_coefficient, max_kill_rate)
 
-    def transform(potency: np.ndarray) -> np.ndarray:
+    def transform(
+        potency: np.ndarray | Sequence[float] | float,
+    ) -> np.ndarray | np.floating:
+        """Transform.
+
+        :param potency: Potency.
+        :type potency: np.ndarray | Sequence[float] | float
+        :return: Result of this operation.
+        :rtype: np.ndarray | np.floating
+        """
         return kill(potency) - growth_rate
 
     return transform
@@ -207,9 +243,20 @@ def potency_sum_transform() -> ActivityTransform:
     budget regardless of how briefly it exists.
 
     :return: Transform mapping a potency sum to itself.
+
+    :rtype: ActivityTransform
     """
 
-    def transform(potency: np.ndarray) -> np.ndarray:
+    def transform(
+        potency: np.ndarray | Sequence[float] | float,
+    ) -> np.ndarray | np.floating:
+        """Transform.
+
+        :param potency: Potency.
+        :type potency: np.ndarray | Sequence[float] | float
+        :return: Result of this operation.
+        :rtype: np.ndarray | np.floating
+        """
         return _as_array(potency)
 
     return transform
@@ -230,12 +277,24 @@ def log_potency(floor: float = 1e-6) -> ActivityTransform:
         clamped.
     :return: Transform mapping a potency sum to a base-two logarithm.
     :raises ValueError: If the floor is not strictly positive.
+
+    :type floor: float
+    :rtype: ActivityTransform
     """
 
     if floor <= 0.0:
         raise ValueError("floor must be strictly positive.")
 
-    def transform(potency: np.ndarray) -> np.ndarray:
+    def transform(
+        potency: np.ndarray | Sequence[float] | float,
+    ) -> np.ndarray | np.floating:
+        """Transform.
+
+        :param potency: Potency.
+        :type potency: np.ndarray | Sequence[float] | float
+        :return: Result of this operation.
+        :rtype: np.ndarray | np.floating
+        """
         return np.log2(np.maximum(_as_array(potency), floor))
 
     return transform
@@ -255,12 +314,24 @@ def threshold(inhibitory_potency: float = 1.0) -> ActivityTransform:
     :param inhibitory_potency: Potency sum at which inhibition begins.
     :return: Transform mapping a potency sum to zero or one.
     :raises ValueError: If the boundary is not strictly positive.
+
+    :type inhibitory_potency: float
+    :rtype: ActivityTransform
     """
 
     if inhibitory_potency <= 0.0:
         raise ValueError("inhibitory_potency must be strictly positive.")
 
-    def transform(potency: np.ndarray) -> np.ndarray:
+    def transform(
+        potency: np.ndarray | Sequence[float] | float,
+    ) -> np.ndarray | np.floating:
+        """Transform.
+
+        :param potency: Potency.
+        :type potency: np.ndarray | Sequence[float] | float
+        :return: Result of this operation.
+        :rtype: np.ndarray | np.floating
+        """
         return (_as_array(potency) >= inhibitory_potency).astype(np.float64)
 
     return transform
@@ -285,12 +356,25 @@ def soft_threshold(
     :param width_in_doublings: Width of the transition in two-fold dilution steps.
     :return: Transform mapping a potency sum into the unit interval.
     :raises ValueError: If either parameter is not strictly positive.
+
+    :type inhibitory_potency: float
+    :type width_in_doublings: float
+    :rtype: ActivityTransform
     """
 
     if inhibitory_potency <= 0.0 or width_in_doublings <= 0.0:
         raise ValueError("inhibitory_potency and width_in_doublings must be positive.")
 
-    def transform(potency: np.ndarray) -> np.ndarray:
+    def transform(
+        potency: np.ndarray | Sequence[float] | float,
+    ) -> np.ndarray | np.floating:
+        """Transform.
+
+        :param potency: Potency.
+        :type potency: np.ndarray | Sequence[float] | float
+        :return: Result of this operation.
+        :rtype: np.ndarray | np.floating
+        """
         values = np.maximum(_as_array(potency), np.finfo(np.float64).tiny)
         exponent = (np.log2(values) - np.log2(inhibitory_potency)) / width_in_doublings
         return 1.0 / (1.0 + np.power(2.0, -exponent))
@@ -315,6 +399,10 @@ def activity_budget(
     :return: The integrated budget, in units of activity multiplied by time.
     :raises ValueError: If the grid is not strictly increasing or the shapes
         disagree.
+
+    :type times: np.ndarray | Sequence[float]
+    :type activities: np.ndarray | Sequence[float]
+    :rtype: float
     """
 
     time_array = np.asarray(times, dtype=np.float64)

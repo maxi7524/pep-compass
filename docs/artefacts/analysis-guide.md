@@ -11,19 +11,25 @@ from pep_compass.analysis.reader import ExperimentReader
 with AnalysisReader("results/example") as reader:
     archive = reader.get_archive()
     summary = reader.summary
-    for frame in reader.tables["evaluated_peptides"].scan(["sequence", "score"], chunk_size=1000):
+    for frame in reader.tables["evaluation_archive"].scan(["sequence", "score"], chunk_size=1000):
         print(frame)
 
 collection = ExperimentReader("results")
 selected = collection.select(seeds=[7])
-frame = selected.collect("evaluated_peptides", columns=["sequence", "score", "seed"])
+frame = selected.collect("evaluation_archive", columns=["sequence", "score", "seed"])
 ```
 
-`base` retains all completed evaluated sequence/objective pairs and compact
-statistics. It does not imply an outgoing tensor batch. `save_terminal=True`
-retains that separate aligned batch. Observation history, evaluated lineage,
-component diagnostics and reconstruction are independent retention options.
-`Snapshot(name)` explicitly captures a batch at a graph position.
+Every actual scoring record is retained in `evaluations`. The unique evaluated
+archive is the `evaluation_archive` view. Later filtering cannot delete scored
+peptides; oracle cache hits reuse scores without adding fictitious evaluations.
+Lineage is enabled by default. `get_lineage()` reads ordered batch relations,
+including unscored ancestor identities whose sequence is not retained.
+
+`reconstruction="trajectories"` retains the actual graph output and includes
+boundary replay data. `Snapshot(name)` names an existing retained batch and
+requires `boundaries` or `trajectories`. `get_evaluations()` reads all actual
+scoring records without a separate retention switch. Component artifacts and
+measurement detail are independent choices; see [the data contract](../run-data-contract.md).
 
 `get_checkpoints()` lists retained boundaries. `get_boundary_input(execution_id)`
 loads the original input batch. `get_trajectories()` returns aligned walker point

@@ -1,8 +1,23 @@
 """Traverse executable objects without changing their lifecycle or RNG state."""
 
+from __future__ import annotations
 
-def iter_steps(root):
-    """Yield composite operations and leaf components in structural order."""
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
+
+    from pep_compass.steps.base import Step
+
+
+def iter_steps(root: Step) -> Iterator[Step]:
+    """Yield composite operations and leaf components in structural order.
+
+    :param root: Root resource directory or root graph node, as declared by its type.
+    :type root: Step
+    :return: Result of this operation.
+    :rtype: Iterator[Step]
+    """
     yield root
     children = list(getattr(root, "steps", ()))
     if hasattr(root, "body"):
@@ -14,8 +29,16 @@ def iter_steps(root):
         yield from iter_steps(child)
 
 
-def find_step(root, node_id):
-    """Find an executable by its stable declaration identity."""
+def find_step(root: Step, node_id: str) -> Step | None:
+    """Find an executable by its stable declaration identity.
+
+    :param root: Root resource directory or root graph node, as declared by its type.
+    :type root: Step
+    :param node_id: Stable graph placement identity.
+    :type node_id: str
+    :return: Result of this operation.
+    :rtype: Step | None
+    """
     return next(
         (
             step

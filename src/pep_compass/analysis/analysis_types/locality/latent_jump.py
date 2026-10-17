@@ -8,7 +8,7 @@ mutation "jumps" rather than stays local.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import pandas as pd
@@ -18,7 +18,13 @@ from pep_compass.analysis.analysis_types._encoding import encode_sequences
 from pep_compass.analysis.analysis_types.locality._streaming import NestedProgress
 from pep_compass.analysis.reader.selection import ExperimentSelection
 from pep_compass.analysis.result import AnalysisResult
-from pep_compass.autoencoder.strategies.hydramp.adapter import HydrampAutoencoder
+from pep_compass.autoencoder.strategies.hydramp.adapter import HydrAMPModel
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
+
+    from pep_compass.data_schemas.candidates import CandidateBatch
+
 
 DISTANCE_KINDS = (
     "candidate_to_origin",
@@ -32,6 +38,13 @@ def _levenshtein_distance(left: str, right: str) -> int:
 
     Duplicated rather than imported from the runtime's ``Levenshtein``
     filter: ``pep_compass.analysis`` never depends on the optimization engine.
+
+    :param left: Left.
+    :type left: str
+    :param right: Right.
+    :type right: str
+    :return: Result of this operation.
+    :rtype: int
     """
     if len(left) < len(right):
         left, right = right, left
@@ -51,7 +64,13 @@ def _levenshtein_distance(left: str, right: str) -> int:
 
 
 def _resolve_autoencoder_parameters(config: dict[str, Any]) -> dict[str, Any]:
-    """Extract standalone ``HydrampAutoencoder`` constructor arguments."""
+    """Extract standalone ``HydrAMPModel`` constructor arguments.
+
+    :param config: Config.
+    :type config: dict[str, Any]
+    :return: Result of this operation.
+    :rtype: dict[str, Any]
+    """
     autoencoder_config = config["schema"]["autoencoder"]
     if autoencoder_config is None or not autoencoder_config["_target_"].endswith(
         ".HydrAMP"
@@ -77,6 +96,17 @@ def _match_sorbes_parents(
     the walk point that produced it. This fallback is only used for older run
     outputs without ``lineage.parent_candidate_id``; current outputs resolve
     the parent directly by ID in :func:`_match_sorbes_parents_by_id`.
+
+    :param copied_latents: Copied latents.
+    :type copied_latents: np.ndarray
+    :param trajectory_points: Trajectory points.
+    :type trajectory_points: pd.DataFrame
+    :param trajectory_point_latents: Trajectory point latents.
+    :type trajectory_point_latents: np.ndarray
+    :param decimals: Decimals.
+    :type decimals: int
+    :return: Result of this operation.
+    :rtype: list[pd.Series | None]
     """
     lookup: dict[tuple[float, ...], pd.Series] = {}
     for position, vector in enumerate(trajectory_point_latents):
@@ -85,8 +115,14 @@ def _match_sorbes_parents(
     return [lookup.get(tuple(np.round(vector, decimals))) for vector in copied_latents]
 
 
-def _read_candidate_lineage(batch):
-    """Read exact MUTANG provenance from the canonical aligned batch fields."""
+def _read_candidate_lineage(batch: CandidateBatch) -> tuple[np.ndarray, object]:
+    """Read exact MUTANG provenance from the canonical aligned batch fields.
+
+    :param batch: Incoming aligned candidate batch.
+    :type batch: CandidateBatch
+    :return: Result of this operation.
+    :rtype: tuple[np.ndarray, object]
+    """
     from pep_compass.data_schemas.candidates import (
         ObjectField,
         OptionalField,
@@ -108,7 +144,15 @@ def _match_sorbes_parents_by_id(
     parent_ids: np.ndarray,
     trajectory_points: pd.DataFrame,
 ) -> list[pd.Series | None]:
-    """Resolve MUTANG parents against tracked SORBES candidates by lineage ID."""
+    """Resolve MUTANG parents against tracked SORBES candidates by lineage ID.
+
+    :param parent_ids: Parent ids.
+    :type parent_ids: np.ndarray
+    :param trajectory_points: Trajectory points.
+    :type trajectory_points: pd.DataFrame
+    :return: Result of this operation.
+    :rtype: list[pd.Series | None]
+    """
     if "candidate_id" not in trajectory_points:
         raise ValueError("Trajectory points do not contain candidate lineage IDs.")
     points_by_id: dict[int, pd.Series] = {}
@@ -154,6 +198,11 @@ def compute_outliers(
         not just far in absolute terms.
     :return: ``(outliers, frequency)``: the flagged rows sorted by distance,
         and per-group ``candidate_count``/``outlier_count``/``outlier_fraction``.
+
+    :type data: pd.DataFrame
+    :type group_columns: list[str]
+    :type outlier_iqr_multiplier: float
+    :rtype: tuple[pd.DataFrame, pd.DataFrame]
     """
     group_columns = list(group_columns)
     thresholds = (
@@ -210,6 +259,11 @@ def rank_by_jump_ratio(
         (``levenshtein_distance=0`` makes the ratio undefined).
     :return: Rows for ``distance_kind`` with a ``jump_ratio`` column, sorted
         descending -- the most disproportionate jumps first.
+
+    :type data: pd.DataFrame
+    :type distance_kind: str
+    :type minimum_levenshtein: int
+    :rtype: pd.DataFrame
     """
     subset = data[
         (data["distance_kind"] == distance_kind)
@@ -219,8 +273,14 @@ def rank_by_jump_ratio(
     return subset.sort_values("jump_ratio", ascending=False).reset_index(drop=True)
 
 
-def _grid_value(config):
-    """Read the actual MUTANG direction threshold from the constructor snapshot."""
+def _grid_value(config: Mapping[str, object]) -> float | None:
+    """Read the actual MUTANG direction threshold from the constructor snapshot.
+
+    :param config: Config.
+    :type config: Mapping[str, object]
+    :return: Result of this operation.
+    :rtype: float | None
+    """
     from pep_compass.data_schemas.graph import PipelineSchema
 
     for node, _, _ in PipelineSchema.from_dict(config["schema"]).walk():
@@ -242,6 +302,9 @@ def sorbes_trajectory_profile(selection: ExperimentSelection) -> AnalysisResult:
     :return: One row per walk point, with ``euclidean_distance`` from the
         trajectory's original seed and its own ``trajectory_step`` (iteration
         index) for the x-axis.
+
+    :type selection: ExperimentSelection
+    :rtype: AnalysisResult
     """
     rows: list[dict[str, Any]] = []
     for run in selection.runs:
@@ -359,6 +422,17 @@ def latent_jump(
         ``diagnostics``.
     :raises ValueError: If selected runs use different autoencoder
         configurations or a non-hydramp autoencoder.
+
+    :type selection: ExperimentSelection
+    :type levenshtein_bins: tuple[int, ...]
+    :type outlier_iqr_multiplier: float
+    :type candidate_sample_size: int | None
+    :type encode_batch_size: int
+    :type match_decimals: int
+    :type random_seed: int
+    :type device: str
+    :type progress: bool
+    :rtype: AnalysisResult
     """
     empty_metadata = {"analysis": "latent_jump", "run_count": 0}
     if not selection.runs:
@@ -371,7 +445,7 @@ def latent_jump(
                 "latent_jump requires every selected run to share one "
                 "autoencoder configuration."
             )
-    autoencoder = HydrampAutoencoder(device=device, **autoencoder_parameters)
+    autoencoder = HydrAMPModel(device=device, **autoencoder_parameters)
     autoencoder = autoencoder.to(device).eval()
 
     levenshtein_bins = tuple(sorted(set(levenshtein_bins)))
@@ -550,11 +624,21 @@ def latent_jump(
 
 
 def _decode_batched(
-    autoencoder: HydrampAutoencoder,
+    autoencoder: HydrAMPModel,
     latents: torch.Tensor,
     batch_size: int,
 ) -> torch.Tensor:
-    """Decode latent positions into ambient (softmax) vectors, batched."""
+    """Decode latent positions into ambient (softmax) vectors, batched.
+
+    :param autoencoder: Shared numerical model or deferred resource, as declared by the parameter type.
+    :type autoencoder: HydrAMPModel
+    :param latents: Latents.
+    :type latents: torch.Tensor
+    :param batch_size: Batch size.
+    :type batch_size: int
+    :return: Result of this operation.
+    :rtype: torch.Tensor
+    """
     outputs = []
     for start in range(0, latents.shape[0], batch_size):
         outputs.append(autoencoder.decoder_forward(latents[start : start + batch_size]))
@@ -582,7 +666,7 @@ def ambient_jump(
     latent positions (``z``) -- a quantity that never depends on the
     decoder's target condition ``c = (c_AMP, c_MIC)``, since HydrAMP's
     encoder never sees ``c`` (only the decoder does -- see
-    ``HydrampAutoencoder.decoder_forward``, which appends
+    ``HydrAMPModel.decoder_forward``, which appends
     ``self.default_condition`` to its input). This instead decodes the SAME
     latent pairs :func:`latent_jump` compares (candidate vs. trajectory
     origin, candidate vs. its generating SORBES point) into the decoder's
@@ -614,6 +698,18 @@ def ambient_jump(
         ``condition``, so the two are directly comparable row by row.
     :raises ValueError: If selected runs use different autoencoder
         configurations or a non-hydramp autoencoder.
+
+    :type selection: ExperimentSelection
+    :type conditions: dict[str, tuple[float, float]] | None
+    :type levenshtein_bins: tuple[int, ...]
+    :type candidate_sample_size: int | None
+    :type encode_batch_size: int
+    :type decode_batch_size: int
+    :type match_decimals: int
+    :type random_seed: int
+    :type device: str
+    :type progress: bool
+    :rtype: AnalysisResult
     """
     if conditions is None:
         conditions = {
@@ -633,7 +729,7 @@ def ambient_jump(
                 "ambient_jump requires every selected run to share one "
                 "autoencoder configuration."
             )
-    autoencoder = HydrampAutoencoder(device=device, **autoencoder_parameters)
+    autoencoder = HydrAMPModel(device=device, **autoencoder_parameters)
     autoencoder = autoencoder.to(device).eval()
 
     levenshtein_bins = tuple(sorted(set(levenshtein_bins)))

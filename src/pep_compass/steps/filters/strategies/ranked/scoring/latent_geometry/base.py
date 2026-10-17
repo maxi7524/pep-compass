@@ -1,6 +1,9 @@
 """Adapters for scores defined over candidates from one MUTANG parent."""
 
+from __future__ import annotations
+
 from collections import defaultdict
+from typing import TYPE_CHECKING
 
 import torch
 
@@ -9,12 +12,26 @@ from pep_compass.steps.filters.strategies.ranked.scoring.base import (
     ScoreFunction,
 )
 
+if TYPE_CHECKING:
+    from collections.abc import Mapping, Sequence
+
+    import numpy as np
+
+    from pep_compass.autoencoder.subriemannian import SubRiemannianTangentSpace
+    from pep_compass.data_schemas.candidates import CandidateBatch
+    from pep_compass.data_schemas.contracts import StepContract
+    from pep_compass.optimization.engine.execution.context import OptimizationContext
+
 
 class MutationPoolScore(ScoreFunction):
     """Map a mutation-pool scoring implementation onto an aligned batch."""
 
-    def contract(self):
-        """Require the MUTANG parent and options used for grouping candidate scores."""
+    def contract(self) -> StepContract:
+        """Require the MUTANG parent and options used for grouping candidate scores.
+
+        :return: Result of this operation.
+        :rtype: StepContract
+        """
         from pep_compass.data_schemas.contracts import StepContract
 
         return StepContract(
@@ -23,7 +40,18 @@ class MutationPoolScore(ScoreFunction):
             resources=("autoencoder",),
         )
 
-    def __call__(self, batch, context):
+    def __call__(
+        self, batch: CandidateBatch, context: OptimizationContext
+    ) -> torch.Tensor:
+        """Call.
+
+        :param batch: Incoming aligned candidate batch.
+        :type batch: CandidateBatch
+        :param context: Scoped execution services, shared run state and random generator.
+        :type context: OptimizationContext
+        :return: Result of this operation.
+        :rtype: torch.Tensor
+        """
         parents = batch.fields.get("mutation.parent_sequence")
         options = batch.fields.get("mutation.options")
         tangent_spaces = batch.fields.get("walker.tangent_space")
@@ -74,6 +102,25 @@ class MutationPoolScore(ScoreFunction):
                     scores[index] = score_by_sequence[batch.sequences[index]]
         return scores
 
-    def score_group(self, parent, mutations, tangent_space, *, rng=None):
-        """Return complete candidate sequences mapped to scalar scores."""
+    def score_group(
+        self,
+        parent: str,
+        mutations: Mapping[int, Sequence[int]],
+        tangent_space: SubRiemannianTangentSpace | None,
+        *,
+        rng: np.random.Generator | None = None,
+    ) -> dict[str, float]:
+        """Return complete candidate sequences mapped to scalar scores.
+
+        :param parent: Parent.
+        :type parent: str
+        :param mutations: Mutations.
+        :type mutations: Mapping[int, Sequence[int]]
+        :param tangent_space: Tangent space.
+        :type tangent_space: SubRiemannianTangentSpace | None
+        :param rng: Run-owned random generator used for reproducible choices.
+        :type rng: np.random.Generator | None
+        :return: Result of this operation.
+        :rtype: dict[str, float]
+        """
         raise NotImplementedError

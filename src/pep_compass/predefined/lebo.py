@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from pep_compass import Pipeline
 from pep_compass.autoencoder import HydrAMP
 from pep_compass.steps.filters import (
@@ -15,17 +17,22 @@ from pep_compass.steps.walkers.strategies.sorbes import KappaStableGeometry
 
 """Bounded LE-BO composition based on the repository's reference configuration."""
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import torch
+
 
 def create(
     *,
-    device="cpu",
-    seed=1234,
-    mutation_candidates=30000,
-    oracle_calls=1400,
-    iterations=1000,
-    trajectories=10,
-    walk_time=0.1,
-):
+    device: str | torch.device = "cpu",
+    seed: int = 1234,
+    mutation_candidates: int = 30000,
+    oracle_calls: int = 1400,
+    iterations: int = 1000,
+    trajectories: int = 10,
+    walk_time: float = 0.1,
+) -> Pipeline:
     """Return a fresh LE-BO pipeline without initializing models.
 
     :param device: Autoencoder and acquisition device; oracle remains on CPU.
@@ -39,6 +46,15 @@ def create(
 
     The allocation cap is an explicit operational addition to the historical
     reference. This preset does not claim reproduction of publication results.
+
+    :type device: str | torch.device
+    :type seed: int
+    :type mutation_candidates: int
+    :type oracle_calls: int
+    :type iterations: int
+    :type trajectories: int
+    :type walk_time: float
+    :rtype: Pipeline
     """
     local = LocalEnumeration(
         trajectories=trajectories,

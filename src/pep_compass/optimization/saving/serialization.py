@@ -13,11 +13,14 @@ import numpy as np
 import torch
 
 
-def _payload_types():
+def _payload_types() -> dict[str, type]:
     """Return the fixed data-format types; algorithm construction is unrelated.
 
     REMARK: The codec accepts only data containers explicitly supported by this
     file. Persisted data cannot import or construct arbitrary Python targets.
+
+    :return: Result of this operation.
+    :rtype: dict[str, type]
     """
     from pep_compass.autoencoder.geometry import (
         StableTangentGeometry,
@@ -60,17 +63,28 @@ def _payload_types():
     return declarations
 
 
-def encode(value):
-    """Encode typed values while preserving shared mutation-pool containers."""
+def encode(value: object) -> object:
+    """Encode typed values while preserving shared mutation-pool containers.
+
+    :param value: Value consumed by this conversion or transformation.
+    :type value: object
+    :return: Result of this operation.
+    :rtype: object
+    """
     return _encode(value, {})
 
 
-def _encode(value, memo):
+def _encode(value: object, memo: dict[int, tuple[int, object]]) -> object:
     """Convert supported values to a lossless JSON-shaped versioned payload.
 
     :param value: Primitive, nested containers or an explicitly supported value.
     :return: Typed metadata and raw blocks preserving tensor dtype and dimensions.
-    :raises TypeError: If a value has no registered scientific codec.
+    :raises TypeError: If a value has no supported scientific codec.
+
+    :type value: object
+    :param memo: Memo.
+    :type memo: dict[int, tuple[int, object]]
+    :rtype: object
     """
     if isinstance(value, torch.Tensor):
         tensor = value.detach().cpu().contiguous()
@@ -158,12 +172,12 @@ def _encode(value, memo):
                 memo,
             ),
         }
-    registered_name = next(
+    codec_name = next(
         (name for name, kind in types.items() if kind is type(value)), None
     )
-    if is_dataclass(value) and registered_name is not None:
+    if is_dataclass(value) and codec_name is not None:
         return {
-            "__type__": registered_name,
+            "__type__": codec_name,
             "values": _encode(
                 {field.name: getattr(value, field.name) for field in fields(value)},
                 memo,
@@ -174,13 +188,27 @@ def _encode(value, memo):
     )
 
 
-def decode(value):
-    """Restore only supported codecs, including shared container references."""
+def decode(value: object) -> object:
+    """Restore only supported codecs, including shared container references.
+
+    :param value: Value consumed by this conversion or transformation.
+    :type value: object
+    :return: Result of this operation.
+    :rtype: object
+    """
     return _decode(value, {})
 
 
-def _decode(value, memo):
-    """Restore supported values without importing targets supplied by data."""
+def _decode(value: object, memo: dict[int, object]) -> object:
+    """Restore supported values without importing targets supplied by data.
+
+    :param value: Value consumed by this conversion or transformation.
+    :type value: object
+    :param memo: Memo.
+    :type memo: dict[int, object]
+    :return: Result of this operation.
+    :rtype: object
+    """
     if not isinstance(value, dict) or "__type__" not in value:
         return value
     kind = value["__type__"]
@@ -234,11 +262,24 @@ def _decode(value, memo):
     return types[kind](**values)
 
 
-def dumps(value):
-    """Pack JSON metadata and raw tensor blocks into one versioned binary blob."""
+def dumps(value: object) -> bytes:
+    """Pack JSON metadata and raw tensor blocks into one versioned binary blob.
+
+    :param value: Value consumed by this conversion or transformation.
+    :type value: object
+    :return: Result of this operation.
+    :rtype: bytes
+    """
     blocks = []
 
-    def pack(item):
+    def pack(item: object) -> object:
+        """Pack.
+
+        :param item: Item.
+        :type item: object
+        :return: Result of this operation.
+        :rtype: object
+        """
         if isinstance(item, bytes):
             index = len(blocks)
             blocks.append(item)
@@ -258,8 +299,14 @@ def dumps(value):
     return b"".join((b"PEPCOMPASS1", len(header).to_bytes(8, "big"), header, *blocks))
 
 
-def loads(value):
-    """Restore a value serialized with :func:`dumps`."""
+def loads(value: bytes) -> object:
+    """Restore a value serialized with :func:`dumps`.
+
+    :param value: Value consumed by this conversion or transformation.
+    :type value: bytes
+    :return: Result of this operation.
+    :rtype: object
+    """
     magic = b"PEPCOMPASS1"
     header_start = len(magic) + 8
     if not value.startswith(magic) or len(value) < header_start:
@@ -275,7 +322,14 @@ def loads(value):
     if offset != len(value):
         raise ValueError("Unexpected trailing run payload bytes.")
 
-    def unpack(item):
+    def unpack(item: object) -> object:
+        """Unpack.
+
+        :param item: Item.
+        :type item: object
+        :return: Result of this operation.
+        :rtype: object
+        """
         if isinstance(item, dict):
             if set(item) == {"__blob__"}:
                 return blocks[item["__blob__"]]

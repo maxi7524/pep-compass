@@ -1,13 +1,29 @@
 """Direct Levenshtein-distance constraint."""
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 import torch
 
 from pep_compass.data_schemas.candidates import ObjectField
 from pep_compass.steps.base import Step
 
+if TYPE_CHECKING:
+    from pep_compass.data_schemas.candidates import CandidateBatch
+    from pep_compass.optimization.engine.execution.context import OptimizationContext
+
 
 def levenshtein_distance(left: str, right: str) -> int:
-    """Return the exact edit distance using one dynamic-programming row."""
+    """Return the exact edit distance using one dynamic-programming row.
+
+    :param left: Left.
+    :type left: str
+    :param right: Right.
+    :type right: str
+    :return: Result of this operation.
+    :rtype: int
+    """
     if len(left) < len(right):
         left, right = right, left
     previous = list(range(len(right) + 1))
@@ -42,6 +58,16 @@ class Levenshtein(Step):
         maximum_distance: int = 4,
         reference_field: str | None = None,
     ) -> None:
+        """Initialize this object with the declared configuration.
+
+        :param reference: Reference.
+        :type reference: str | None
+        :param maximum_distance: Maximum distance.
+        :type maximum_distance: int
+        :param reference_field: Reference field.
+        :type reference_field: str | None
+        :rtype: None
+        """
         self._configure(
             {
                 "reference": reference,
@@ -58,7 +84,18 @@ class Levenshtein(Step):
         self.reference, self.reference_field = reference, reference_field
         self.maximum_distance = maximum_distance
 
-    def _execute(self, batch, context):
+    def _execute(
+        self, batch: CandidateBatch, context: OptimizationContext
+    ) -> CandidateBatch:
+        """Execute.
+
+        :param batch: Incoming aligned candidate batch.
+        :type batch: CandidateBatch
+        :param context: Scoped execution services, shared run state and random generator.
+        :type context: OptimizationContext
+        :return: Result of this operation.
+        :rtype: CandidateBatch
+        """
         del context
         references = None
         if self.reference_field is not None:

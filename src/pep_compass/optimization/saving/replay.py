@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import random
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 import numpy as np
 import torch
@@ -13,6 +14,11 @@ from pep_compass.optimization.engine.execution.state import OptimizationState
 from pep_compass.optimization.saving.saver import sequence_digest
 from pep_compass.utils.logger import get_custom_logger
 from pep_compass.utils.randomness import random_scope
+
+if TYPE_CHECKING:
+    from pep_compass.autoencoder.base import Autoencoder
+    from pep_compass.optimization.saving.reader import AnalysisReader
+
 
 logger = get_custom_logger(__name__)
 
@@ -26,21 +32,35 @@ class ReplayResult:
     expected_sha256: str
 
     @property
-    def matches(self):
-        """Compare ordered sequence content and count with the saved boundary."""
+    def matches(self) -> bool:
+        """Compare ordered sequence content and count with the saved boundary.
+
+        :return: Result of this operation.
+        :rtype: bool
+        """
         return (
             len(self.candidates) == self.expected_count
             and sequence_digest(self.candidates.sequences) == self.expected_sha256
         )
 
 
-def reconstruct(reader, checkpoint_id, *, autoencoder=None):
+def reconstruct(
+    reader: AnalysisReader,
+    checkpoint_id: int,
+    *,
+    autoencoder: Autoencoder | None = None,
+) -> ReplayResult:
     """Rebuild one named operation, restore state and verify its output.
 
     :param reader: Reader of a run with retained reconstruction boundaries.
     :param checkpoint_id: Stable persisted checkpoint identity.
     :param autoencoder: Required for originally injected, unnamed resources.
     :return: ReplayResult with a digest verdict; no oracle is rerun implicitly.
+
+    :type reader: AnalysisReader
+    :type checkpoint_id: int
+    :type autoencoder: Autoencoder | None
+    :rtype: ReplayResult
     """
     from pep_compass.core.builder import PipelineBuilder
     from pep_compass.data_schemas.graph import PipelineSchema
@@ -57,7 +77,7 @@ def reconstruct(reader, checkpoint_id, *, autoencoder=None):
         raise KeyError(checkpoint_id)
     if row["phase"] != "before_prepare_call" or row["output_sha256"] is None:
         raise ValueError("Checkpoint has no completed, supported replay boundary.")
-    checkpoint = reader.backend.load_payload(row["payload_id"])
+    checkpoint = reader._load_checkpoint(row["payload_id"])
     logger.info("Reconstructing checkpoint=%s node=%s.", checkpoint_id, row["node_id"])
     from pep_compass.optimization.saving.provenance import source_digest
 
@@ -97,7 +117,7 @@ def reconstruct(reader, checkpoint_id, *, autoencoder=None):
         # Restore the boundary after preparing component-local static resources.
         ## REMARK: precompute may initialize per-run context values. Replaying a
         ## later boundary must retain its saved values rather than those defaults.
-        checkpoint = reader.backend.load_payload(row["payload_id"])
+        checkpoint = reader._load_checkpoint(row["payload_id"])
         context = replace(
             context,
             state=OptimizationState(**checkpoint["state"]),

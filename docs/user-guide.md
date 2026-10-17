@@ -1,7 +1,7 @@
 # User guide
 
-Start with [the direct API tutorial](tutorial/wrapper_new.md) and run
-[wrapper_new.ipynb](tutorial/wrapper_new.ipynb) for the full sequence.
+Start with [the direct API tutorial](artefacts/wrapper_new.md) and run
+[wrapper_tutorial.ipynb](tutorial/wrapper_tutorial.ipynb) for the full sequence.
 
 ```python
 from pep_compass.predefined import simple, lebo
@@ -23,6 +23,6 @@ weights. Instantiate components directly to customize the computation, then use
 Use stable node IDs for edits. A returned `ExecutablePipeline` is an independent
 snapshot and supports `run`, `set_runner_settings` and `show`.
 
-Use [Hydra orchestration](tutorial/orchestrator.md) for YAML composition, sweeps,
+Use [Hydra orchestration](artefacts/orchestrator.md) for YAML composition, sweeps,
 independent workers and Slurm templates. YAML selects the same constructors via
 `_target_`. No registries, decorators or old declaration grammar are required.

@@ -1,12 +1,14 @@
 """Molecular fingerprint utilities for optimization policies."""
 
+from __future__ import annotations
+
 # -*- coding: utf-8 -*-
 #
 # Fingerprints
 #
-
 import itertools
 from collections import defaultdict
+from typing import TYPE_CHECKING
 
 import numpy as np
 from mapchiral.mapchiral import get_shingles
@@ -15,47 +17,93 @@ from rdkit import Chem
 from rdkit.Chem import rdFingerprintGenerator, rdMHFPFingerprint, rdmolops
 from rdkit.Chem.rdmolops import GetDistanceMatrix
 
+if TYPE_CHECKING:
+    from collections.abc import Mapping, Sequence
+    from pathlib import Path
+
+    from rdkit.Chem import Mol
+
 
 class MAP4Calculator:
-    def __init__(self, dimensions=1024, radius=2, is_counted=False):
-        """
-        MAP4 calculator class
+    def __init__(
+        self, dimensions: int = 1024, radius: int = 2, is_counted: bool = False
+    ) -> None:
+        """MAP4 calculator class
+
+        :param dimensions: Dimensions.
+        :type dimensions: int
+        :param radius: Radius.
+        :type radius: int
+        :param is_counted: Is counted.
+        :type is_counted: bool
+        :rtype: None
         """
         self.dimensions = dimensions
         self.radius = radius
         self.is_counted = is_counted
         self.encoder = MHFPEncoder()
 
-    def calculate(self, mol):
+    def calculate(self, mol: Mol) -> np.ndarray:
         """Calculates the atom pair minhashed fingerprint
         Arguments:
             mol -- rdkit mol object
         Returns:
             tmap VectorUint -- minhashed fingerprint
+
+        :param mol: Mol.
+        :type mol: Mol
+        :return: Result of this operation.
+        :rtype: np.ndarray
         """
 
         atom_env_pairs = self._calculate(mol)
         return self._fold(atom_env_pairs)
 
-    def calculate_many(self, mols):
+    def calculate_many(self, mols: Sequence[Mol]) -> list[np.ndarray]:
         """Calculates the atom pair minhashed fingerprint
         Arguments:
             mols -- list of mols
         Returns:
             list of tmap VectorUint -- minhashed fingerprints list
+
+        :param mols: Mols.
+        :type mols: Sequence[Mol]
+        :return: Result of this operation.
+        :rtype: list[np.ndarray]
         """
 
         atom_env_pairs_list = [self._calculate(mol) for mol in mols]
         return [self._fold(pairs) for pairs in atom_env_pairs_list]
 
-    def _calculate(self, mol):
+    def _calculate(self, mol: Mol) -> list[bytes]:
+        """Calculate.
+
+        :param mol: Mol.
+        :type mol: Mol
+        :return: Result of this operation.
+        :rtype: list[bytes]
+        """
         return self._all_pairs(mol, self._get_atom_envs(mol))
 
-    def _fold(self, pairs):
+    def _fold(self, pairs: Sequence[bytes]) -> np.ndarray:
+        """Fold.
+
+        :param pairs: Pairs.
+        :type pairs: Sequence[bytes]
+        :return: Result of this operation.
+        :rtype: np.ndarray
+        """
         fp_hash = self.encoder.hash(set(pairs))
         return self.encoder.fold(fp_hash, self.dimensions)
 
-    def _get_atom_envs(self, mol):
+    def _get_atom_envs(self, mol: Mol) -> dict[int, list[str]]:
+        """Get atom envs.
+
+        :param mol: Mol.
+        :type mol: Mol
+        :return: Result of this operation.
+        :rtype: dict[int, list[str]]
+        """
         atoms_env = {}
         for atom in mol.GetAtoms():
             idx = atom.GetIdx()
@@ -69,7 +117,18 @@ class MAP4Calculator:
         return atoms_env
 
     @classmethod
-    def _find_env(cls, mol, idx, radius):
+    def _find_env(cls, mol: Mol, idx: int, radius: int) -> str:
+        """Find env.
+
+        :param mol: Mol.
+        :type mol: Mol
+        :param idx: Idx.
+        :type idx: int
+        :param radius: Radius.
+        :type radius: int
+        :return: Result of this operation.
+        :rtype: str
+        """
         env = rdmolops.FindAtomEnvironmentOfRadiusN(mol, radius, idx)
         atom_map = {}
 
@@ -83,7 +142,18 @@ class MAP4Calculator:
 
         return ""
 
-    def _all_pairs(self, mol, atoms_env):
+    def _all_pairs(
+        self, mol: Mol, atoms_env: Mapping[int, Sequence[str]]
+    ) -> list[bytes]:
+        """All pairs.
+
+        :param mol: Mol.
+        :type mol: Mol
+        :param atoms_env: Atoms env.
+        :type atoms_env: Mapping[int, Sequence[str]]
+        :return: Result of this operation.
+        :rtype: list[bytes]
+        """
         atom_pairs = []
         distance_matrix = GetDistanceMatrix(mol)
         num_atoms = mol.GetNumAtoms()
@@ -110,15 +180,29 @@ class MAP4Calculator:
 
 
 class MAP4CCalculator:
-    def __init__(self, dimensions=1024, radius=2):
-        """
-        MAP4C calculator class
+    def __init__(self, dimensions: int = 1024, radius: int = 2) -> None:
+        """MAP4C calculator class
+
+        :param dimensions: Dimensions.
+        :type dimensions: int
+        :param radius: Radius.
+        :type radius: int
+        :rtype: None
         """
         self.dimensions = dimensions
         self.radius = radius
         self._encoder = rdMHFPFingerprint.MHFPEncoder()
 
-    def _fold(self, hash_values, length):
+    def _fold(self, hash_values: np.ndarray, length: int) -> np.ndarray:
+        """Fold.
+
+        :param hash_values: Hash values.
+        :type hash_values: np.ndarray
+        :param length: Length.
+        :type length: int
+        :return: Result of this operation.
+        :rtype: np.ndarray
+        """
         folded = np.zeros(length, dtype=np.uint8)
 
         if len(hash_values) == 0:
@@ -128,7 +212,14 @@ class MAP4CCalculator:
 
         return folded
 
-    def calculate(self, mol):
+    def calculate(self, mol: Mol) -> np.ndarray:
+        """Calculate.
+
+        :param mol: Mol.
+        :type mol: Mol
+        :return: Result of this operation.
+        :rtype: np.ndarray
+        """
         shingles = get_shingles(mol, self.radius)
         fingerprint = np.asarray(
             self._encoder.FromStringArray(shingles), dtype=np.uint32
@@ -137,12 +228,17 @@ class MAP4CCalculator:
 
         return folded_fingerprint
 
-    def calculate_many(self, mols):
+    def calculate_many(self, mols: Sequence[Mol]) -> np.ndarray:
         """Calculates the atom pair minhashed fingerprint
         Arguments:
             mols -- list of mols
         Returns:
             list of tmap VectorUint -- minhashed fingerprints list
+
+        :param mols: Mols.
+        :type mols: Sequence[Mol]
+        :return: Result of this operation.
+        :rtype: np.ndarray
         """
         return np.asarray([self.calculate(mol) for mol in mols])
 
@@ -155,15 +251,14 @@ class Map4Fingerprint:
 
     def __init__(
         self,
-        input_type="helm",
-        dimensions=4096,
-        radius=1,
-        chiral=True,
-        HELM_parser="mobius",
-        HELM_extra_library_filename=None,
-    ):
-        """
-        Constructs a new instance of the MAP4 fingerprint class.
+        input_type: str = "helm",
+        dimensions: int = 4096,
+        radius: int = 1,
+        chiral: bool = True,
+        HELM_parser: str = "mobius",
+        HELM_extra_library_filename: str | Path | None = None,
+    ) -> None:
+        """Constructs a new instance of the MAP4 fingerprint class.
 
         Parameters
         ----------
@@ -210,6 +305,19 @@ class Map4Fingerprint:
         Alice Capecchi, Daniel Probst, and Jean-Louis Reymond. 2020.
         https://jcheminf.biomedcentral.com/articles/10.1186/s13321-020-00445-4
 
+        :param input_type: Input type.
+        :type input_type: str
+        :param dimensions: Dimensions.
+        :type dimensions: int
+        :param radius: Radius.
+        :type radius: int
+        :param chiral: Chiral.
+        :type chiral: bool
+        :param HELM_parser: Helm parser.
+        :type HELM_parser: str
+        :param HELM_extra_library_filename: Helm extra library filename.
+        :type HELM_extra_library_filename: str | Path | None
+        :rtype: None
         """
         msg_error = "Format (%s) not handled. Please use FASTA, HELM or SMILES format."
         assert input_type.lower() in ["fasta", "helm", "smiles"], msg_error
@@ -221,9 +329,8 @@ class Map4Fingerprint:
         self._HELM_parser = HELM_parser.lower()
         self._HELM_extra_library_filename = HELM_extra_library_filename
 
-    def __call__(self, polymers):
-        """
-        Transform input polymers into MAP4 or MAP4C (if chiral set to True) fingerprints.
+    def __call__(self, polymers: Sequence[str]) -> np.ndarray:
+        """Transform input polymers into MAP4 or MAP4C (if chiral set to True) fingerprints.
 
         Parameters
         ----------
@@ -235,12 +342,15 @@ class Map4Fingerprint:
         fps : ndarray
             The MAP4 or MAP4C fingerprints of the input polymers.
 
+        :param polymers: Polymers.
+        :type polymers: Sequence[str]
+        :return: Result of this operation.
+        :rtype: np.ndarray
         """
         return self.transform(polymers)
 
-    def transform(self, polymers):
-        """
-        Transforms the input polymers into MAP4 or MAP4C (if chiral set to True) fingerprints.
+    def transform(self, polymers: Sequence[str]) -> np.ndarray:
+        """Transforms the input polymers into MAP4 or MAP4C (if chiral set to True) fingerprints.
 
         Parameters
         ----------
@@ -252,6 +362,10 @@ class Map4Fingerprint:
         fingerprint : numpy.ndarray
             The MAP4 or MAP4C fingerprints of the input polymers.
 
+        :param polymers: Polymers.
+        :type polymers: Sequence[str]
+        :return: Result of this operation.
+        :rtype: np.ndarray
         """
         if not isinstance(polymers, (list, tuple, np.ndarray)):
             polymers = [polymers]
@@ -290,16 +404,15 @@ class MHFingerprint:
 
     def __init__(
         self,
-        input_type="helm",
-        dimensions=4096,
-        radius=3,
-        rings=True,
-        kekulize=True,
-        HELM_parser="mobius",
-        HELM_extra_library_filename=None,
-    ):
-        """
-        Constructs a new instance of the MHFingerprint class.
+        input_type: str = "helm",
+        dimensions: int = 4096,
+        radius: int = 3,
+        rings: bool = True,
+        kekulize: bool = True,
+        HELM_parser: str = "mobius",
+        HELM_extra_library_filename: str | Path | None = None,
+    ) -> None:
+        """Constructs a new instance of the MHFingerprint class.
 
         Parameters
         ----------
@@ -338,6 +451,21 @@ class MHFingerprint:
         molecule in HELM format uses `rdkit` for the parsing, but won't be
         necessarily with the internal HELM parser.
 
+        :param input_type: Input type.
+        :type input_type: str
+        :param dimensions: Dimensions.
+        :type dimensions: int
+        :param radius: Radius.
+        :type radius: int
+        :param rings: Rings.
+        :type rings: bool
+        :param kekulize: Kekulize.
+        :type kekulize: bool
+        :param HELM_parser: Helm parser.
+        :type HELM_parser: str
+        :param HELM_extra_library_filename: Helm extra library filename.
+        :type HELM_extra_library_filename: str | Path | None
+        :rtype: None
         """
         msg_error = "Format (%s) not handled. Please use FASTA, HELM or SMILES format."
         assert input_type.lower() in ["fasta", "helm", "smiles"], msg_error
@@ -351,9 +479,8 @@ class MHFingerprint:
         self._HELM_parser = HELM_parser.lower()
         self._HELM_extra_library_filename = HELM_extra_library_filename
 
-    def __call__(self, polymers):
-        """
-        Transform input polymers into MHFingerprints.
+    def __call__(self, polymers: Sequence[str]) -> np.ndarray:
+        """Transform input polymers into MHFingerprints.
 
         Parameters
         ----------
@@ -365,12 +492,15 @@ class MHFingerprint:
         fps : ndarray
             The MHFingerprint for the input polymers.
 
+        :param polymers: Polymers.
+        :type polymers: Sequence[str]
+        :return: Result of this operation.
+        :rtype: np.ndarray
         """
         return self.transform(polymers)
 
-    def transform(self, polymers):
-        """
-        Transforms the input polymers into MHFingerprints.
+    def transform(self, polymers: Sequence[str]) -> np.ndarray:
+        """Transforms the input polymers into MHFingerprints.
 
         Parameters
         ----------
@@ -382,6 +512,10 @@ class MHFingerprint:
         fingerprint : numpy.ndarray
            The MHFingerprint for the input polymers.
 
+        :param polymers: Polymers.
+        :type polymers: Sequence[str]
+        :return: Result of this operation.
+        :rtype: np.ndarray
         """
         if not isinstance(polymers, (list, tuple, np.ndarray)):
             polymers = [polymers]
@@ -421,14 +555,13 @@ class MorganFingerprint:
 
     def __init__(
         self,
-        input_type="helm",
-        dimensions=4096,
-        radius=2,
-        HELM_parser="mobius",
-        HELM_extra_library_filename=None,
-    ):
-        """
-        Constructs a new instance of the MorganFingerprint class.
+        input_type: str = "helm",
+        dimensions: int = 4096,
+        radius: int = 2,
+        HELM_parser: str = "mobius",
+        HELM_extra_library_filename: str | Path | None = None,
+    ) -> None:
+        """Constructs a new instance of the MorganFingerprint class.
 
         Parameters
         ----------
@@ -460,6 +593,17 @@ class MorganFingerprint:
         molecule in HELM format uses `rdkit` for the parsing, but won't be
         necessarily with the internal HELM parser.
 
+        :param input_type: Input type.
+        :type input_type: str
+        :param dimensions: Dimensions.
+        :type dimensions: int
+        :param radius: Radius.
+        :type radius: int
+        :param HELM_parser: Helm parser.
+        :type HELM_parser: str
+        :param HELM_extra_library_filename: Helm extra library filename.
+        :type HELM_extra_library_filename: str | Path | None
+        :rtype: None
         """
         msg_error = "Format (%s) not handled. Please use FASTA, HELM or SMILES format."
         assert input_type.lower() in ["fasta", "helm", "smiles"], msg_error
@@ -470,9 +614,8 @@ class MorganFingerprint:
         self._HELM_parser = HELM_parser.lower()
         self._HELM_extra_library_filename = HELM_extra_library_filename
 
-    def __call__(self, polymers):
-        """
-        Transform input polymers into Morgan fingerprints.
+    def __call__(self, polymers: Sequence[str]) -> np.ndarray:
+        """Transform input polymers into Morgan fingerprints.
 
         Parameters
         ----------
@@ -484,12 +627,15 @@ class MorganFingerprint:
         fps : ndarray
             The Morgan fingerprints of the input polymers as a 2D numpy array.
 
+        :param polymers: Polymers.
+        :type polymers: Sequence[str]
+        :return: Result of this operation.
+        :rtype: np.ndarray
         """
         return self.transform(polymers)
 
-    def transform(self, polymers):
-        """
-        Transform input polymers into Morgan fingerprints.
+    def transform(self, polymers: Sequence[str]) -> np.ndarray:
+        """Transform input polymers into Morgan fingerprints.
 
         Parameters
         ----------
@@ -501,6 +647,10 @@ class MorganFingerprint:
         fps : ndarray
             The Morgan fingerprints of the input polymers as a 2D numpy array.
 
+        :param polymers: Polymers.
+        :type polymers: Sequence[str]
+        :return: Result of this operation.
+        :rtype: np.ndarray
         """
         if not isinstance(polymers, (list, tuple, np.ndarray)):
             polymers = [polymers]

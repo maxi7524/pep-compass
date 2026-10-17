@@ -7,15 +7,24 @@ import json
 import sys
 from dataclasses import asdict
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from pep_compass.orchestrator.configuration import load_plugins
 
+if TYPE_CHECKING:
+    from collections.abc import Callable, Sequence
 
-def main(argv=None):
+    from omegaconf import DictConfig
+
+
+def main(argv: Sequence[str] | None = None) -> None:
     """Execute the CLI; Hydra owns config overrides and multirun.
 
     :param argv: Optional explicit command arguments, otherwise sys.argv.
     :raises SystemExit: For invalid arguments or a failed worker.
+
+    :type argv: Sequence[str] | None
+    :rtype: None
     """
     arguments = list(sys.argv[1:] if argv is None else argv)
     if not arguments or arguments[0] in {"-h", "--help"}:
@@ -64,7 +73,16 @@ def main(argv=None):
         sys.argv = previous
 
 
-def _hydra_entry(command, plugins):
+def _hydra_entry(command: str, plugins: Sequence[str]) -> Callable[[DictConfig], None]:
+    """Hydra entry.
+
+    :param command: Command.
+    :type command: str
+    :param plugins: Plugins.
+    :type plugins: Sequence[str]
+    :return: Result of this operation.
+    :rtype: Callable[[DictConfig], None]
+    """
     import hydra
     from hydra.utils import get_original_cwd
     from omegaconf import open_dict
@@ -73,7 +91,13 @@ def _hydra_entry(command, plugins):
     from pep_compass.orchestrator.runner import Orchestrator
 
     @hydra.main(version_base="1.3", config_path="conf", config_name="config")
-    def execute(configuration):
+    def execute(configuration: DictConfig) -> None:
+        """Execute.
+
+        :param configuration: Resolved configuration for this operation.
+        :type configuration: DictConfig
+        :rtype: None
+        """
         with open_dict(configuration):
             configuration.plugins = list(
                 dict.fromkeys([*configuration.get("plugins", []), *plugins])

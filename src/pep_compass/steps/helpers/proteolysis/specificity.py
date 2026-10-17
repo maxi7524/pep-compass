@@ -84,6 +84,10 @@ def load_panel_metadata(
     :return: One dictionary per panel row, carrying at least ``row``, ``code``,
         ``name``, ``n_cleavages`` and the originating ``dataset_id``.
     :raises FileNotFoundError: If the MEROPS index or a dataset folder is absent.
+
+    :type dataset_ids: int | Iterable[int]
+    :type merops_root: str | Path | None
+    :rtype: list[dict[str, Any]]
     """
 
     if isinstance(dataset_ids, int):
@@ -114,6 +118,9 @@ def merops_code_locations(
         Defaults to the repository ``data/merops``.
     :return: Mapping from peptidase code to ``{dataset_id: n_cleavages}``.
     :raises FileNotFoundError: If the MEROPS index is absent.
+
+    :type merops_root: str | Path | None
+    :rtype: dict[str, dict[int, int]]
     """
 
     root = Path(merops_root) if merops_root is not None else _default_merops_root()
@@ -142,6 +149,11 @@ def best_merops_dataset(
         avoid rereading the index for every code.
     :return: Tuple of dataset id and cleavage count, ``(None, 0)`` when the code
         has no matrix in any dataset.
+
+    :type code: str
+    :type merops_root: str | Path | None
+    :type locations: dict[str, dict[int, int]] | None
+    :rtype: tuple[int | None, int]
     """
 
     if locations is None:
@@ -161,6 +173,10 @@ def _smoothed_frequencies(
     :param counts: Cleavage counts, shape ``(..., A)``.
     :param alpha: Dirichlet smoothing prior per residue.
     :return: Residue frequencies summing to one along the last axis, ``(..., A)``.
+
+    :type counts: np.ndarray
+    :type alpha: float
+    :rtype: np.ndarray
     """
 
     smoothed = counts.astype(np.float64) + alpha  # (..., A)
@@ -193,6 +209,11 @@ def positional_information_content(
     :param background: Reference residue distribution ``(A,)``. Defaults to
         uniform.
     :return: Divergence in bits, shape ``(N, P)`` or ``(P,)``.
+
+    :type counts: np.ndarray
+    :type alpha: float
+    :type background: np.ndarray | None
+    :rtype: np.ndarray
     """
 
     frequencies = _smoothed_frequencies(counts, alpha)  # (..., A)
@@ -239,6 +260,14 @@ def expected_null_information_content(
         the data balance, and then rises again before decaying. The excess over
         the floor must therefore not be read as a ranking of data quality across
         very different sample sizes.
+
+    :type n_observations: np.ndarray | int
+    :type alpha: float
+    :type n_samples: int
+    :type seed: int
+    :type n_amino_acids: int
+    :type background: np.ndarray | None
+    :rtype: np.ndarray
     """
 
     observations = np.asarray(n_observations)
@@ -284,6 +313,13 @@ def information_content_excess(
         uniform.
     :return: Tuple of observed divergence ``(N, P)``, expected floor ``(N, P)``
         and their difference ``(N, P)``.
+
+    :type counts: np.ndarray
+    :type alpha: float
+    :type n_samples: int
+    :type seed: int
+    :type background: np.ndarray | None
+    :rtype: tuple[np.ndarray, np.ndarray, np.ndarray]
     """
 
     observed = positional_information_content(
@@ -310,7 +346,7 @@ def simulate_window_null_divergence(
     background: np.ndarray | None = None,
     alpha: float = MEROPS_SMOOTHING_ALPHA,
 ) -> tuple[np.ndarray, np.ndarray]:
-    r"""Simulate null specificity from peptide lengths and cleavage windows.
+    """Simulate null specificity from peptide lengths and cleavage windows.
 
     Each replicate at sample size ``n`` contains exactly ``n`` cleavage events.
     An event draws a peptide length from the empirical length distribution and
@@ -334,6 +370,14 @@ def simulate_window_null_divergence(
         Runtime is ``O(B * (sum(sample_sizes) * P + G * P * A))`` and peak
         auxiliary memory is ``O(B * (max(sample_sizes) + P * A) + G * B * P)`` for ``P=8``
         and ``A`` residue types. Length probabilities are precomputed once.
+
+    :type sample_sizes: np.ndarray
+    :type peptide_lengths: np.ndarray
+    :type n_replicates: int
+    :type seed: int
+    :type background: np.ndarray | None
+    :type alpha: float
+    :rtype: tuple[np.ndarray, np.ndarray]
     """
 
     sizes = np.asarray(sample_sizes)
@@ -403,6 +447,9 @@ def _peptide_window_residue_columns(
     :return: Residue columns ``(I, J, P)`` with ``-1`` for missing positions or
         padded bonds, and valid-bond mask ``(I, J)``.
     :raises ValueError: If a peptide is too short or has an invalid residue.
+
+    :type sequences: list[str]
+    :rtype: tuple[np.ndarray, np.ndarray]
     """
 
     if not sequences or any(len(sequence) < 2 for sequence in sequences):
@@ -448,6 +495,12 @@ def _bond_reduced_log_odds(
     :param bond_valid: Valid-bond mask ``(I, J)``.
     :param log_background: Reference log-probabilities ``(A,)``.
     :return: Reduced peptide scores ``(R, I, N)`` in ``BOND_REDUCTIONS`` order.
+
+    :type matrices: np.ndarray
+    :type residue_columns: np.ndarray
+    :type bond_valid: np.ndarray
+    :type log_background: np.ndarray
+    :rtype: np.ndarray
     """
 
     n_peptides, n_bonds, _ = residue_columns.shape
@@ -510,6 +563,12 @@ def bootstrap_bond_reduction_rank_stability(
         ``O(B * I * J * N * P + B * R * I * N log I)``; auxiliary memory is
         ``O(I * J * (P + N) + R * I * N + R * B * N)``. The peptide windows and
         reference ranks are computed once and shared by every bootstrap.
+
+    :type sequences: list[str]
+    :type reference_matrices: np.ndarray
+    :type bootstrap_matrices: np.ndarray
+    :type background: np.ndarray | None
+    :rtype: tuple[np.ndarray, np.ndarray]
     """
 
     reference = np.asarray(reference_matrices, dtype=np.float64)
@@ -581,6 +640,12 @@ def bootstrap_specificity_matrices(
         independence assumption the specificity matrices already encode, but it
         cannot reproduce correlations between neighbouring subsites of the same
         cleavage.
+
+    :type counts: np.ndarray
+    :type n_replicates: int
+    :type alpha: float
+    :type seed: int
+    :rtype: np.ndarray
     """
 
     generator = np.random.default_rng(seed)
@@ -622,6 +687,10 @@ def specificity_log_odds(
     :param background: Background residue distribution ``(A,)``. Defaults to
         uniform.
     :return: Log-odds matrices of the same shape as ``log_probabilities``.
+
+    :type log_probabilities: np.ndarray
+    :type background: np.ndarray | None
+    :rtype: np.ndarray
     """
 
     reference = normalize_background(background, log_probabilities.shape[-1])  # (A,)
@@ -638,6 +707,10 @@ def profile_similarity_matrix(
     :param background: Background residue distribution ``(A,)``, uniform by
         default.
     :return: Pearson correlation matrix of the flattened log-odds, ``(N, N)``.
+
+    :type log_probabilities: np.ndarray
+    :type background: np.ndarray | None
+    :rtype: np.ndarray
     """
 
     log_odds = specificity_log_odds(log_probabilities, background)  # (N, P, A)
@@ -656,6 +729,10 @@ def cluster_profiles(similarity: np.ndarray, threshold: float = 0.8) -> np.ndarr
     :param threshold: Minimum within-cluster correlation.
     :return: Cluster label per protease, shape ``(N,)``.
     :raises ValueError: If ``similarity`` is not square.
+
+    :type similarity: np.ndarray
+    :type threshold: float
+    :rtype: np.ndarray
     """
 
     from scipy.cluster.hierarchy import fcluster, linkage

@@ -92,6 +92,10 @@ def resolve_apex_weights(
     :return: Model descriptor and deterministically ordered weight paths.
     :raises ValueError: If ``model`` is not supported.
     :raises FileNotFoundError: If its weight set is absent or incomplete.
+
+    :type model: str
+    :type models_directory: str | Path | None
+    :rtype: tuple[APEXModelDescriptor, tuple[Path, ...]]
     """
     try:
         descriptor = APEX_MODELS[model]

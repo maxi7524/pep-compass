@@ -4,9 +4,9 @@ import torch
 
 from pep_compass import Pipeline
 from pep_compass.autoencoder.base import Autoencoder
-from pep_compass.configuration.objects import Configurable
 from pep_compass.steps.filters import CandidateSubset
 from pep_compass.steps.oracles import Hydrophobicity
+from pep_compass.utils.configuration import Configurable
 
 
 class FixtureAutoencoder(Autoencoder):

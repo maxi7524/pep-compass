@@ -17,6 +17,7 @@ from __future__ import annotations
 import itertools
 from collections.abc import Iterable, Sequence
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import numpy as np
 import torch
@@ -32,6 +33,10 @@ from pep_compass.steps.helpers.proteolysis.cleavage import (
     CleavagePotential,
     load_protease_panel,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
 
 # Default APEX pathogen column remains S. aureus ATCC 12600 (id 7).
 DEFAULT_APEX_INDEX = 7
@@ -55,22 +60,30 @@ class ClaspPotential(MutationPotential):
     def __init__(
         self,
         cleavage_potential: CleavagePotential,
-        apex_predictor=None,
-        apex_probs_predictor=None,
+        apex_predictor: Callable[[Sequence[str]], np.ndarray] | None = None,
+        apex_probs_predictor: Callable[[torch.Tensor], torch.Tensor] | None = None,
         lam: float = 0.1,
         apex_index: int = DEFAULT_APEX_INDEX,
         alphabet: list[str] | None = None,
-    ):
-        """Initialize the combined CLASP potential.
+    ) -> None:
+        r"""Initialize the combined CLASP potential.
 
-        :param cleavage_potential: Cleavage term :math:`\\Phi_{cleav}`.
+        :param cleavage_potential: Cleavage term :math:`\Phi_{cleav}`.
         :param apex_predictor: ``PredictorAPEX`` (string input) for ranking.
         :param apex_probs_predictor: ``PredictorAPEX_Probs`` (decoder-output
             input) for the differentiable oracle.
-        :param lam: Activity/stability trade-off weight :math:`\\lambda`.
+        :param lam: Activity/stability trade-off weight :math:`\lambda`.
         :param apex_index: APEX pathogen column used for ``log2 MIC``. Defaults
             to S. aureus ATCC 12600 (column 7).
         :param alphabet: Optional index-to-token mapping.
+
+        :type cleavage_potential: CleavagePotential
+        :type apex_predictor: Callable[[Sequence[str]], np.ndarray] | None
+        :type apex_probs_predictor: Callable[[torch.Tensor], torch.Tensor] | None
+        :type lam: float
+        :type apex_index: int
+        :type alphabet: list[str] | None
+        :rtype: None
         """
         self._configure(
             {
@@ -102,6 +115,9 @@ class ClaspPotential(MutationPotential):
             (:math:`\lambda \Phi_{cleav}`) and ``"score"`` (the value returned
             by :meth:`score_sequences`).
         :raises ValueError: If no string APEX predictor was provided.
+
+        :type sequences: Sequence[str]
+        :rtype: dict[str, np.ndarray]
         """
         if self.apex_predictor is None:
             raise ValueError("score_components requires apex_predictor")
@@ -126,6 +142,9 @@ class ClaspPotential(MutationPotential):
         :param sequences: Peptide strings.
         :return: ``-(log2 MIC + lambda * Phi_cleav)`` per sequence.
         :raises ValueError: If no string APEX predictor was provided.
+
+        :type sequences: Sequence[str]
+        :rtype: np.ndarray
         """
         return self.score_components(sequences)["score"]
 
@@ -135,12 +154,16 @@ class ClaspPotential(MutationPotential):
         parent_peptide: str,
         mutations: dict[int, list[int]],
     ) -> dict[tuple[int, ...], float]:
-        r"""Score every non-parent combination with the CLASP objective.
+        """Score every non-parent combination with the CLASP objective.
 
         :param parent_peptide: Parent peptide sequence.
         :param mutations: Candidate amino-acid indices grouped by position.
         :return: Complete amino-acid tuples (ordered by ``sorted(mutations)``)
             mapped to ``-(log2 MIC + lambda * Phi_cleav)``.
+
+        :type parent_peptide: str
+        :type mutations: dict[int, list[int]]
+        :rtype: dict[tuple[int, ...], float]
         """
         positions = sorted(mutations)
         if not positions:
@@ -167,13 +190,16 @@ class ClaspPotential(MutationPotential):
         return {key: float(score) for key, score in zip(tuples, scores)}
 
     def distribution_potential(self, decoder_output: torch.Tensor) -> torch.Tensor:
-        r"""Return the differentiable CLASP objective for decoder outputs.
+        """Return the differentiable CLASP objective for decoder outputs.
 
         :param decoder_output: Decoder residue distribution ``Dec(z)`` with a
             trailing vocabulary axis, shape ``(..., L, V)``.
         :return: ``-(log2 MIC + lambda * Phi_cleav)`` per sequence, shape
             ``(B,)``, differentiable with respect to ``decoder_output``.
         :raises ValueError: If no differentiable APEX predictor was provided.
+
+        :type decoder_output: torch.Tensor
+        :rtype: torch.Tensor
         """
         if self.apex_probs_predictor is None:
             raise ValueError("distribution_potential requires apex_probs_predictor")
@@ -184,8 +210,8 @@ class ClaspPotential(MutationPotential):
 
 
 def build_clasp_potential(
-    apex_predictor=None,
-    apex_probs_predictor=None,
+    apex_predictor: Callable[[Sequence[str]], np.ndarray] | None = None,
+    apex_probs_predictor: Callable[[torch.Tensor], torch.Tensor] | None = None,
     dataset_ids: int | Iterable[int] = DEFAULT_MEROPS_DATASETS,
     merops_root: str | Path | None = None,
     variant: str = "product",
@@ -217,6 +243,21 @@ def build_clasp_potential(
     :param reduction: Panel/bond aggregation for the cleavage term (``"sum"``,
         ``"max_protease"``, or ``"max_cut"``); see :class:`CleavagePotential`.
     :return: A configured :class:`ClaspPotential`.
+
+    :type apex_predictor: Callable[[Sequence[str]], np.ndarray] | None
+    :type apex_probs_predictor: Callable[[torch.Tensor], torch.Tensor] | None
+    :type dataset_ids: int | Iterable[int]
+    :type merops_root: str | Path | None
+    :type variant: str
+    :type lam: float
+    :type apex_index: int
+    :type alphabet: list[str] | None
+    :type weights: Sequence[float] | None
+    :type background: torch.Tensor | Sequence[float] | None
+    :type temperature: float
+    :type device: str | torch.device
+    :type reduction: str
+    :rtype: ClaspPotential
     """
     panel = load_protease_panel(
         dataset_ids, merops_root=merops_root, weights=weights, device=device
@@ -243,12 +284,12 @@ def build_clasp_potential(
 def compose_clasp_distribution(
     parent_peptide: str,
     mutations: dict[int, list[int]],
-    apex_predictor=None,
+    apex_predictor: Callable[[Sequence[str]], np.ndarray] | None = None,
     clasp_potential: ClaspPotential | None = None,
     alphabet: list[str] | None = None,
     max_len: int = DEFAULT_MAX_LEN,
     maximum_candidates: int | None = None,
-    **build_kwargs,
+    **build_kwargs: object,
 ) -> MutantDistribution:
     """Compose and rank MUTANG candidates by the CLASP objective.
 
@@ -265,6 +306,16 @@ def compose_clasp_distribution(
     :param maximum_candidates: Optional cap on the returned highest-scoring rows.
     :param build_kwargs: Forwarded to :func:`build_clasp_potential`.
     :return: Sorted mutant distribution under the CLASP objective.
+
+    :type parent_peptide: str
+    :type mutations: dict[int, list[int]]
+    :type apex_predictor: Callable[[Sequence[str]], np.ndarray] | None
+    :type clasp_potential: ClaspPotential | None
+    :type alphabet: list[str] | None
+    :type max_len: int
+    :type maximum_candidates: int | None
+    :type build_kwargs: object
+    :rtype: MutantDistribution
     """
     if clasp_potential is None:
         clasp_potential = build_clasp_potential(

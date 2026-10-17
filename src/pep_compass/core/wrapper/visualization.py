@@ -4,8 +4,16 @@ from __future__ import annotations
 
 import html
 import json
+from typing import TYPE_CHECKING
 
 from pep_compass.utils.logger import get_custom_logger
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+    from typing import Self
+
+    from pep_compass.data_schemas.graph import NodeSpec, PipelineSchema
+
 
 logger = get_custom_logger(__name__)
 
@@ -13,12 +21,28 @@ logger = get_custom_logger(__name__)
 class GraphView(str):
     """A normal string with optional inline SVG display in a notebook."""
 
-    def __new__(cls, value, format):
+    def __new__(cls, value: str, format: str) -> Self:
+        """New.
+
+        :param value: Value consumed by this conversion or transformation.
+        :type value: str
+        :param format: Format.
+        :type format: str
+        :return: Result of this operation.
+        :rtype: Self
+        """
         instance = super().__new__(cls, value)
         instance.format = format
         return instance
 
-    def _repr_mimebundle_(self, **kwargs):
+    def _repr_mimebundle_(self, **kwargs: object) -> dict[str, str]:
+        """Repr mimebundle.
+
+        :param kwargs: Additional named arguments forwarded to the underlying interface.
+        :type kwargs: object
+        :return: Result of this operation.
+        :rtype: dict[str, str]
+        """
         return (
             {"image/svg+xml": str(self), "text/plain": "PepCompass computation graph"}
             if self.format == "svg"
@@ -26,22 +50,42 @@ class GraphView(str):
         )
 
 
-def _information(node):
+def _information(node: NodeSpec) -> tuple[str, dict[str, object]]:
+    """Information.
+
+    :param node: Node.
+    :type node: NodeSpec
+    :return: Result of this operation.
+    :rtype: tuple[str, dict[str, object]]
+    """
     component = node.instantiate()
     return f"{node.category}: {node.label}", component.display_info()
 
 
-def _compact(value, limit=100):
+def _compact(value: object, limit: int = 100) -> object:
+    """Compact.
+
+    :param value: Value consumed by this conversion or transformation.
+    :type value: object
+    :param limit: Limit.
+    :type limit: int
+    :return: Result of this operation.
+    :rtype: object
+    """
     text = json.dumps(value, ensure_ascii=False, default=str, separators=(",", ":"))
     return text if len(text) <= limit else text[: limit - 1] + "…"
 
 
-def render(schema, *, format):
+def render(schema: PipelineSchema, *, format: str) -> PipelineSchema | str:
     """Render identities, selected parameters, flow and resource relationships.
 
     :param schema: Immutable PipelineSchema snapshot.
     :param format: text, mermaid or svg.
     :return: A portable string; no optional system executable is required.
+
+    :type schema: PipelineSchema
+    :type format: str
+    :rtype: PipelineSchema | str
     """
     if format == "object":
         return schema
@@ -69,7 +113,14 @@ def render(schema, *, format):
     raise ValueError("format must be object, json, text, mermaid or svg.")
 
 
-def _mermaid(schema):
+def _mermaid(schema: PipelineSchema) -> str:
+    """Mermaid.
+
+    :param schema: Immutable declaration or its explicitly supported serialized representation.
+    :type schema: PipelineSchema
+    :return: Result of this operation.
+    :rtype: str
+    """
     identities = {
         node.node_id: f"n{index}" for index, (node, _, _) in enumerate(schema.walk())
     }
@@ -80,12 +131,26 @@ def _mermaid(schema):
         model = html.escape(schema.autoencoder.get("model", ""))
         lines.append(f'  autoencoder["Autoencoder: {encoder} / {model}"]')
 
-    def label(node):
+    def label(node: NodeSpec) -> str:
+        """Label.
+
+        :param node: Node.
+        :type node: NodeSpec
+        :return: Result of this operation.
+        :rtype: str
+        """
         kind, parameters = _information(node)
         text = f"{positions[node.node_id]} · {node.name or _caption(node)} | {_caption(node)} | {node.node_id} | {_compact(parameters)}"
         return html.escape(text, quote=True).replace("\n", " ")
 
-    def sequence(nodes):
+    def sequence(nodes: Sequence[NodeSpec]) -> tuple[str | None, str | None]:
+        """Sequence.
+
+        :param nodes: Nodes.
+        :type nodes: Sequence[NodeSpec]
+        :return: Result of this operation.
+        :rtype: tuple[str | None, str | None]
+        """
         first = previous = None
         for node in nodes:
             entry, exit = visit(node)
@@ -95,7 +160,14 @@ def _mermaid(schema):
             previous = exit
         return first, previous
 
-    def visit(node):
+    def visit(node: NodeSpec) -> tuple[str, str]:
+        """Visit.
+
+        :param node: Node.
+        :type node: NodeSpec
+        :return: Result of this operation.
+        :rtype: tuple[str, str]
+        """
         identity = identities[node.node_id]
         if not node.children:
             lines.append(f'  {identity}["{label(node)}"]')
@@ -158,19 +230,39 @@ def _mermaid(schema):
     return "\n".join(lines)
 
 
-def _caption(node):
+def _caption(node: NodeSpec) -> str:
+    """Caption.
+
+    :param node: Node.
+    :type node: NodeSpec
+    :return: Result of this operation.
+    :rtype: str
+    """
     return f"{node.category.replace('_', ' ').capitalize()} · {node.label}"
 
 
-def _svg(schema):
-    """Route nested entry right, return left, and feedback to its actual target."""
+def _svg(schema: PipelineSchema) -> str:
+    """Route nested entry right, return left, and feedback to its actual target.
+
+    :param schema: Immutable declaration or its explicitly supported serialized representation.
+    :type schema: PipelineSchema
+    :return: Result of this operation.
+    :rtype: str
+    """
     from textwrap import shorten, wrap
 
     positions = {node.node_id: position for node, _, position in schema.walk()}
     shapes, edges = [], []
 
     # Measure the owned subgraphs before assigning coordinates.
-    def dimensions(node):
+    def dimensions(node: NodeSpec) -> tuple[float, float]:
+        """Dimensions.
+
+        :param node: Node.
+        :type node: NodeSpec
+        :return: Result of this operation.
+        :rtype: tuple[float, float]
+        """
         if not node.children:
             return 520, 126
         if node.kind in {"loop", "sequence"}:
@@ -191,13 +283,44 @@ def _svg(schema):
             )
         return width + 96, height + 178
 
-    def sequence_size(nodes):
+    def sequence_size(nodes: Sequence[NodeSpec]) -> tuple[float, float]:
+        """Sequence size.
+
+        :param nodes: Nodes.
+        :type nodes: Sequence[NodeSpec]
+        :return: Result of this operation.
+        :rtype: tuple[float, float]
+        """
         sizes = [dimensions(node) for node in nodes]
         return max((size[0] for size in sizes), default=520), sum(
             size[1] for size in sizes
         ) + 32 * max(0, len(sizes) - 1)
 
-    def path(points, *, kind="flow", owner="", dashed=False, arrow=True, title=""):
+    def path(
+        points: Sequence[tuple[float, float]],
+        *,
+        kind: str = "flow",
+        owner: str = "",
+        dashed: bool = False,
+        arrow: bool = True,
+        title: str = "",
+    ) -> None:
+        """Path.
+
+        :param points: Points.
+        :type points: Sequence[tuple[float, float]]
+        :param kind: Kind of recorded artifact or exception type, as declared by this operation.
+        :type kind: str
+        :param owner: Owner.
+        :type owner: str
+        :param dashed: Dashed.
+        :type dashed: bool
+        :param arrow: Arrow.
+        :type arrow: bool
+        :param title: Title.
+        :type title: str
+        :rtype: None
+        """
         coordinates = " L".join(f"{x},{y}" for x, y in points)
         dash = ' stroke-dasharray="6 4"' if dashed else ""
         marker = ' marker-end="url(#arrow)"' if arrow else ""
@@ -205,13 +328,42 @@ def _svg(schema):
             f'<path data-kind="{kind}" data-owner="{html.escape(owner, quote=True)}" d="M{coordinates}" stroke="#52647d" stroke-width="1.4" fill="none"{marker}{dash}><title>{html.escape(title)}</title></path>'
         )
 
-    def text(x, y, value, size=12, bold=False):
+    def text(
+        x: float, y: float, value: str, size: float = 12, bold: bool = False
+    ) -> None:
+        """Text.
+
+        :param x: X.
+        :type x: float
+        :param y: Y.
+        :type y: float
+        :param value: Value consumed by this conversion or transformation.
+        :type value: str
+        :param size: Size.
+        :type size: float
+        :param bold: Bold.
+        :type bold: bool
+        :rtype: None
+        """
         weight = ' font-weight="600"' if bold else ""
         shapes.append(
             f'<text x="{x}" y="{y}" font-size="{size}"{weight}>{html.escape(str(value))}</text>'
         )
 
-    def sequence(nodes, x, y):
+    def sequence(
+        nodes: Sequence[NodeSpec], x: float, y: float
+    ) -> tuple[tuple[float, float] | None, tuple[float, float] | None]:
+        """Sequence.
+
+        :param nodes: Nodes.
+        :type nodes: Sequence[NodeSpec]
+        :param x: X.
+        :type x: float
+        :param y: Y.
+        :type y: float
+        :return: Result of this operation.
+        :rtype: tuple[tuple[float, float] | None, tuple[float, float] | None]
+        """
         first = previous = None
         for node in nodes:
             _, height = dimensions(node)
@@ -225,7 +377,36 @@ def _svg(schema):
         return first, previous
 
     # Child input/output ports expose the direction of changing hierarchy.
-    def connect_body(node, first_x, first_y, last, width, height, x, y):
+    def connect_body(
+        node: NodeSpec,
+        first_x: float,
+        first_y: float,
+        last: tuple[float, float],
+        width: float,
+        height: float,
+        x: float,
+        y: float,
+    ) -> None:
+        """Connect body.
+
+        :param node: Node.
+        :type node: NodeSpec
+        :param first_x: First x.
+        :type first_x: float
+        :param first_y: First y.
+        :type first_y: float
+        :param last: Last.
+        :type last: tuple[float, float]
+        :param width: Width.
+        :type width: float
+        :param height: Height.
+        :type height: float
+        :param x: X.
+        :type x: float
+        :param y: Y.
+        :type y: float
+        :rtype: None
+        """
         target = (first_x, first_y + 24)
         path(
             [
@@ -257,7 +438,20 @@ def _svg(schema):
             arrow=False,
         )
 
-    def visit(node, x, y):
+    def visit(
+        node: NodeSpec, x: float, y: float
+    ) -> tuple[tuple[float, float], tuple[float, float]]:
+        """Visit.
+
+        :param node: Node.
+        :type node: NodeSpec
+        :param x: X.
+        :type x: float
+        :param y: Y.
+        :type y: float
+        :return: Result of this operation.
+        :rtype: tuple[tuple[float, float], tuple[float, float]]
+        """
         width, height = dimensions(node)
         _, parameters = _information(node)
         leaf = not node.children
@@ -387,8 +581,14 @@ def _svg(schema):
     )
 
 
-def _text_value(value):
-    """Keep compact labels readable; exact parameter values remain in tooltips."""
+def _text_value(value: object) -> str:
+    """Keep compact labels readable; exact parameter values remain in tooltips.
+
+    :param value: Value consumed by this conversion or transformation.
+    :type value: object
+    :return: Result of this operation.
+    :rtype: str
+    """
     if isinstance(value, dict):
         if "method" in value:
             parameters = value.get("parameters", {})
@@ -407,6 +607,14 @@ def _text_value(value):
     return str(value)
 
 
-def graph_view(schema, format="svg"):
-    """Create the shared notebook representation for declared or compiled graphs."""
+def graph_view(schema: PipelineSchema, format: str = "svg") -> GraphView:
+    """Create the shared notebook representation for declared or compiled graphs.
+
+    :param schema: Immutable declaration or its explicitly supported serialized representation.
+    :type schema: PipelineSchema
+    :param format: Format.
+    :type format: str
+    :return: Result of this operation.
+    :rtype: GraphView
+    """
     return GraphView(render(schema, format=format), format)

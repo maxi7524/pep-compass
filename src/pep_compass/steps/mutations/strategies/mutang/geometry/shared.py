@@ -1,5 +1,9 @@
 """Geometry supplied by LocalEnumeration."""
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 from pep_compass.autoencoder.subriemannian import (
     MUTANG_GEOMETRY_REQUIREMENT,
     PointGeometry,
@@ -9,6 +13,10 @@ from pep_compass.steps.mutations.strategies.mutang.base import (
     GeometryStrategy,
 )
 
+if TYPE_CHECKING:
+    from pep_compass.autoencoder.base import Autoencoder
+    from pep_compass.data_schemas.candidates import CandidateBatch
+
 
 class SharedGeometry(GeometryStrategy):
     """Consume point-bound geometry without performing a decoder SVD."""
@@ -16,7 +24,18 @@ class SharedGeometry(GeometryStrategy):
     requirement = MUTANG_GEOMETRY_REQUIREMENT
     local_enumeration_only = True
 
-    def resolve(self, batch, autoencoder=None):
+    def resolve(
+        self, batch: CandidateBatch, autoencoder: Autoencoder | None = None
+    ) -> tuple[object, ...]:
+        """Resolve.
+
+        :param batch: Incoming aligned candidate batch.
+        :type batch: CandidateBatch
+        :param autoencoder: Shared numerical model or deferred resource, as declared by the parameter type.
+        :type autoencoder: Autoencoder | None
+        :return: Result of this operation.
+        :rtype: tuple[object, ...]
+        """
         del autoencoder
         geometries = batch.fields.get("tangent_geometry")
         point_ids = batch.fields.get("point_id")

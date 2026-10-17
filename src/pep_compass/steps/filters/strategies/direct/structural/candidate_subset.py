@@ -46,6 +46,16 @@ class CandidateSubset(Step):
         mode: SelectionMode = "random",
         score_field: str | None = None,
     ) -> None:
+        """Initialize this object with the declared configuration.
+
+        :param count: Count.
+        :type count: int
+        :param mode: Mode.
+        :type mode: SelectionMode
+        :param score_field: Score field.
+        :type score_field: str | None
+        :rtype: None
+        """
         self._configure({"count": count, "mode": mode, "score_field": score_field})
         from pep_compass.utils.validation import validate_integer
 
@@ -65,7 +75,15 @@ class CandidateSubset(Step):
         batch: CandidateBatch,
         context: OptimizationContext,
     ) -> CandidateBatch:
-        """Select the configured subset while retaining field alignment."""
+        """Select the configured subset while retaining field alignment.
+
+        :param batch: Incoming aligned candidate batch.
+        :type batch: CandidateBatch
+        :param context: Scoped execution services, shared run state and random generator.
+        :type context: OptimizationContext
+        :return: Result of this operation.
+        :rtype: CandidateBatch
+        """
         count = min(self.count, len(batch))
         if count == len(batch):
             return batch
@@ -92,7 +110,15 @@ class CandidateSubset(Step):
         batch: CandidateBatch,
         count: int,
     ) -> torch.Tensor:
-        """Return stable ranked indices, excluding candidates with NaN scores."""
+        """Return stable ranked indices, excluding candidates with NaN scores.
+
+        :param batch: Incoming aligned candidate batch.
+        :type batch: CandidateBatch
+        :param count: Count.
+        :type count: int
+        :return: Result of this operation.
+        :rtype: torch.Tensor
+        """
         score = batch.fields.get(self.score_field or "")
         if not isinstance(score, TensorField) or score.values.ndim != 1:
             raise ValueError(

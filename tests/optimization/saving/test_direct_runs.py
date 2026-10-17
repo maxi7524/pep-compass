@@ -9,7 +9,7 @@ import pytest
 import torch
 
 from pep_compass import Pipeline
-from pep_compass.optimization.saving.reader import AnalysisReader, DataUnavailableError
+from pep_compass.optimization.saving.reader import AnalysisReader
 from pep_compass.steps.filters import CandidateSubset
 from pep_compass.steps.flow import LocalEnumeration, Loop
 from pep_compass.steps.oracles import Hydrophobicity
@@ -38,11 +38,12 @@ def test_base_retains_evaluations_removed_by_downstream_selection():
     pipeline = Pipeline(
         [Hydrophobicity(), FirstFilter()], autoencoder=FixtureResource()
     )
-    result = pipeline.run(["AA", "CC", "DD"], seed=7, storage={"save_terminal": True})
+    result = pipeline.run(
+        ["AA", "CC", "DD"], seed=7, storage={"reconstruction": "trajectories"}
+    )
     assert len(result.reader.get_archive()) == 3
     assert len(result.reader.get_final_batch()) == 1
-    with pytest.raises(DataUnavailableError):
-        result.reader.get_history()
+    assert len(result.reader.get_evaluations()) == 3
     result.close()
 
 
@@ -68,7 +69,9 @@ def test_memory_sqlite_export_use_one_logical_schema(tmp_path):
         [Hydrophobicity(), Snapshot("evaluated"), FirstFilter()],
         autoencoder=FixtureResource(),
     )
-    memory = pipeline.run(["AA", "CC"], seed=7, storage={"save_terminal": True})
+    memory = pipeline.run(
+        ["AA", "CC"], seed=7, storage={"reconstruction": "trajectories"}
+    )
     path = memory.save(tmp_path / "export")
     with AnalysisReader(path) as exported:
         pd.testing.assert_frame_equal(
@@ -82,15 +85,15 @@ def test_memory_sqlite_export_use_one_logical_schema(tmp_path):
         storage={
             "backend": "sqlite",
             "path": str(tmp_path / "disk"),
-            "save_terminal": True,
+            "reconstruction": "trajectories",
         },
     )
     pd.testing.assert_frame_equal(
         memory.reader.get_archive(), disk.reader.get_archive()
     )
-    assert disk.reader.tables["evaluated_peptides"].count_rows() == 2
+    assert disk.reader.tables["evaluation_archive"].count_rows() == 2
     chunks = list(
-        disk.reader.tables["evaluated_peptides"].scan(["sequence"], chunk_size=1)
+        disk.reader.tables["evaluation_archive"].scan(["sequence"], chunk_size=1)
     )
     assert [len(chunk) for chunk in chunks] == [1, 1]
     memory.close()
@@ -105,8 +108,27 @@ def test_multiple_replay_boundaries_restore_all_rngs_and_consumed_budgets():
     result = pipeline.run(["AA"], seed=7, storage={"reconstruction": "boundaries"})
     checkpoints = result.reader._table_frame("checkpoints")
     assert len(checkpoints) == 2
-    for identity in checkpoints["checkpoint_id"]:
-        assert result.reader.reconstruct_local_enumeration(int(identity)).matches
+    boundaries = []
+    for checkpoint in checkpoints.itertuples():
+        raw = result.reader.backend.load_payload(checkpoint.payload_id)
+        assert "observations" not in raw["state"]
+        assert "objective_directions" not in raw["state"]
+        assert "observer" not in raw["state"]
+        boundaries.append(raw["evaluation_count"])
+        restored = result.reader._load_checkpoint(checkpoint.payload_id)
+        records = result.reader.backend.execute(
+            "SELECT objective,sequence,score FROM evaluation_records WHERE evaluation_index<? ORDER BY evaluation_index",
+            (raw["evaluation_count"],),
+        ).fetchall()
+        expected = {}
+        for objective, sequence, score in records:
+            expected.setdefault(objective, {})[sequence] = score
+        assert restored["state"]["observations"] == expected
+        assert result.reader.reconstruct_local_enumeration(
+            int(checkpoint.checkpoint_id)
+        ).matches
+    assert boundaries[0] == 0
+    assert boundaries[1] > boundaries[0]
     result.close()
 
 
@@ -123,7 +145,6 @@ def test_retention_does_not_change_seeded_computation_or_caller_rng():
         storage={
             "reconstruction": "trajectories",
             "component_data": "full",
-            "save_observation_history": True,
         },
     )
     pd.testing.assert_frame_equal(

@@ -1,9 +1,16 @@
 """Explicit candidate deduplication filter."""
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 import torch
 
 from pep_compass.data_schemas.candidates import CandidateBatch
 from pep_compass.steps.base import Step
+
+if TYPE_CHECKING:
+    from pep_compass.optimization.engine.execution.context import OptimizationContext
 
 
 class Deduplicate(Step):
@@ -13,6 +20,12 @@ class Deduplicate(Step):
     display_parameters = ("key",)
 
     def __init__(self, key: str = "sequence") -> None:
+        """Initialize this object with the declared configuration.
+
+        :param key: Key.
+        :type key: str
+        :rtype: None
+        """
         self._configure({"key": key})
         if key not in {"sequence", "sequence_and_latent"}:
             raise ValueError(
@@ -20,7 +33,18 @@ class Deduplicate(Step):
             )
         self.key = key
 
-    def _execute(self, batch: CandidateBatch, context) -> CandidateBatch:
+    def _execute(
+        self, batch: CandidateBatch, context: OptimizationContext
+    ) -> CandidateBatch:
+        """Execute.
+
+        :param batch: Incoming aligned candidate batch.
+        :type batch: CandidateBatch
+        :param context: Scoped execution services, shared run state and random generator.
+        :type context: OptimizationContext
+        :return: Result of this operation.
+        :rtype: CandidateBatch
+        """
         del context
         seen, retained = set(), []
         latent_rows = batch.latent_origins.detach().cpu()

@@ -1,35 +1,95 @@
+from __future__ import annotations
+
+from glob import glob
+from typing import TYPE_CHECKING
+
 from ifeature.codes import *
 from ifeature.PseKRAAC import *
-from glob import glob
-from sklearn.model_selection import train_test_split
-from pycaret.utils.generic import check_metric # MAE, MSE, RMSE, R2, RMSLE, MAPE
-from tools.preProcessed import *
-from tools.base import *
+from pycaret.utils.generic import check_metric  # MAE, MSE, RMSE, R2, RMSLE, MAPE
 from sklearn.impute import SimpleImputer
+from sklearn.model_selection import train_test_split
+from tools.base import *
+from tools.preProcessed import *
 
-def isDataFrame(obj):
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+    import numpy as np
+    import pandas as pd
+
+
+def isDataFrame(obj: object) -> bool:
+    """Is data frame.
+
+    :param obj: Obj.
+    :type obj: object
+    :return: Result of this operation.
+    :rtype: bool
+    """
     if type(obj) == pd.core.frame.DataFrame:
         return True
     else:
         return False
 
-def getTrueFastas(fastas):
+
+def getTrueFastas(
+    fastas: pd.DataFrame | np.ndarray | Sequence[Sequence[str]],
+) -> np.ndarray | Sequence[Sequence[str]]:
+    """Get true fastas.
+
+    :param fastas: Sequence records in the layout expected by the feature encoder.
+    :type fastas: pd.DataFrame | np.ndarray | Sequence[Sequence[str]]
+    :return: Result of this operation.
+    :rtype: np.ndarray | Sequence[Sequence[str]]
+    """
     if isDataFrame(fastas):
         fts = fastas[["ID", "SEQUENCE"]]
         return fts.to_numpy()
     else:
         return fastas
 
-codes = ['A', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'K', 'L',
-         'M', 'N', 'P', 'Q', 'R', 'S', 'T', 'V', 'W', 'Y']
-def one_hot_encode(seq, max_len=60):
+
+codes = [
+    "A",
+    "C",
+    "D",
+    "E",
+    "F",
+    "G",
+    "H",
+    "I",
+    "K",
+    "L",
+    "M",
+    "N",
+    "P",
+    "Q",
+    "R",
+    "S",
+    "T",
+    "V",
+    "W",
+    "Y",
+]
+
+
+def one_hot_encode(seq: str, max_len: int = 60) -> np.ndarray:
     # o = list(set(codes) - set(seq))
+    """One hot encode.
+
+    :param seq: Seq.
+    :type seq: str
+    :param max_len: Max len.
+    :type max_len: int
+    :return: Result of this operation.
+    :rtype: np.ndarray
+    """
     s = pd.DataFrame(list(seq))
     l = len(s)
     if max_len < l:
         max_len = l
     x = pd.DataFrame(np.zeros((max_len, 20), dtype=int), columns=codes)
-    a = s[0].str.get_dummies(sep=',')
+    a = s[0].str.get_dummies(sep=",")
     # a = a.join(x)
     # a = a.sort_index(axis=1)
     b = x + a
@@ -38,11 +98,25 @@ def one_hot_encode(seq, max_len=60):
     # e = a.values.flatten()
     return b
 
-def oneHot(fastas, max_len=60, class_val=None):
+
+def oneHot(
+    fastas: Sequence[Sequence[str]], max_len: int = 60, class_val: str | None = None
+) -> pd.DataFrame:
+    """One hot.
+
+    :param fastas: Sequence records in the layout expected by the feature encoder.
+    :type fastas: Sequence[Sequence[str]]
+    :param max_len: Max len.
+    :type max_len: int
+    :param class_val: Class val.
+    :type class_val: str | None
+    :return: Result of this operation.
+    :rtype: pd.DataFrame
+    """
     fastas = getTrueFastas(fastas)
     fts = []
-    names = fastas[:,0]
-    for seq in fastas[:,1]:
+    names = fastas[:, 0]
+    for seq in fastas[:, 1]:
         if len(seq) > max_len:
             continue
         # print("seq: ", seq)
@@ -62,11 +136,19 @@ def oneHot(fastas, max_len=60, class_val=None):
         df["default"] = [class_val] * len(fastas)
     return df
 
-#subtype = {'g-gap': 0, 'lambda-correlation': 4}
-#subtype = 'g-gap' or 'lambda-correlation'
-def genePsekraac(fastas, ft_name="type1", raactype=2, subtype='lambda-correlation', ktuple=2, gap_lambda=1, class_val=None):
-    """
-    run codes as follows if you want try all kraac features of ifeature.PseKRAAC
+
+# subtype = {'g-gap': 0, 'lambda-correlation': 4}
+# subtype = 'g-gap' or 'lambda-correlation'
+def genePsekraac(
+    fastas: Sequence[Sequence[str]],
+    ft_name: str = "type1",
+    raactype: int = 2,
+    subtype: str = "lambda-correlation",
+    ktuple: int = 2,
+    gap_lambda: int = 1,
+    class_val: str | None = None,
+) -> pd.DataFrame:
+    """run codes as follows if you want try all kraac features of ifeature.PseKRAAC
     from codes.ifeature.PseKRAAC import *
     from codes.ifeature.codes import readFasta
     for ft_name in kraac:
@@ -84,12 +166,26 @@ def genePsekraac(fastas, ft_name="type1", raactype=2, subtype='lambda-correlatio
     :param gap_lambda: int 1 # of ifeature.PseKRAAC.typeX
         gap value for the ‘g-gap’ model  or lambda value for the ‘lambda-correlation’ model, 10 values are available (i.e. 0, 1, 2, ..., 9)
     :return: dataframe of feature and the last column is the label of class with name "default"
+
+    :param fastas: Sequence records in the layout expected by the feature encoder.
+    :type fastas: Sequence[Sequence[str]]
+    :type ft_name: str
+    :type raactype: int
+    :type subtype: str
+    :type ktuple: int
+    :type gap_lambda: int
+    :param class_val: Class val.
+    :type class_val: str | None
+    :rtype: pd.DataFrame
     """
     # fastas = readFasta.readFasta(path)
     # gap_lambda = 0, 1, 2, 3, 4, 5, 6, 7, 8, 9
     fastas = getTrueFastas(fastas)
-    #type1(fastas, subtype, raactype, ktuple, glValue)
-    eval_func = "%s.type1(fastas, subtype=subtype, raactype=raactype, ktuple=ktuple, glValue=gap_lambda)" % (ft_name)
+    # type1(fastas, subtype, raactype, ktuple, glValue)
+    eval_func = (
+        "%s.type1(fastas, subtype=subtype, raactype=raactype, ktuple=ktuple, glValue=gap_lambda)"
+        % (ft_name)
+    )
     # print(eval_func)
     encdn = eval(eval_func)
     df = pd.DataFrame(encdn)
@@ -110,9 +206,16 @@ def genePsekraac(fastas, ft_name="type1", raactype=2, subtype='lambda-correlatio
         df["default"] = [class_val] * len(fastas)
     return df
 
-def GeneIfeature(fastas, ft_name="AAC", gap=0, nlag=4, lambdaValue=4, class_val=None):
-    """
-    run codes as follows if you want try all features of ifeature.codes:
+
+def GeneIfeature(
+    fastas: Sequence[Sequence[str]],
+    ft_name: str = "AAC",
+    gap: int = 0,
+    nlag: int = 4,
+    lambdaValue: int = 4,
+    class_val: str | None = None,
+) -> pd.DataFrame:
+    """run codes as follows if you want try all features of ifeature.codes:
     from codes.ifeature.codes import *
     for ft_name in ft_whole_type:
         if ft_name in rm_type:
@@ -134,13 +237,32 @@ def GeneIfeature(fastas, ft_name="AAC", gap=0, nlag=4, lambdaValue=4, class_val=
                 "Disorder"/"DisorderB"/"DisorderC" : Protein disorder information was first predicted by the VSL2 software
                 "Disorder"/"DisorderB": encoding, the input fasta sequences should be with equal length.
     :return: dataframe of feature and the last column is the label of class with name "default"
+
+    :param fastas: Sequence records in the layout expected by the feature encoder.
+    :type fastas: Sequence[Sequence[str]]
+    :type ft_name: str
+    :param gap: Gap.
+    :type gap: int
+    :param nlag: Nlag.
+    :type nlag: int
+    :param lambdaValue: Lambdavalue.
+    :type lambdaValue: int
+    :param class_val: Class val.
+    :type class_val: str | None
+    :rtype: pd.DataFrame
     """
     # fastas = readFasta.readFasta(path)
     # CKSAAP: gap = 0, 1, 2, 3 (3 = min sequence length - 2)
     # SOCNumber QSOrder PAAC APAAC: lambdaValue = 0, 1, 2, 3, 4 (4 = min sequence length - 1)
     # NMBroto: nlag= 2, 3, 4
     fastas = getTrueFastas(fastas)
-    eval_func = "%s.%s(fastas, gap=%d, order=None, nlag=%d, lambdaValue=%d)" % (ft_name, ft_name, gap, nlag, lambdaValue)
+    eval_func = "%s.%s(fastas, gap=%d, order=None, nlag=%d, lambdaValue=%d)" % (
+        ft_name,
+        ft_name,
+        gap,
+        nlag,
+        lambdaValue,
+    )
     # print(eval_func)
     encdn = eval(eval_func)
     df = pd.DataFrame(encdn)
@@ -159,31 +281,113 @@ def GeneIfeature(fastas, ft_name="AAC", gap=0, nlag=4, lambdaValue=4, class_val=
         df["default"] = [class_val] * len(fastas)
     return df
 
-def GeneftFromSequences(fastas, ft_whole_name="type8raac18", nlag=4, lambdaValue=4,
-                        subtype={'g-gap': 0, 'lambda-correlation': 4},
-                         ktuple=2, gap_lambda=1, class_val=None):
+
+def GeneftFromSequences(
+    fastas: Sequence[Sequence[str]],
+    ft_whole_name: str = "type8raac18",
+    nlag: int = 4,
+    lambdaValue: int = 4,
+    subtype: dict[str, int] = {"g-gap": 0, "lambda-correlation": 4},
+    ktuple: int = 2,
+    gap_lambda: int = 1,
+    class_val: str | None = None,
+) -> pd.DataFrame:
     # s = GetSpecieInfo(specie_name)
+    """Geneft from sequences.
+
+    :param fastas: Sequence records in the layout expected by the feature encoder.
+    :type fastas: Sequence[Sequence[str]]
+    :param ft_whole_name: Ft whole name.
+    :type ft_whole_name: str
+    :param nlag: Nlag.
+    :type nlag: int
+    :param lambdaValue: Lambdavalue.
+    :type lambdaValue: int
+    :param subtype: Subtype.
+    :type subtype: dict[str, int]
+    :param ktuple: Ktuple.
+    :type ktuple: int
+    :param gap_lambda: Gap lambda.
+    :type gap_lambda: int
+    :param class_val: Class val.
+    :type class_val: str | None
+    :return: Result of this operation.
+    :rtype: pd.DataFrame
+    """
     if "type" in ft_whole_name:
         raactype = int(ft_whole_name.split("raac")[-1])
         if "Ktuple" in ft_whole_name:
             ft_name = ft_whole_name.split("Ktuple")[0]
         else:
             ft_name = ft_whole_name.split("raac")[0]
-        ft = genePsekraac(fastas, ft_name=ft_name, raactype=raactype, subtype=subtype, ktuple=ktuple, gap_lambda=gap_lambda, class_val=class_val)
+        ft = genePsekraac(
+            fastas,
+            ft_name=ft_name,
+            raactype=raactype,
+            subtype=subtype,
+            ktuple=ktuple,
+            gap_lambda=gap_lambda,
+            class_val=class_val,
+        )
     else:
         ft_name = ft_whole_name
-        ft = GeneIfeature(fastas, ft_name=ft_name, nlag=nlag, lambdaValue=lambdaValue, class_val=class_val)
+        ft = GeneIfeature(
+            fastas,
+            ft_name=ft_name,
+            nlag=nlag,
+            lambdaValue=lambdaValue,
+            class_val=class_val,
+        )
     return ft
 
+
 # low, high means raac type range [low, high]
-def geneAllFeatureNames(low=1, high=19):
+def geneAllFeatureNames(low: int = 1, high: int = 19) -> list[object]:
+    """Gene all feature names.
+
+    :param low: Low.
+    :type low: int
+    :param high: High.
+    :type high: int
+    :return: Result of this operation.
+    :rtype: list[object]
+    """
     raac_name = []
     ft_names = []
-    kraacs = ["type1", "type2", "type3A", "type3B", "type4", "type5", "type6A",
-              "type6B", "type6C", "type7", "type8", "type9", "type10", "type11",
-              "type12", "type13", "type14", "type15", "type16"]
+    kraacs = [
+        "type1",
+        "type2",
+        "type3A",
+        "type3B",
+        "type4",
+        "type5",
+        "type6A",
+        "type6B",
+        "type6C",
+        "type7",
+        "type8",
+        "type9",
+        "type10",
+        "type11",
+        "type12",
+        "type13",
+        "type14",
+        "type15",
+        "type16",
+    ]
     # PseKRAAC: gap_lambda = list(range(10))
-    ift_types = ["AAC", "DPC", "DDE", "TPC", "GAAC", "GDPC", "GTPC", "CTDC", "CTDT", "CTDD"]
+    ift_types = [
+        "AAC",
+        "DPC",
+        "DDE",
+        "TPC",
+        "GAAC",
+        "GDPC",
+        "GTPC",
+        "CTDC",
+        "CTDT",
+        "CTDD",
+    ]
     # CKSAAP: gap = 0, 1, 2, 3 (3 = min sequence length - 2)
     # SOCNumber QSOrder PAAC APAAC: lambdaValue = 0, 1, 2, 3, 4 (4 = min sequence length - 1)
     # NMBroto: nlag= 2, 3, 4
@@ -197,24 +401,43 @@ def geneAllFeatureNames(low=1, high=19):
         for lambdaValue in range(5):
             ft_types.append("%s_lmd%d" % (ft, lambdaValue))
     for ft in ["Moran", "NMBroto", "Geary"]:
-        for nlag in range(2,5,1):
+        for nlag in range(2, 5, 1):
             ft_types.append("%s_nlag%d" % (ft, nlag))
     for ft_type in kraacs:
         AAGroup = eval("%s.AAGroup" % ft_type)
         for raactype in AAGroup:
-            if raactype in list(range(low, high+1)):
+            if raactype in list(range(low, high + 1)):
                 for gap_lambda in range(10):
                     for subtype in ["g-gap", "lambda-correlation"]:
                         if subtype == "lambda-correlation" and gap_lambda == 0:
                             continue
-                        raac_name.append("%sraac%dglmd%d%s" % (ft_type, raactype, gap_lambda, subtype))
+                        raac_name.append(
+                            "%sraac%dglmd%d%s"
+                            % (ft_type, raactype, gap_lambda, subtype)
+                        )
     ft_names.extend(ift_types)
     ft_names.extend(ft_types)
     ft_names.append("oneHot")
     ft_names.extend(raac_name)
     return ft_names
 
-def geneAllFeatures(fastas, low=1, high=19, max_len=60):
+
+def geneAllFeatures(
+    fastas: Sequence[Sequence[str]], low: int = 1, high: int = 19, max_len: int = 60
+) -> pd.DataFrame:
+    """Gene all features.
+
+    :param fastas: Sequence records in the layout expected by the feature encoder.
+    :type fastas: Sequence[Sequence[str]]
+    :param low: Low.
+    :type low: int
+    :param high: High.
+    :type high: int
+    :param max_len: Max len.
+    :type max_len: int
+    :return: Result of this operation.
+    :rtype: pd.DataFrame
+    """
     fts_info = []
     # gene OneHot:
     fts = oneHot(fastas, max_len=max_len)
@@ -225,7 +448,18 @@ def geneAllFeatures(fastas, low=1, high=19, max_len=60):
     # fts = GeneIfeature(fastas, ft_name="AAC", gap=0, nlag=4, lambdaValue=4, class_val=1)
     # Error: for "KSCTriad" encoding, the input fasta sequences should be greater than (2*gap+3).
     # Gene ifts:
-    ift_types = ["AAC", "DPC", "DDE", "TPC", "GAAC", "GDPC", "GTPC", "CTDC", "CTDT", "CTDD"]
+    ift_types = [
+        "AAC",
+        "DPC",
+        "DDE",
+        "TPC",
+        "GAAC",
+        "GDPC",
+        "GTPC",
+        "CTDC",
+        "CTDT",
+        "CTDD",
+    ]
     for ft_name in ift_types:
         fts = GeneIfeature(fastas, ft_name=ft_name)
         fts_info.append([ft_name, fts.shape[1]])
@@ -243,24 +477,53 @@ def geneAllFeatures(fastas, low=1, high=19, max_len=60):
             fts = GeneIfeature(fastas, ft_name=ft_name, lambdaValue=lambdaValue)
             fts_info.append([ft_whole_name, fts.shape[1]])
     for ft in ["Moran", "NMBroto", "Geary"]:
-        for nlag in range(2,5,1):
+        for nlag in range(2, 5, 1):
             ft_whole_name = "%s_nlag%d" % (ft, nlag)
             fts = GeneIfeature(fastas, ft_name=ft_name, nlag=nlag)
             fts_info.append([ft_whole_name, fts.shape[1]])
-    kraacs = ["type1", "type2", "type3A", "type3B", "type4", "type5", "type6A",
-              "type6B", "type6C", "type7", "type8", "type9", "type10", "type11",
-              "type12", "type13", "type14", "type15", "type16"]
+    kraacs = [
+        "type1",
+        "type2",
+        "type3A",
+        "type3B",
+        "type4",
+        "type5",
+        "type6A",
+        "type6B",
+        "type6C",
+        "type7",
+        "type8",
+        "type9",
+        "type10",
+        "type11",
+        "type12",
+        "type13",
+        "type14",
+        "type15",
+        "type16",
+    ]
     for ft_type in kraacs:
         AAGroup = eval("%s.AAGroup" % ft_type)
         for raactype in AAGroup:
-            if raactype in list(range(low, high+1)):
+            if raactype in list(range(low, high + 1)):
                 for gap_lambda in range(10):
                     for subtype in ["g-gap", "lambda-correlation"]:
                         if subtype == "lambda-correlation" and gap_lambda == 0:
                             continue
-                        ft_whole_name = "%sraac%dglmd%d%s" % (ft_type, raactype, gap_lambda, subtype)
-                        fts = genePsekraac(fastas, ft_name=ft_type, raactype=raactype, subtype=subtype,
-                                     ktuple=2, gap_lambda=gap_lambda)
+                        ft_whole_name = "%sraac%dglmd%d%s" % (
+                            ft_type,
+                            raactype,
+                            gap_lambda,
+                            subtype,
+                        )
+                        fts = genePsekraac(
+                            fastas,
+                            ft_name=ft_type,
+                            raactype=raactype,
+                            subtype=subtype,
+                            ktuple=2,
+                            gap_lambda=gap_lambda,
+                        )
                         fts_info.append([ft_whole_name, fts.shape[1]])
     df = pd.DataFrame(fts_info, columns=colname)
     df.to_csv("features_info.txt")
@@ -270,11 +533,36 @@ def geneAllFeatures(fastas, low=1, high=19, max_len=60):
     fts_info.to_csv("./features_number.txt", index=False)
     return fts_info
 
-def geneFeature(fastas, ft_whole_name, max_len=60):
+
+def geneFeature(
+    fastas: Sequence[Sequence[str]], ft_whole_name: str, max_len: int = 60
+) -> pd.DataFrame:
     # fts = GeneIfeature(fastas, ft_name="AAC", gap=0, nlag=4, lambdaValue=4, class_val=1)
     # Error: for "KSCTriad" encoding, the input fasta sequences should be greater than (2*gap+3).
     # Gene ifts:
-    ift_types = ["AAC", "DPC", "DDE", "TPC", "GAAC", "GDPC", "GTPC", "CTDC", "CTDT", "CTDD"]
+    """Gene feature.
+
+    :param fastas: Sequence records in the layout expected by the feature encoder.
+    :type fastas: Sequence[Sequence[str]]
+    :param ft_whole_name: Ft whole name.
+    :type ft_whole_name: str
+    :param max_len: Max len.
+    :type max_len: int
+    :return: Result of this operation.
+    :rtype: pd.DataFrame
+    """
+    ift_types = [
+        "AAC",
+        "DPC",
+        "DDE",
+        "TPC",
+        "GAAC",
+        "GDPC",
+        "GTPC",
+        "CTDC",
+        "CTDT",
+        "CTDD",
+    ]
     ift_types_gap = ["CKSAAP", "CKSAAGP", "CTriad", "KSCTriad"]
     if "type" in ft_whole_name:
         ft_list = ft_whole_name.split("raac")
@@ -287,10 +575,22 @@ def geneFeature(fastas, ft_whole_name, max_len=60):
         else:
             gap_lambda = int(ft_list[1].split("lambda-correlation")[0])
             subtype = "lambda-correlation"
-        ft_para = {"ft_type": ft_type, "raactype": raactype, "subtype": subtype, "gap_lambda": gap_lambda, "psekraac":True}
+        ft_para = {
+            "ft_type": ft_type,
+            "raactype": raactype,
+            "subtype": subtype,
+            "gap_lambda": gap_lambda,
+            "psekraac": True,
+        }
         # print("processing fastas: \n", fastas)
-        fts = genePsekraac(fastas, ft_name=ft_type, raactype=raactype, subtype=subtype,
-                           ktuple=2, gap_lambda=gap_lambda)
+        fts = genePsekraac(
+            fastas,
+            ft_name=ft_type,
+            raactype=raactype,
+            subtype=subtype,
+            ktuple=2,
+            gap_lambda=gap_lambda,
+        )
     elif "_" in ft_whole_name:
         ft_list = ft_whole_name.split("_")
         ft_type = ft_list[0]
@@ -301,7 +601,11 @@ def geneFeature(fastas, ft_whole_name, max_len=60):
             fts = GeneIfeature(fastas, ft_name=ft_type, gap=gap)
         elif "lmd" in para:
             lambdaValue = int(para.split("lmd")[1])
-            ft_para = {"ft_type": ft_type, "lambdaValue": lambdaValue, "psekraac": False}
+            ft_para = {
+                "ft_type": ft_type,
+                "lambdaValue": lambdaValue,
+                "psekraac": False,
+            }
             fts = GeneIfeature(fastas, ft_name=ft_type, lambdaValue=lambdaValue)
         elif "nlag" in para:
             nlag = int(para.split("nlag")[1])
@@ -317,7 +621,21 @@ def geneFeature(fastas, ft_whole_name, max_len=60):
     # print("features size: \n\trow: %d \n\tcol: %d" % fts.shape)
     return fts
 
-def geneFeatures(fastas, ft_names, max_len=60):
+
+def geneFeatures(
+    fastas: Sequence[Sequence[str]], ft_names: Sequence[str], max_len: int = 60
+) -> np.ndarray:
+    """Gene features.
+
+    :param fastas: Sequence records in the layout expected by the feature encoder.
+    :type fastas: Sequence[Sequence[str]]
+    :param ft_names: Ft names.
+    :type ft_names: Sequence[str]
+    :param max_len: Max len.
+    :type max_len: int
+    :return: Result of this operation.
+    :rtype: np.ndarray
+    """
     for i, ft_name in enumerate(ft_names):
         ft = geneFeature(fastas=fastas, ft_whole_name=ft_name, max_len=max_len)
         row = ft.shape[0]
@@ -331,8 +649,22 @@ def geneFeatures(fastas, ft_names, max_len=60):
             fts = np.hstack((fts, ft))
     return fts
 
-def geneXY(fastas, ft_names, target=None):
+
+def geneXY(
+    fastas: Sequence[Sequence[str]], ft_names: Sequence[str], target: str | None = None
+) -> tuple[object, object]:
     # from sklearn.impute import SimpleImputer
+    """Gene xy.
+
+    :param fastas: Sequence records in the layout expected by the feature encoder.
+    :type fastas: Sequence[Sequence[str]]
+    :param ft_names: Ft names.
+    :type ft_names: Sequence[str]
+    :param target: Target.
+    :type target: str | None
+    :return: Result of this operation.
+    :rtype: tuple[object, object]
+    """
     if type(ft_names) is str:
         ft_names = [ft_names]
     imp = SimpleImputer(missing_values=np.nan, strategy="most_frequent")
@@ -344,8 +676,30 @@ def geneXY(fastas, ft_names, target=None):
         y = fastas[target].to_numpy()
     return x, y
 
-def geneXYDataFrame(fastas, ft_names, target, bias=def_bias, scale=def_scale):
+
+def geneXYDataFrame(
+    fastas: Sequence[Sequence[str]],
+    ft_names: Sequence[str],
+    target: str,
+    bias: float = def_bias,
+    scale: float = def_scale,
+) -> pd.DataFrame:
     # from sklearn.impute import SimpleImputer
+    """Gene xydata frame.
+
+    :param fastas: Sequence records in the layout expected by the feature encoder.
+    :type fastas: Sequence[Sequence[str]]
+    :param ft_names: Ft names.
+    :type ft_names: Sequence[str]
+    :param target: Target.
+    :type target: str
+    :param bias: Bias.
+    :type bias: float
+    :param scale: Scale.
+    :type scale: float
+    :return: Result of this operation.
+    :rtype: pd.DataFrame
+    """
     if type(ft_names) is str:
         ft_names = [ft_names]
     imp = SimpleImputer(missing_values=np.nan, strategy="most_frequent")

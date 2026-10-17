@@ -7,7 +7,13 @@ _CACHE: dict[int, blosum.BLOSUM] = {}
 
 
 def load_blosum(number: int) -> blosum.BLOSUM:
-    """Load and cache a BLOSUM matrix."""
+    """Load and cache a BLOSUM matrix.
+
+    :param number: Number.
+    :type number: int
+    :return: Result of this operation.
+    :rtype: blosum.BLOSUM
+    """
     if number not in _CACHE:
         _CACHE[number] = blosum.BLOSUM(number)
     return _CACHE[number]
@@ -23,6 +29,15 @@ def blosum_score(
     Characters outside the standard amino-acid alphabet, including padding,
     contribute zero. For sequences of different lengths, only their shared
     prefix is scored.
+
+    :param first_sequence: First sequence.
+    :type first_sequence: str
+    :param second_sequence: Second sequence.
+    :type second_sequence: str
+    :param matrix: Matrix.
+    :type matrix: blosum.BLOSUM
+    :return: Result of this operation.
+    :rtype: float
     """
     return float(
         sum(

@@ -1,9 +1,28 @@
 """Optimization-engine adapter for MUTANG."""
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 import torch
 
 from pep_compass.data_schemas.candidates import ObjectField, TensorField
 from pep_compass.steps.base import Step
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+    from pep_compass.autoencoder.base import Autoencoder
+    from pep_compass.data_schemas.candidates import CandidateBatch
+    from pep_compass.data_schemas.contracts import StepContract
+    from pep_compass.optimization.engine.execution.context import OptimizationContext
+    from pep_compass.steps.mutations.strategies.mutang.base import (
+        CombinationStrategy,
+        DirectionStrategy,
+        GeometryStrategy,
+        MutationSelectionStrategy,
+        ScoringStrategy,
+    )
 
 
 class Mutang(Step):
@@ -24,23 +43,44 @@ class Mutang(Step):
     def __init__(
         self,
         *,
-        maximum_candidates=None,
-        geometry=None,
-        directions=None,
-        scoring=None,
-        selection=None,
-        combination=None,
-        max_len=25,
-        direction_significance_threshold=0.001,
-        min_number_of_directions=5,
-        token_threshold=0.1,
-        alphabet=None,
-    ):
+        maximum_candidates: int | None = None,
+        geometry: GeometryStrategy | None = None,
+        directions: DirectionStrategy | None = None,
+        scoring: ScoringStrategy | None = None,
+        selection: MutationSelectionStrategy | None = None,
+        combination: CombinationStrategy | None = None,
+        max_len: int = 25,
+        direction_significance_threshold: float = 0.001,
+        min_number_of_directions: int = 5,
+        token_threshold: float = 0.1,
+        alphabet: Sequence[str] | None = None,
+    ) -> None:
         """Configure independent mutation stages without model initialization.
 
         :param maximum_candidates: Per-parent allocation cap, or None for unbounded generation.
         :param geometry: Shared local geometry by default; pass an independent geometry explicitly.
         :param combination: Explicit combination strategy; its cap must agree with the outer cap.
+
+        :type maximum_candidates: int | None
+        :type geometry: GeometryStrategy | None
+        :param directions: Direction-selection strategy or sampled numerical directions.
+        :type directions: DirectionStrategy | None
+        :param scoring: Strategy computing mutation or candidate scores.
+        :type scoring: ScoringStrategy | None
+        :param selection: Strategy selecting admissible substitutions or candidate rows.
+        :type selection: MutationSelectionStrategy | None
+        :type combination: CombinationStrategy | None
+        :param max_len: Max len.
+        :type max_len: int
+        :param direction_significance_threshold: Direction significance threshold.
+        :type direction_significance_threshold: float
+        :param min_number_of_directions: Min number of directions.
+        :type min_number_of_directions: int
+        :param token_threshold: Token threshold.
+        :type token_threshold: float
+        :param alphabet: Ordered residue alphabet.
+        :type alphabet: Sequence[str] | None
+        :rtype: None
         """
         from pep_compass.utils.validation import validate_integer
 
@@ -101,7 +141,12 @@ class Mutang(Step):
         self.geometry_requirement = getattr(self.geometry, "requirement", None)
         self.requires_local_enumeration = self.geometry.local_enumeration_only
 
-    def contract(self):
+    def contract(self) -> StepContract:
+        """Contract.
+
+        :return: Result of this operation.
+        :rtype: StepContract
+        """
         from pep_compass.data_schemas.contracts import StepContract
 
         return StepContract(
@@ -111,12 +156,25 @@ class Mutang(Step):
             resources=self.required_resources,
         )
 
-    def candidate_bound(self, count):
+    def candidate_bound(self, count: int) -> object:
+        """Candidate bound.
+
+        :param count: Count.
+        :type count: int
+        :return: Result of this operation.
+        :rtype: object
+        """
         return (
             None if self.maximum_candidates is None else count * self.maximum_candidates
         )
 
-    def _initialize(self, autoencoder):
+    def _initialize(self, autoencoder: Autoencoder | None) -> None:
+        """Initialize.
+
+        :param autoencoder: Shared numerical model or deferred resource, as declared by the parameter type.
+        :type autoencoder: Autoencoder | None
+        :rtype: None
+        """
         from .algorithm import MutationAlgorithm
 
         self.mutang = MutationAlgorithm(
@@ -128,7 +186,18 @@ class Mutang(Step):
             autoencoder,
         )
 
-    def _execute(self, batch, context):
+    def _execute(
+        self, batch: CandidateBatch, context: OptimizationContext
+    ) -> CandidateBatch:
+        """Execute.
+
+        :param batch: Incoming aligned candidate batch.
+        :type batch: CandidateBatch
+        :param context: Scoped execution services, shared run state and random generator.
+        :type context: OptimizationContext
+        :return: Result of this operation.
+        :rtype: CandidateBatch
+        """
         limit = context.state.limits.generated_candidates
         if limit is not None and context.state.generated_candidates >= limit:
             context.state.stop_requested = True

@@ -45,6 +45,10 @@ def specificity_counts_from_windows(
     :param n_subsites: Expected window length.
     :return: Integer counts, shape ``(n_subsites, 20)``.
     :raises ValueError: If a window has the wrong length.
+
+    :type windows: Iterable[str]
+    :type n_subsites: int
+    :rtype: np.ndarray
     """
 
     counts = np.zeros((n_subsites, len(MEROPS_AMINO_ACIDS)), dtype=np.int64)  # (P, A)
@@ -75,6 +79,10 @@ def log_probability_matrix(
     :param alpha: Dirichlet prior added to every count.
     :return: Log-probabilities, shape ``(P, A)``.
     :raises ValueError: If ``alpha`` is not positive.
+
+    :type counts: np.ndarray
+    :type alpha: float
+    :rtype: np.ndarray
     """
 
     if alpha <= 0.0:
@@ -90,11 +98,24 @@ def _jensen_shannon_bits(first: np.ndarray, second: np.ndarray) -> float:
     :param first: Probability vector, shape ``(A,)``.
     :param second: Probability vector, shape ``(A,)``.
     :return: Divergence in bits, between 0 and 1.
+
+    :type first: np.ndarray
+    :type second: np.ndarray
+    :rtype: float
     """
 
     mixture = 0.5 * (first + second)  # (A,)
 
     def relative_entropy(p: np.ndarray, q: np.ndarray) -> float:
+        """Relative entropy.
+
+        :param p: P.
+        :type p: np.ndarray
+        :param q: Q.
+        :type q: np.ndarray
+        :return: Result of this operation.
+        :rtype: float
+        """
         support = p > 0
         return float(np.sum(p[support] * np.log2(p[support] / q[support])))
 
@@ -123,6 +144,11 @@ def compare_specificity_matrices(
         statistics instead of being silently compared against a prior.
     :return: One record per subsite.
     :raises ValueError: If the two matrices do not have the same shape.
+
+    :type reference: np.ndarray
+    :type candidate: np.ndarray
+    :type observed_subsites: Sequence[bool] | None
+    :rtype: list[dict[str, float | str | bool]]
     """
 
     if reference.shape != candidate.shape:
@@ -191,6 +217,13 @@ def window_from_sequence(
     :param n_non_prime: Number of non-prime subsites.
     :param gap: Character marking a subsite outside the sequence.
     :return: A window string of length ``n_non_prime + n_prime``.
+
+    :type sequence: str
+    :type bond: int
+    :type n_prime: int
+    :type n_non_prime: int
+    :type gap: str
+    :rtype: str
     """
 
     positions = range(bond - n_non_prime + 1, bond + n_prime + 1)

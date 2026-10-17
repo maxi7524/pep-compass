@@ -4,8 +4,13 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
+from typing import TYPE_CHECKING, Literal
 
 from pep_compass.utils.validation import validate_integer
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
+    from typing import Self
 
 
 @dataclass
@@ -16,7 +21,10 @@ class OptimizationLimits:
     generated_candidates: int | None = None
 
     def __post_init__(self) -> None:
-        """Validate thresholds without coercing booleans or fractions."""
+        """Validate thresholds without coercing booleans or fractions.
+
+        :rtype: None
+        """
         validate_integer(self.oracle_calls, "limits.oracle_calls", optional=True)
         validate_integer(
             self.generated_candidates, "limits.generated_candidates", optional=True
@@ -33,7 +41,11 @@ class ExecutionSettings:
     generated_candidates: int | None = None
     max_workers: int = 1
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
+        """Post init.
+
+        :rtype: None
+        """
         validate_integer(self.seed, "execution.seed", optional=True)
         validate_integer(self.oracle_calls, "execution.oracle_calls", optional=True)
         validate_integer(
@@ -53,17 +65,19 @@ class ExecutionSettings:
 class StorageSettings:
     """Select retained information; buffering never samples the history."""
 
-    backend: str = "memory"
-    path: str | None = None
-    profile: str = "base"
+    backend: Literal["memory", "sqlite"] = "memory"
+    path: str | Path | None = None
     flush_every: int = 1
-    reconstruction: str = "none"
-    component_data: str = "none"
-    save_observation_history: bool = False
-    save_lineage: bool = False
-    save_terminal: bool = False
+    reconstruction: Literal["none", "boundaries", "trajectories"] = "none"
+    component_data: Literal["none", "summary", "full"] = "none"
+    metrics_level: Literal["none", "basic", "basic_and_components"] = "basic"
+    save_lineage: bool = True
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
+        """Post init.
+
+        :rtype: None
+        """
         if self.backend not in {"memory", "sqlite"}:
             raise ValueError("storage.backend must be memory or sqlite.")
         if self.backend == "sqlite" and self.path is None:
@@ -74,27 +88,28 @@ class StorageSettings:
             )
         if self.path is not None:
             object.__setattr__(self, "path", str(Path(self.path)))
-        if self.profile != "base":
-            raise ValueError(
-                "The supported profile is base; use independent retention options."
-            )
         validate_integer(self.flush_every, "storage.flush_every", 1)
         if self.reconstruction not in {"none", "boundaries", "trajectories"}:
             raise ValueError("Invalid reconstruction setting.")
         if self.component_data not in {"none", "summary", "full"}:
             raise ValueError("Invalid component_data setting.")
-        for name in ("save_observation_history", "save_lineage", "save_terminal"):
-            if not isinstance(getattr(self, name), bool):
-                raise ValueError(f"storage.{name} must be a boolean.")
+        if self.metrics_level not in {"none", "basic", "basic_and_components"}:
+            raise ValueError("Invalid metrics_level setting.")
+        if not isinstance(self.save_lineage, bool):
+            raise ValueError("storage.save_lineage must be a boolean.")
 
 
 @dataclass(frozen=True, slots=True)
 class ResultsSettings:
     """Choose a view of the internally created RunResult."""
 
-    return_mode: str = "result"
+    return_mode: Literal["result", "reader", "path"] = "result"
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
+        """Post init.
+
+        :rtype: None
+        """
         if self.return_mode not in {"result", "reader", "path"}:
             raise ValueError("results.return_mode must be result, reader or path.")
 
@@ -107,12 +122,32 @@ class RunnerSettings:
     storage: StorageSettings = field(default_factory=StorageSettings)
     results: ResultsSettings = field(default_factory=ResultsSettings)
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
+        """Post init.
+
+        :rtype: None
+        """
         if self.results.return_mode == "path" and self.storage.backend != "sqlite":
             raise ValueError("return_mode='path' requires SQLite storage.")
 
-    def update(self, *, execution=None, storage=None, results=None):
-        """Return validated merged settings without mutating the current run."""
+    def update(
+        self,
+        *,
+        execution: ExecutionSettings | Mapping[str, object] | None = None,
+        storage: StorageSettings | Mapping[str, object] | None = None,
+        results: ResultsSettings | Mapping[str, object] | None = None,
+    ) -> Self:
+        """Return validated merged settings without mutating the current run.
+
+        :param execution: Execution settings or a mapping overriding their defaults.
+        :type execution: ExecutionSettings | Mapping[str, object] | None
+        :param storage: Storage settings or a mapping overriding their defaults.
+        :type storage: StorageSettings | Mapping[str, object] | None
+        :param results: Result-view settings or a mapping overriding their defaults.
+        :type results: ResultsSettings | Mapping[str, object] | None
+        :return: Result of this operation.
+        :rtype: Self
+        """
         changes = {}
         for name, value in (
             ("execution", execution),
@@ -128,6 +163,10 @@ class RunnerSettings:
                 )
         return replace(self, **changes)
 
-    def to_dict(self):
-        """Return plain configuration values for JSON and future Hydra adapters."""
+    def to_dict(self) -> dict[str, object]:
+        """Return plain configuration values for JSON and future Hydra adapters.
+
+        :return: Result of this operation.
+        :rtype: dict[str, object]
+        """
         return asdict(self)

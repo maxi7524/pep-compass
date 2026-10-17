@@ -21,12 +21,18 @@ logger = get_custom_logger(__name__)
 class _APEXUnpickler(pickle.Unpickler):
     """Resolve historical module names stored inside distributed checkpoints."""
 
-    def find_class(self, module: str, name: str):
+    def find_class(self, module: str, name: str) -> object:
+        """Find class.
+
+        :param module: Module.
+        :type module: str
+        :param name: Name identifying this object or recorded artifact.
+        :type name: str
+        :return: Result of this operation.
+        :rtype: object
+        """
         if module in {"APEX_models", "AMP_DL_model_twohead"}:
-            module = (
-                "pep_compass.steps.oracles.strategies."
-                "apex_original.APEX_models"
-            )
+            module = "pep_compass.steps.oracles.strategies.apex_original.APEX_models"
         return super().find_class(module, name)
 
 
@@ -35,7 +41,14 @@ class _APEXPickleModule:
 
     Unpickler = _APEXUnpickler
 
-    def __getattr__(self, name: str):
+    def __getattr__(self, name: str) -> object:
+        """Getattr.
+
+        :param name: Name identifying this object or recorded artifact.
+        :type name: str
+        :return: Result of this operation.
+        :rtype: object
+        """
         return getattr(pickle, name)
 
 
@@ -56,6 +69,18 @@ class APEXPredictor:
         model: str = "default",
         models_directory: str | Path | None = None,
     ) -> None:
+        """Initialize this object with the declared configuration.
+
+        :param device: Computation device accepted by the numerical backend.
+        :type device: str
+        :param batch_size: Batch size.
+        :type batch_size: int
+        :param model: Named model variant.
+        :type model: str
+        :param models_directory: Optional external model root replacing packaged artifacts.
+        :type models_directory: str | Path | None
+        :rtype: None
+        """
         if (
             isinstance(batch_size, bool)
             or not isinstance(batch_size, int)
@@ -91,7 +116,13 @@ class APEXPredictor:
         )
 
     def predict(self, sequences: Sequence[str]) -> np.ndarray:
-        """Return ensemble-mean MIC predictions shaped ``(B, P)``."""
+        """Return ensemble-mean MIC predictions shaped ``(B, P)``.
+
+        :param sequences: Peptide sequences in input order.
+        :type sequences: Sequence[str]
+        :return: Result of this operation.
+        :rtype: np.ndarray
+        """
         if not sequences:
             return np.empty((0, len(self.pathogen_list)), dtype=np.float32)
         model_predictions = []
@@ -117,7 +148,11 @@ class APEXPredictor:
 
 
 def _amino_acid_vocabulary() -> dict[str, int]:
-    """Return the integer vocabulary used when the APEX models were trained."""
+    """Return the integer vocabulary used when the APEX models were trained.
+
+    :return: Result of this operation.
+    :rtype: dict[str, int]
+    """
     symbols = ("0", "1", "2", *tuple("ACDEFGHIKLMNPQRSTVWY"))
     return {symbol: index for index, symbol in enumerate(symbols)}
 
@@ -130,6 +165,14 @@ def _encode_sequences(
     """Encode peptide strings with historical start/end tokens.
 
     :return: Integer token matrix shaped ``(B, L)``.
+
+    :param sequences: Peptide sequences in input order.
+    :type sequences: Sequence[str]
+    :param max_length: Max length.
+    :type max_length: int
+    :param vocabulary: Vocabulary.
+    :type vocabulary: dict[str, int]
+    :rtype: np.ndarray
     """
     encoded = np.zeros((len(sequences), max_length), dtype=np.int64)  # (B, L)
     for row, sequence in enumerate(sequences):

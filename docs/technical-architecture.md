@@ -49,7 +49,8 @@ scoped RNG streams and identities remain explicit. Parallel branches execute in
 stable order when sharing mutable services; independent jobs use subprocesses.
 
 Runner owns fresh state, seeded RNG boundaries, saver and finalization. The
-outgoing terminal batch and per-objective evaluated archives remain distinct.
+engine returns its graph output directly. Mandatory evaluations are persisted in
+one table and read through SQL views; finalization does not build another archive.
 Retention does not alter computation. Replay restores a retained operation input,
 state, step state and all supported RNGs, then verifies ordered output hashes.
 

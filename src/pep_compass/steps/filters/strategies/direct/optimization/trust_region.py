@@ -23,6 +23,16 @@ class TrustRegion(Step):
         geometry: str = "sequence",
         initial_radius: float,
     ) -> None:
+        """Initialize this object with the declared configuration.
+
+        :param objective: Objective field identity shared by scoring and optimization.
+        :type objective: str
+        :param geometry: Geometry strategy or aligned numerical geometry, according to the declared type.
+        :type geometry: str
+        :param initial_radius: Initial radius.
+        :type initial_radius: float
+        :rtype: None
+        """
         self._configure(
             {
                 "objective": objective,
@@ -41,6 +51,15 @@ class TrustRegion(Step):
     def _execute(
         self, batch: CandidateBatch, context: OptimizationContext
     ) -> CandidateBatch:
+        """Execute.
+
+        :param batch: Incoming aligned candidate batch.
+        :type batch: CandidateBatch
+        :param context: Scoped execution services, shared run state and random generator.
+        :type context: OptimizationContext
+        :return: Result of this operation.
+        :rtype: CandidateBatch
+        """
         region = context.state.trust_regions.setdefault(
             self.objective, TrustRegionState(radius=self.initial_radius)
         )
@@ -91,6 +110,28 @@ class TrustRegionUpdate(Step):
         failure_tolerance: int = 3,
         maximize: bool = False,
     ) -> None:
+        """Initialize this object with the declared configuration.
+
+        :param objective: Objective field identity shared by scoring and optimization.
+        :type objective: str
+        :param initial_radius: Initial radius.
+        :type initial_radius: float
+        :param minimum_radius: Minimum radius.
+        :type minimum_radius: float
+        :param maximum_radius: Maximum radius.
+        :type maximum_radius: float
+        :param expand_factor: Expand factor.
+        :type expand_factor: float
+        :param shrink_factor: Shrink factor.
+        :type shrink_factor: float
+        :param success_tolerance: Success tolerance.
+        :type success_tolerance: int
+        :param failure_tolerance: Failure tolerance.
+        :type failure_tolerance: int
+        :param maximize: Maximize.
+        :type maximize: bool
+        :rtype: None
+        """
         self._configure(
             {
                 "objective": objective,
@@ -127,6 +168,15 @@ class TrustRegionUpdate(Step):
     def _execute(
         self, batch: CandidateBatch, context: OptimizationContext
     ) -> CandidateBatch:
+        """Execute.
+
+        :param batch: Incoming aligned candidate batch.
+        :type batch: CandidateBatch
+        :param context: Scoped execution services, shared run state and random generator.
+        :type context: OptimizationContext
+        :return: Result of this operation.
+        :rtype: CandidateBatch
+        """
         score_field = batch.fields.get(f"oracle.{self.objective}.score")
         if not isinstance(score_field, TensorField) or score_field.values.ndim != 1:
             raise ValueError(

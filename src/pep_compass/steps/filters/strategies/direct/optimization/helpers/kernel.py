@@ -1,5 +1,7 @@
 """Kernel implementations used by optimization policies."""
 
+from __future__ import annotations
+
 import gpytorch
 import torch
 
@@ -11,7 +13,32 @@ class TanimotoSimilarityKernel(gpytorch.kernels.Kernel):
 
     is_stationary = False
 
-    def forward(self, x1, x2, diag=False, last_dim_is_batch=False, eps=1e-6, **params):
+    def forward(
+        self,
+        x1: torch.Tensor,
+        x2: torch.Tensor,
+        diag: bool = False,
+        last_dim_is_batch: bool = False,
+        eps: float = 1e-6,
+        **params: object,
+    ) -> torch.Tensor:
+        """Forward.
+
+        :param x1: X1.
+        :type x1: torch.Tensor
+        :param x2: X2.
+        :type x2: torch.Tensor
+        :param diag: Diag.
+        :type diag: bool
+        :param last_dim_is_batch: Last dim is batch.
+        :type last_dim_is_batch: bool
+        :param eps: Eps.
+        :type eps: float
+        :param params: Params.
+        :type params: object
+        :return: Result of this operation.
+        :rtype: torch.Tensor
+        """
         if last_dim_is_batch:
             raise NotImplementedError("last_dim_is_batch=True is not supported.")
 

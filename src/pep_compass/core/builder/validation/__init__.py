@@ -1,11 +1,23 @@
 """Validate ownership and symbolic field flow before loading model weights."""
 
+from __future__ import annotations
+
 from collections.abc import Mapping
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from pep_compass.steps.base import Step
 from pep_compass.steps.flow.strategies.sequence import Flow
 from pep_compass.utils.logger import get_custom_logger
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator, Sequence
+    from typing import Self
+
+    from pep_compass.data_schemas.candidates import BatchField
+    from pep_compass.data_schemas.contracts import StepContract
+    from pep_compass.data_schemas.graph import PipelineSchema
+
 
 logger = get_custom_logger(__name__)
 
@@ -18,8 +30,14 @@ class _Transfer:
     propagated: frozenset
     produced: frozenset
 
-    def then(self, following):
-        """Compose two field transfers without executing either component."""
+    def then(self, following: _Transfer) -> _Transfer:
+        """Compose two field transfers without executing either component.
+
+        :param following: Following.
+        :type following: _Transfer
+        :return: Result of this operation.
+        :rtype: _Transfer
+        """
         external = following.required - self.produced
         unavailable = external - self.propagated
         if unavailable:
@@ -40,16 +58,38 @@ class _FieldFlow:
     full: _Transfer
     present: _Transfer
 
-    def then(self, following):
+    def then(self, following: _FieldFlow) -> _FieldFlow:
+        """Then.
+
+        :param following: Following.
+        :type following: _FieldFlow
+        :return: Result of this operation.
+        :rtype: _FieldFlow
+        """
         return _FieldFlow(
             self.full.then(following.full), self.present.then(following.present)
         )
 
     @classmethod
-    def join(cls, branches):
-        """Concatenation preserves full fields in every branch and partial fields in any branch."""
+    def join(cls, branches: Sequence[_FieldFlow]) -> Self:
+        """Concatenation preserves full fields in every branch and partial fields in any branch.
 
-        def combine(flows, all_branches):
+        :param branches: Branches.
+        :type branches: Sequence[_FieldFlow]
+        :return: Result of this operation.
+        :rtype: Self
+        """
+
+        def combine(flows: Sequence[_Transfer], all_branches: bool) -> _Transfer:
+            """Combine.
+
+            :param flows: Flows.
+            :type flows: Sequence[_Transfer]
+            :param all_branches: All branches.
+            :type all_branches: bool
+            :return: Result of this operation.
+            :rtype: _Transfer
+            """
             required = frozenset.union(*(flow.required for flow in flows))
             if all_branches:
                 produced = frozenset.intersection(*(flow.produced for flow in flows))
@@ -67,8 +107,14 @@ class _FieldFlow:
         )
 
 
-def _children(value):
-    """Yield the actual step objects from named graph ownership slots."""
+def _children(value: object) -> Iterator[Step]:
+    """Yield the actual step objects from named graph ownership slots.
+
+    :param value: Value consumed by this conversion or transformation.
+    :type value: object
+    :return: Result of this operation.
+    :rtype: Iterator[Step]
+    """
     if isinstance(value, Step):
         yield value
     elif isinstance(value, Mapping):
@@ -81,7 +127,11 @@ def _children(value):
         raise TypeError("Graph ownership slots must contain Step objects.")
 
 
-def validate(schema, *, initial_fields=()):
+def validate(
+    schema: PipelineSchema,
+    *,
+    initial_fields: Sequence[str] | Mapping[str, BatchField] = (),
+) -> list[dict[str, str]]:
     """Validate graph structure and field availability without model initialization.
 
     Each node contributes one symbolic transfer. Sequential composition, branch
@@ -92,6 +142,10 @@ def validate(schema, *, initial_fields=()):
     :return: Diagnostic records for a structurally valid graph.
     :raises ValueError: On repeated identities or unavailable required fields.
     :raises TypeError: If a graph child does not implement Step.
+
+    :type schema: PipelineSchema
+    :type initial_fields: Sequence[str] | Mapping[str, BatchField]
+    :rtype: list[dict[str, str]]
     """
     identities = [node.node_id for node, _, _ in schema.walk()]
     if any(not isinstance(value, str) or not value for value in identities) or len(
@@ -114,12 +168,28 @@ def validate(schema, *, initial_fields=()):
     full_incoming = incoming - incomplete
     root = Flow([node.instantiate() for node in schema.steps])
     contracts = {}
+    objective_configurations = {}
     universe = set(incoming)
 
     # Resolve each declared contract once; unknown fields cannot affect a later requirement.
-    def collect(step):
+    def collect(step: Step) -> None:
+        """Collect.
+
+        :param step: Step.
+        :type step: Step
+        :rtype: None
+        """
         if not isinstance(step, Step):
             raise TypeError("Graph components must implement Step.")
+        from pep_compass.steps.oracles.strategies.black_box import BlackBoxOracle
+
+        if isinstance(step, BlackBoxOracle):
+            declared = step.to_config()
+            previous = objective_configurations.setdefault(step.objective, declared)
+            if previous != declared:
+                raise ValueError(
+                    f"Conflicting configurations for objective {step.objective!r}."
+                )
         contract = step.contract()
         contracts[id(step)] = contract
         universe.update(contract.required_fields)
@@ -141,7 +211,14 @@ def validate(schema, *, initial_fields=()):
     identity_transfer = _Transfer(frozenset(), universe, frozenset())
     identity = _FieldFlow(identity_transfer, identity_transfer)
 
-    def leaf(contract):
+    def leaf(contract: StepContract) -> _FieldFlow:
+        """Leaf.
+
+        :param contract: Contract.
+        :type contract: StepContract
+        :return: Result of this operation.
+        :rtype: _FieldFlow
+        """
         propagated = frozenset(
             field
             for field in universe
@@ -159,13 +236,31 @@ def validate(schema, *, initial_fields=()):
             _Transfer(frozenset(contract.required_fields), propagated, produced),
         )
 
-    def sequence(steps, local):
+    def sequence(steps: Sequence[Step], local: bool) -> _FieldFlow:
+        """Sequence.
+
+        :param steps: Ordered child step instances.
+        :type steps: Sequence[Step]
+        :param local: Local.
+        :type local: bool
+        :return: Result of this operation.
+        :rtype: _FieldFlow
+        """
         result = identity
         for step in steps:
             result = result.then(summarize(step, local))
         return result
 
-    def summarize(step, local=False):
+    def summarize(step: Step, local: bool = False) -> _FieldFlow:
+        """Summarize.
+
+        :param step: Step.
+        :type step: Step
+        :param local: Local.
+        :type local: bool
+        :return: Result of this operation.
+        :rtype: _FieldFlow
+        """
         if getattr(step, "requires_local_enumeration", False) and not local:
             raise ValueError(f"{step.name} requires a LocalEnumeration context.")
         own = leaf(contracts[id(step)])

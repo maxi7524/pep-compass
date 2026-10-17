@@ -1,5 +1,7 @@
 """Public lightweight APEX objective component."""
 
+from __future__ import annotations
+
 from dataclasses import dataclass
 from typing import ClassVar
 
@@ -24,8 +26,11 @@ class APEX(BlackBoxOracle):
     mic_aggregate: str = "mean"
     mic_bacteria: str | list[int] = "all"
 
-    def __post_init__(self):
-        """Reject invalid aggregation and pathogen selection without opening weights."""
+    def __post_init__(self) -> None:
+        """Reject invalid aggregation and pathogen selection without opening weights.
+
+        :rtype: None
+        """
         from pep_compass.steps.oracles.strategies.apex.artifacts import APEX_MODELS
         from pep_compass.steps.oracles.strategies.apex.validation import (
             validate_bacteria_indices,

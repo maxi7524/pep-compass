@@ -33,7 +33,13 @@ class BatchMemoryEstimate:
 
 
 def _tensor_bytes(value: torch.Tensor) -> int:
-    """Return tensor storage required by its logical elements."""
+    """Return tensor storage required by its logical elements.
+
+    :param value: Value consumed by this conversion or transformation.
+    :type value: torch.Tensor
+    :return: Result of this operation.
+    :rtype: int
+    """
     return value.numel() * value.element_size()
 
 
@@ -46,6 +52,9 @@ def estimate_batch_memory(batch: CandidateBatch) -> BatchMemoryEstimate:
 
     :param batch: Candidate batch to inspect.
     :return: Estimated byte counts grouped by storage responsibility.
+
+    :type batch: CandidateBatch
+    :rtype: BatchMemoryEstimate
     """
     sequence_bytes = sum(sys.getsizeof(sequence) for sequence in batch.sequences)
     latent_bytes = _tensor_bytes(batch.latent_origins)

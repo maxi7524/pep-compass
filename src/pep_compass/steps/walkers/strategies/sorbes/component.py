@@ -1,5 +1,9 @@
 """Optimization-engine adapter for SORBES."""
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 import torch
 
 from pep_compass.autoencoder.geometry import StableTangentGeometry, TangentDecomposition
@@ -10,6 +14,23 @@ from pep_compass.autoencoder.subriemannian import (
 )
 from pep_compass.data_schemas.candidates import CandidateBatch, ObjectField, TensorField
 from pep_compass.steps.base import Step
+
+if TYPE_CHECKING:
+    from pep_compass.autoencoder.base import Autoencoder
+    from pep_compass.optimization.engine.execution.context import OptimizationContext
+    from pep_compass.steps.walkers.strategies.sorbes.boundary.base import (
+        BoundaryStrategy,
+    )
+    from pep_compass.steps.walkers.strategies.sorbes.directions.base import (
+        DirectionStrategy,
+    )
+    from pep_compass.steps.walkers.strategies.sorbes.geometry.base import (
+        GeometryStrategy,
+    )
+    from pep_compass.steps.walkers.strategies.sorbes.position_update.base import (
+        PositionUpdateStrategy,
+    )
+    from pep_compass.steps.walkers.strategies.sorbes.scaling.base import ScalingStrategy
 
 
 class Sorbes(Step):
@@ -39,16 +60,16 @@ class Sorbes(Step):
     def __init__(
         self,
         *,
-        geometry=None,
-        directions=None,
-        scaling=None,
-        position_update=None,
-        boundary=None,
-        time_step=0.01,
-        horizontal_threshold=0.1,
-        max_horizontal_update_norm=0.5,
-        vertical_movement=True,
-    ):
+        geometry: GeometryStrategy | None = None,
+        directions: DirectionStrategy | None = None,
+        scaling: ScalingStrategy | None = None,
+        position_update: PositionUpdateStrategy | None = None,
+        boundary: BoundaryStrategy | None = None,
+        time_step: float = 0.01,
+        horizontal_threshold: float = 0.1,
+        max_horizontal_update_norm: float = 0.5,
+        vertical_movement: bool = True,
+    ) -> None:
         """Configure SORBES without loading resources.
 
         :param geometry: Decoder geometry strategy; defaults to kappa=threshold squared.
@@ -56,6 +77,21 @@ class Sorbes(Step):
         :param horizontal_threshold: Non-negative stable singular-value threshold.
         :param max_horizontal_update_norm: Positive norm bound for the default update.
         :param vertical_movement: Include inactive decoder directions.
+
+        :type geometry: GeometryStrategy | None
+        :param directions: Direction-selection strategy or sampled numerical directions.
+        :type directions: DirectionStrategy | None
+        :param scaling: Strategy scaling sampled directions.
+        :type scaling: ScalingStrategy | None
+        :param position_update: Strategy computing the next bounded latent position.
+        :type position_update: PositionUpdateStrategy | None
+        :param boundary: Strategy accepting or modifying a proposed position.
+        :type boundary: BoundaryStrategy | None
+        :type time_step: float
+        :type horizontal_threshold: float
+        :type max_horizontal_update_norm: float
+        :type vertical_movement: bool
+        :rtype: None
         """
         from math import sqrt
 
@@ -113,7 +149,13 @@ class Sorbes(Step):
         )
         self.geometry_contract = TANGENT_GEOMETRY_CONTRACT
 
-    def _initialize(self, autoencoder):
+    def _initialize(self, autoencoder: Autoencoder | None) -> None:
+        """Initialize.
+
+        :param autoencoder: Shared numerical model or deferred resource, as declared by the parameter type.
+        :type autoencoder: Autoencoder | None
+        :rtype: None
+        """
         from .algorithm import SorbesAlgorithm
 
         self.sorbes = SorbesAlgorithm(
@@ -125,9 +167,20 @@ class Sorbes(Step):
             self.boundary,
         )
 
-    def _execute(self, batch, context):
+    def _execute(
+        self, batch: CandidateBatch, context: OptimizationContext
+    ) -> CandidateBatch:
+        """Execute.
+
+        :param batch: Incoming aligned candidate batch.
+        :type batch: CandidateBatch
+        :param context: Scoped execution services, shared run state and random generator.
+        :type context: OptimizationContext
+        :return: Result of this operation.
+        :rtype: CandidateBatch
+        """
         current = self._current_geometry(batch)
-        step = self.sorbes.step(batch.latent_origins, current)
+        step = self.sorbes.step(batch.latent_origins, current, context=context)
         sequences = context.autoencoder.decode_peptides(step.positions)
         fields = {
             name: value
@@ -171,7 +224,14 @@ class Sorbes(Step):
         return CandidateBatch(sequences, step.positions, fields)
 
     @staticmethod
-    def _current_geometry(batch):
+    def _current_geometry(batch: CandidateBatch) -> StableTangentGeometry | None:
+        """Current geometry.
+
+        :param batch: Incoming aligned candidate batch.
+        :type batch: CandidateBatch
+        :return: Result of this operation.
+        :rtype: StableTangentGeometry | None
+        """
         field = batch.fields.get("tangent_geometry")
         if not isinstance(field, ObjectField) or not field.values:
             return None

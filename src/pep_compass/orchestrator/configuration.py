@@ -5,8 +5,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 from importlib import import_module
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from hydra import compose, initialize_config_dir, initialize_config_module
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+    from omegaconf import DictConfig
 
 
 @dataclass(frozen=True)
@@ -18,7 +24,11 @@ class OrchestrationSettings:
     skip_completed: bool = False
     continue_on_error: bool = False
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
+        """Post init.
+
+        :rtype: None
+        """
         if (
             not isinstance(self.name, str)
             or not self.name
@@ -35,11 +45,14 @@ class OrchestrationSettings:
                 raise ValueError(f"orchestrator.{name} must be a boolean.")
 
 
-def load_plugins(modules):
+def load_plugins(modules: Sequence[str]) -> None:
     """Import explicitly requested explicit modules before composing configs.
 
     :param modules: Python module names supplied by the application owner.
     :raises ValueError: If names are not a sequence of non-empty strings.
+
+    :type modules: Sequence[str]
+    :rtype: None
     """
     if isinstance(modules, (str, bytes)) or any(
         not isinstance(name, str) or not name for name in modules
@@ -50,15 +63,25 @@ def load_plugins(modules):
 
 
 def compose_configuration(
-    overrides=(), *, config_dir=None, config_name="config", plugins=()
-):
+    overrides: Sequence[str] = (),
+    *,
+    config_dir: str | Path | None = None,
+    config_name: str = "config",
+    plugins: Sequence[str] = (),
+) -> DictConfig:
     """Compose Hydra defaults, interpolation and overrides from Python.
 
     :param overrides: Hydra override expressions.
     :param config_dir: Optional custom configuration directory.
     :param config_name: Root YAML name without its extension.
-    :param plugins: Modules registering additional presets or backends.
+    :param plugins: Explicit application modules included in the frozen source identity.
     :return: Composed OmegaConf DictConfig; no models are constructed.
+
+    :type overrides: Sequence[str]
+    :type config_dir: str | Path | None
+    :type config_name: str
+    :type plugins: Sequence[str]
+    :rtype: DictConfig
     """
     load_plugins(plugins)
     context = (
@@ -81,12 +104,15 @@ def compose_configuration(
     return configuration
 
 
-def plugin_fingerprints(modules):
+def plugin_fingerprints(modules: Sequence[str]) -> dict[str, str]:
     """Hash explicitly imported plugin module files for frozen-plan identity.
 
     :param modules: Importable explicit modules.
     :return: Mapping from module name to its source/artifact SHA-256.
     :raises ValueError: If a plugin has no inspectable file.
+
+    :type modules: Sequence[str]
+    :rtype: dict[str, str]
     """
     import hashlib
     import inspect

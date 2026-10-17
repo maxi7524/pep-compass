@@ -44,6 +44,24 @@ class Robot(Step):
         standardize: bool = False,
         device: str = "cpu",
     ) -> None:
+        """Initialize this object with the declared configuration.
+
+        :param objective: Objective field identity shared by scoring and optimization.
+        :type objective: str
+        :param batch_size: Batch size.
+        :type batch_size: int
+        :param maximize: Maximize.
+        :type maximize: bool
+        :param diversity_threshold: Diversity threshold.
+        :type diversity_threshold: int
+        :param acquisition_batch_size: Acquisition batch size.
+        :type acquisition_batch_size: int
+        :param standardize: Standardize.
+        :type standardize: bool
+        :param device: Computation device accepted by the numerical backend.
+        :type device: str
+        :rtype: None
+        """
         self._configure(
             {
                 "objective": objective,
@@ -72,6 +90,15 @@ class Robot(Step):
         batch: CandidateBatch,
         context: OptimizationContext,
     ) -> CandidateBatch:
+        """Execute.
+
+        :param batch: Incoming aligned candidate batch.
+        :type batch: CandidateBatch
+        :param context: Scoped execution services, shared run state and random generator.
+        :type context: OptimizationContext
+        :return: Result of this operation.
+        :rtype: CandidateBatch
+        """
         observations = context.state.observations.get(self.objective, {})
         available_indices = [
             index
@@ -127,6 +154,13 @@ class Robot(Step):
         return scored.select(indices)
 
     def _features(self, sequences: list[str]) -> np.ndarray:
+        """Features.
+
+        :param sequences: Peptide sequences in input order.
+        :type sequences: list[str]
+        :return: Result of this operation.
+        :rtype: np.ndarray
+        """
         unseen = [sequence for sequence in sequences if sequence not in self.cache]
         if unseen:
             for sequence, feature in zip(unseen, self.fingerprint(unseen)):
@@ -138,6 +172,15 @@ class Robot(Step):
         acquisition: LogExpectedImprovement,
         features: torch.Tensor,
     ) -> torch.Tensor:
+        """Score batches.
+
+        :param acquisition: Acquisition.
+        :type acquisition: LogExpectedImprovement
+        :param features: Features.
+        :type features: torch.Tensor
+        :return: Result of this operation.
+        :rtype: torch.Tensor
+        """
         values = []
         with torch.no_grad():
             for start in range(0, len(features), self.acquisition_batch_size):
@@ -154,6 +197,15 @@ class Robot(Step):
         sequences: tuple[str, ...],
         scores: torch.Tensor,
     ) -> list[int]:
+        """Diverse top indices.
+
+        :param sequences: Peptide sequences in input order.
+        :type sequences: tuple[str, ...]
+        :param scores: Scalar scores or a score tensor aligned with the corresponding candidates.
+        :type scores: torch.Tensor
+        :return: Result of this operation.
+        :rtype: list[int]
+        """
         remaining = list(range(len(sequences)))
         selected: list[int] = []
         cpu_scores = scores.detach().cpu()

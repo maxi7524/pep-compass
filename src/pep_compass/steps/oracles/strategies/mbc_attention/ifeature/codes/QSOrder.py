@@ -1,8 +1,19 @@
-#!/usr/bin/env python
-#_*_coding:utf-8_*_
+from __future__ import annotations
 
-import sys, platform, os, re
+#!/usr/bin/env python
+# _*_coding:utf-8_*_
+import os
+import platform
+import re
+import sys
+from typing import TYPE_CHECKING
+
 import numpy as np
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+
 pPath = os.path.split(os.path.realpath(__file__))[0]
 sys.path.append(pPath)
 import checkFasta
@@ -18,86 +29,140 @@ USAGE:
 	output:           the encoding file, default: 'encodings.tsv'
 """
 
-def QSOrder(fastas, nlag=30, w=0.1, **kw):
-	if checkFasta.minSequenceLengthWithNormalAA(fastas) < nlag + 1:
-		print('Error: all the sequence length should be larger than the nlag+1: ' + str(nlag + 1) + '\n\n')
-		return 0
 
-	dataFile = re.sub('codes$', '', os.path.split(os.path.realpath(__file__))[0]) + r'\data\Schneider-Wrede.txt' if platform.system() == 'Windows' else re.sub('codes$', '', os.path.split(os.path.realpath(__file__))[0]) + '/data/Schneider-Wrede.txt'
-	dataFile1 = re.sub('codes$', '', os.path.split(os.path.realpath(__file__))[0]) + r'\data\Grantham.txt' if platform.system() == 'Windows' else re.sub('codes$', '', os.path.split(os.path.realpath(__file__))[0]) + '/data/Grantham.txt'
+def QSOrder(
+    fastas: Sequence[Sequence[str]], nlag: int = 30, w: float = 0.1, **kw: object
+) -> int | list[object]:
+    """Qsorder.
 
-	AA = 'ACDEFGHIKLMNPQRSTVWY'
-	AA1 = 'ARNDCQEGHILKMFPSTWYV'
+    :param fastas: Sequence records in the layout expected by the feature encoder.
+    :type fastas: Sequence[Sequence[str]]
+    :param nlag: Nlag.
+    :type nlag: int
+    :param w: W.
+    :type w: float
+    :param kw: Additional feature-encoder options.
+    :type kw: object
+    :return: Result of this operation.
+    :rtype: int | list[object]
+    """
+    if checkFasta.minSequenceLengthWithNormalAA(fastas) < nlag + 1:
+        print(
+            "Error: all the sequence length should be larger than the nlag+1: "
+            + str(nlag + 1)
+            + "\n\n"
+        )
+        return 0
 
-	DictAA = {}
-	for i in range(len(AA)):
-		DictAA[AA[i]] = i
+    dataFile = (
+        re.sub("codes$", "", os.path.split(os.path.realpath(__file__))[0])
+        + r"\data\Schneider-Wrede.txt"
+        if platform.system() == "Windows"
+        else re.sub("codes$", "", os.path.split(os.path.realpath(__file__))[0])
+        + "/data/Schneider-Wrede.txt"
+    )
+    dataFile1 = (
+        re.sub("codes$", "", os.path.split(os.path.realpath(__file__))[0])
+        + r"\data\Grantham.txt"
+        if platform.system() == "Windows"
+        else re.sub("codes$", "", os.path.split(os.path.realpath(__file__))[0])
+        + "/data/Grantham.txt"
+    )
 
-	DictAA1 = {}
-	for i in range(len(AA1)):
-		DictAA1[AA1[i]] = i
+    AA = "ACDEFGHIKLMNPQRSTVWY"
+    AA1 = "ARNDCQEGHILKMFPSTWYV"
 
-	with open(dataFile) as f:
-		records = f.readlines()[1:]
-	AADistance = []
-	for i in records:
-		array = i.rstrip().split()[1:] if i.rstrip() != '' else None
-		AADistance.append(array)
-	AADistance = np.array(
-		[float(AADistance[i][j]) for i in range(len(AADistance)) for j in range(len(AADistance[i]))]).reshape((20, 20))
+    DictAA = {}
+    for i in range(len(AA)):
+        DictAA[AA[i]] = i
 
-	with open(dataFile1) as f:
-		records = f.readlines()[1:]
-	AADistance1 = []
-	for i in records:
-		array = i.rstrip().split()[1:] if i.rstrip() != '' else None
-		AADistance1.append(array)
-	AADistance1 = np.array(
-		[float(AADistance1[i][j]) for i in range(len(AADistance1)) for j in range(len(AADistance1[i]))]).reshape(
-		(20, 20))
+    DictAA1 = {}
+    for i in range(len(AA1)):
+        DictAA1[AA1[i]] = i
 
-	encodings = []
-	header = ['#']
-	for aa in AA1:
-		header.append('Schneider.Xr.' + aa)
-	for aa in AA1:
-		header.append('Grantham.Xr.' + aa)
-	for n in range(1, nlag + 1):
-		header.append('Schneider.Xd.' + str(n))
-	for n in range(1, nlag + 1):
-		header.append('Grantham.Xd.' + str(n))
-	encodings.append(header)
+    with open(dataFile) as f:
+        records = f.readlines()[1:]
+    AADistance = []
+    for i in records:
+        array = i.rstrip().split()[1:] if i.rstrip() != "" else None
+        AADistance.append(array)
+    AADistance = np.array(
+        [
+            float(AADistance[i][j])
+            for i in range(len(AADistance))
+            for j in range(len(AADistance[i]))
+        ]
+    ).reshape((20, 20))
 
-	for i in fastas:
-		name, sequence = i[0], re.sub('-', '', i[1])
-		code = [name]
-		arraySW = []
-		arrayGM = []
-		for n in range(1, nlag + 1):
-			arraySW.append(
-				sum([AADistance[DictAA[sequence[j]]][DictAA[sequence[j + n]]] ** 2 for j in range(len(sequence) - n)]))
-			arrayGM.append(sum(
-				[AADistance1[DictAA1[sequence[j]]][DictAA1[sequence[j + n]]] ** 2 for j in range(len(sequence) - n)]))
-		myDict = {}
-		for aa in AA1:
-			myDict[aa] = sequence.count(aa)
-		for aa in AA1:
-			code.append(myDict[aa] / (1 + w * sum(arraySW)))
-		for aa in AA1:
-			code.append(myDict[aa] / (1 + w * sum(arrayGM)))
-		for num in arraySW:
-			code.append((w * num) / (1 + w * sum(arraySW)))
-		for num in arrayGM:
-			code.append((w * num) / (1 + w * sum(arrayGM)))
-		encodings.append(code)
-	return encodings
+    with open(dataFile1) as f:
+        records = f.readlines()[1:]
+    AADistance1 = []
+    for i in records:
+        array = i.rstrip().split()[1:] if i.rstrip() != "" else None
+        AADistance1.append(array)
+    AADistance1 = np.array(
+        [
+            float(AADistance1[i][j])
+            for i in range(len(AADistance1))
+            for j in range(len(AADistance1[i]))
+        ]
+    ).reshape((20, 20))
 
-if __name__ == '__main__':
-	if len(sys.argv) == 1:
-		print(USAGE)
-		sys.exit(1)
-	fastas = readFasta.readFasta(sys.argv[1])
-	nlag = int(sys.argv[2]) if len(sys.argv) >= 3 else 30
-	output = sys.argv[3] if len(sys.argv) >= 4 else 'encoding.tsv'
-	encodings = QSOrder(fastas, nlag)
-	saveCode.savetsv(encodings, output)
+    encodings = []
+    header = ["#"]
+    for aa in AA1:
+        header.append("Schneider.Xr." + aa)
+    for aa in AA1:
+        header.append("Grantham.Xr." + aa)
+    for n in range(1, nlag + 1):
+        header.append("Schneider.Xd." + str(n))
+    for n in range(1, nlag + 1):
+        header.append("Grantham.Xd." + str(n))
+    encodings.append(header)
+
+    for i in fastas:
+        name, sequence = i[0], re.sub("-", "", i[1])
+        code = [name]
+        arraySW = []
+        arrayGM = []
+        for n in range(1, nlag + 1):
+            arraySW.append(
+                sum(
+                    [
+                        AADistance[DictAA[sequence[j]]][DictAA[sequence[j + n]]] ** 2
+                        for j in range(len(sequence) - n)
+                    ]
+                )
+            )
+            arrayGM.append(
+                sum(
+                    [
+                        AADistance1[DictAA1[sequence[j]]][DictAA1[sequence[j + n]]] ** 2
+                        for j in range(len(sequence) - n)
+                    ]
+                )
+            )
+        myDict = {}
+        for aa in AA1:
+            myDict[aa] = sequence.count(aa)
+        for aa in AA1:
+            code.append(myDict[aa] / (1 + w * sum(arraySW)))
+        for aa in AA1:
+            code.append(myDict[aa] / (1 + w * sum(arrayGM)))
+        for num in arraySW:
+            code.append((w * num) / (1 + w * sum(arraySW)))
+        for num in arrayGM:
+            code.append((w * num) / (1 + w * sum(arrayGM)))
+        encodings.append(code)
+    return encodings
+
+
+if __name__ == "__main__":
+    if len(sys.argv) == 1:
+        print(USAGE)
+        sys.exit(1)
+    fastas = readFasta.readFasta(sys.argv[1])
+    nlag = int(sys.argv[2]) if len(sys.argv) >= 3 else 30
+    output = sys.argv[3] if len(sys.argv) >= 4 else "encoding.tsv"
+    encodings = QSOrder(fastas, nlag)
+    saveCode.savetsv(encodings, output)

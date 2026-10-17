@@ -15,10 +15,18 @@ class TableHandle(Protocol):
 
     @property
     def columns(self) -> tuple[str, ...]:
-        """Return columns available from the table."""
+        """Return columns available from the table.
+
+        :return: Result of this operation.
+        :rtype: tuple[str, ...]
+        """
 
     def count_rows(self) -> int:
-        """Return the number of rows visible through this handle."""
+        """Return the number of rows visible through this handle.
+
+        :return: Result of this operation.
+        :rtype: int
+        """
 
     def scan(
         self,
@@ -26,7 +34,15 @@ class TableHandle(Protocol):
         *,
         chunk_size: int = 100_000,
     ) -> Iterator[pd.DataFrame]:
-        """Yield bounded table chunks containing selected columns."""
+        """Yield bounded table chunks containing selected columns.
+
+        :param columns: Column names to project in the requested order.
+        :type columns: Sequence[str]
+        :param chunk_size: Maximum rows materialized in one scan chunk.
+        :type chunk_size: int
+        :return: Result of this operation.
+        :rtype: Iterator[pd.DataFrame]
+        """
 
 
 @dataclass(frozen=True, slots=True)

@@ -29,9 +29,7 @@ from typing import NamedTuple
 import numpy as np
 import torch
 
-from pep_compass.autoencoder.strategies.hydramp.adapter import (
-    HydrampAutoencoder,
-)
+from pep_compass.autoencoder.base import Autoencoder
 from pep_compass.autoencoder.subriemannian import SubRiemannianTangentSpace
 
 DEFAULT_ALPHABET = list(" ACDEFGHIKLMNPQRSTVWY")
@@ -70,6 +68,13 @@ class MutationPotential(ABC):
             Either per-position scores ``{position: {aa_index: score}}`` or
             combination scores ``{aa_index_tuple: score}``. Tuple elements
             follow ``sorted(mutations)``.
+
+        :param parent_peptide: Parent peptide.
+        :type parent_peptide: str
+        :param mutations: Mutations.
+        :type mutations: dict[int, list[int]]
+        :return: Result of this operation.
+        :rtype: dict[int, dict[int, float]] | dict[tuple[int, ...], float]
         """
 
 
@@ -78,14 +83,18 @@ class DecoderLogProbabilityPotential(MutationPotential):
 
     def __init__(
         self,
-        autoencoder: HydrampAutoencoder,
+        autoencoder: Autoencoder,
         alphabet: list[str] | None = None,
-    ):
+    ) -> None:
         """Initialize parent-conditioned decoder scoring.
 
         :param autoencoder: Model used to encode the parent and evaluate its
             decoder distribution.
         :param alphabet: Optional index-to-token mapping.
+
+        :type autoencoder: Autoencoder
+        :type alphabet: list[str] | None
+        :rtype: None
         """
         self.autoencoder = autoencoder
         self.alphabet = alphabet or DEFAULT_ALPHABET
@@ -101,6 +110,10 @@ class DecoderLogProbabilityPotential(MutationPotential):
         :param parent_peptide: Sequence defining the latent decoder condition.
         :param mutations: Candidate amino-acid indices grouped by position.
         :return: Nested position and amino-acid log-probabilities.
+
+        :type parent_peptide: str
+        :type mutations: dict[int, list[int]]
+        :rtype: dict[int, dict[int, float]]
         """
         latent = self.autoencoder.encode_peptides([parent_peptide])
         log_probabilities = self.autoencoder.decoder_forward(
@@ -142,7 +155,7 @@ class ProjectedDirectionPairwiseSimilarityPotential(MutationPotential):
         taken_taken_transform: Callable[[torch.Tensor], torch.Tensor] | None = None,
         taken_not_taken_transform: Callable[[torch.Tensor], torch.Tensor] | None = None,
         direction_mode: str = "onehot",
-    ):
+    ) -> None:
         """Initialize TANDEM projected-direction scoring.
 
         :param tangent_space: Local SVD geometry used to pull ambient residue
@@ -155,6 +168,13 @@ class ProjectedDirectionPairwiseSimilarityPotential(MutationPotential):
         :param direction_mode: ``onehot`` for target directions or ``diff`` for
             target-minus-parent directions.
         :raises ValueError: If ``direction_mode`` is unsupported.
+
+        :type tangent_space: SubRiemannianTangentSpace
+        :type alphabet: list[str] | None
+        :type taken_taken_transform: Callable[[torch.Tensor], torch.Tensor] | None
+        :type taken_not_taken_transform: Callable[[torch.Tensor], torch.Tensor] | None
+        :type direction_mode: str
+        :rtype: None
         """
         if direction_mode not in {"onehot", "diff"}:
             raise ValueError("direction_mode must be 'onehot' or 'diff'")
@@ -171,16 +191,32 @@ class ProjectedDirectionPairwiseSimilarityPotential(MutationPotential):
 
     @staticmethod
     def _log_taken_taken(values: torch.Tensor) -> torch.Tensor:
-        """Map aligned jointly selected directions to higher log-potentials."""
+        """Map aligned jointly selected directions to higher log-potentials.
+
+        :param values: Values consumed by this conversion or transformation.
+        :type values: torch.Tensor
+        :return: Result of this operation.
+        :rtype: torch.Tensor
+        """
         return torch.log(torch.clamp((1.0 + values) / 2.0, min=1e-12, max=1.0))
 
     @staticmethod
     def _log_taken_not_taken(values: torch.Tensor) -> torch.Tensor:
-        """Penalize selecting only one member of an aligned direction pair."""
+        """Penalize selecting only one member of an aligned direction pair.
+
+        :param values: Values consumed by this conversion or transformation.
+        :type values: torch.Tensor
+        :return: Result of this operation.
+        :rtype: torch.Tensor
+        """
         return torch.log(torch.clamp((1.0 - values) / 2.0, min=1e-12, max=1.0))
 
     def _projection_matrix(self) -> torch.Tensor:
-        """Return the cached horizontal ambient-to-latent projection matrix."""
+        """Return the cached horizontal ambient-to-latent projection matrix.
+
+        :return: Result of this operation.
+        :rtype: torch.Tensor
+        """
         if self.tangent_space.projection_matrix is None:
             ambient_dimension = DEFAULT_MAX_LEN * len(self.alphabet)
             self.tangent_space.project_ambient_vector_to_horizontal_space(
@@ -193,12 +229,17 @@ class ProjectedDirectionPairwiseSimilarityPotential(MutationPotential):
         return self.tangent_space.projection_matrix
 
     def _raw_directions(self, flat_indices: torch.Tensor) -> torch.Tensor:
-        r"""Represent ambient one-hot directions by latent pull-backs.
+        """Represent ambient one-hot directions by latent pull-backs.
 
         This is Variant A from ``rl_trials``: ``J_h^+ e`` is read from columns
         of the horizontal projection matrix. Euclidean cosine between these
         vectors is therefore a whitened, inverse-singular-value-weighted
         similarity.
+
+        :param flat_indices: Flat indices.
+        :type flat_indices: torch.Tensor
+        :return: Result of this operation.
+        :rtype: torch.Tensor
         """
         return self._projection_matrix()[:, flat_indices].T
 
@@ -213,6 +254,15 @@ class ProjectedDirectionPairwiseSimilarityPotential(MutationPotential):
         In ``onehot`` mode this returns representations of ``e_(position, aa)``.
         In ``diff`` mode the parent representation is subtracted before
         normalization; the identity choice consequently becomes a zero vector.
+
+        :param position: Position.
+        :type position: int
+        :param amino_acids: Amino acids.
+        :type amino_acids: torch.Tensor
+        :param parent_amino_acid: Parent amino acid.
+        :type parent_amino_acid: int
+        :return: Result of this operation.
+        :rtype: torch.Tensor
         """
         flat_indices = position * len(self.alphabet) + amino_acids
         vectors = self._raw_directions(flat_indices)
@@ -235,6 +285,10 @@ class ProjectedDirectionPairwiseSimilarityPotential(MutationPotential):
         :param parent_peptide: Sequence defining identity residue choices.
         :param mutations: Candidate amino-acid indices grouped by position.
         :return: Complete amino-acid tuples mapped to mean pair potentials.
+
+        :type parent_peptide: str
+        :type mutations: dict[int, list[int]]
+        :rtype: dict[tuple[int, ...], float]
         """
         positions = sorted(mutations)
         if not positions:
@@ -323,7 +377,7 @@ class AmbientMetricPairwiseSimilarityPotential(
         taken_taken_transform: Callable[[torch.Tensor], torch.Tensor] | None = None,
         taken_not_taken_transform: Callable[[torch.Tensor], torch.Tensor] | None = None,
         direction_mode: str = "onehot",
-    ):
+    ) -> None:
         """Initialize TANDEM with stable ambient pullback geometry.
 
         :param tangent_space: Local decoder SVD defining the stable subspace.
@@ -336,6 +390,13 @@ class AmbientMetricPairwiseSimilarityPotential(
         :param direction_mode: ``onehot`` for target directions or ``diff`` for
             target-minus-parent directions.
         :raises ValueError: If ``direction_mode`` is unsupported.
+
+        :type tangent_space: SubRiemannianTangentSpace
+        :type alphabet: list[str] | None
+        :type taken_taken_transform: Callable[[torch.Tensor], torch.Tensor] | None
+        :type taken_not_taken_transform: Callable[[torch.Tensor], torch.Tensor] | None
+        :type direction_mode: str
+        :rtype: None
         """
         super().__init__(
             tangent_space=tangent_space,
@@ -353,6 +414,9 @@ class AmbientMetricPairwiseSimilarityPotential(
         :param flat_indices: Flattened position-residue indices.
         :return: Rows of the stable ambient basis corresponding to the supplied
             mutation directions.
+
+        :type flat_indices: torch.Tensor
+        :rtype: torch.Tensor
         """
         return self.horizontal_basis[flat_indices]
 
@@ -368,11 +432,16 @@ class LamsAnchorSimilarityPotential(MutationPotential):
     a finite downstream threshold. The all-parent candidate is excluded.
     """
 
-    def __init__(self, base_potential: ProjectedDirectionPairwiseSimilarityPotential):
+    def __init__(
+        self, base_potential: ProjectedDirectionPairwiseSimilarityPotential
+    ) -> None:
         """Initialize LAMS from a projected-direction representation.
 
         :param base_potential: Potential providing normalized position vectors
             and the associated tangent space.
+
+        :type base_potential: ProjectedDirectionPairwiseSimilarityPotential
+        :rtype: None
         """
         self.base_potential = base_potential
         self.alphabet = base_potential.alphabet
@@ -389,6 +458,10 @@ class LamsAnchorSimilarityPotential(MutationPotential):
         :param mutations: Candidate amino-acid indices grouped by position.
         :return: Non-parent combinations mapped to global minimum cosine; a
             single mutation receives positive infinity.
+
+        :type parent_peptide: str
+        :type mutations: dict[int, list[int]]
+        :rtype: dict[tuple[int, ...], float]
         """
         positions = sorted(mutations)
         if not positions:
@@ -465,6 +538,23 @@ def compose_mutant_distribution(
     requested, the parent's residue is added at each position so the product
     includes candidates mutating only a subset of the available positions.
     ``maximum_candidates`` limits the returned highest-scoring rows.
+
+    :param parent_peptide: Parent peptide.
+    :type parent_peptide: str
+    :param mutations: Mutations.
+    :type mutations: dict[int, list[int]]
+    :param potential: Potential.
+    :type potential: MutationPotential
+    :param alphabet: Ordered residue alphabet.
+    :type alphabet: list[str] | None
+    :param max_len: Max len.
+    :type max_len: int
+    :param include_parent_residue: Include parent residue.
+    :type include_parent_residue: bool
+    :param maximum_candidates: Maximum materialized candidates allowed by this local strategy.
+    :type maximum_candidates: int | None
+    :return: Result of this operation.
+    :rtype: MutantDistribution
     """
     alphabet = alphabet or DEFAULT_ALPHABET
     mutations = {

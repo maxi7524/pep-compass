@@ -13,11 +13,11 @@ def test_collection_selection_and_table_handle(tmp_path):
     reader = ExperimentReader(tmp_path)
     assert len(reader.runs) == 2
     selected = reader.select(seeds=[7])
-    assert selected.count_rows("evaluated_peptides") == 2
-    assert selected.rows(sequence="AA").collect("evaluated_peptides")[
+    assert selected.count_rows("evaluation_archive") == 2
+    assert selected.rows(sequence="AA").collect("evaluation_archive")[
         "sequence"
     ].tolist() == ["AA"]
-    assert reader.dataset.tables["evaluated_peptides"].count_rows() == 4
+    assert reader.dataset.tables["evaluation_archive"].count_rows() == 4
     with reader.replay(reader.runs[0].run_id) as run:
         assert len(run.get_archive()) == 2
 
@@ -49,7 +49,7 @@ def test_trajectory_metadata_and_latents_use_one_aligned_payload(tmp_path, mode)
     result = graph.run(
         ["AA"],
         seed=7,
-        storage={"reconstruction": "trajectories", "save_terminal": True},
+        storage={"reconstruction": "trajectories"},
     )
     points, latents = result.reader.get_trajectories()
     assert len(points) == 4

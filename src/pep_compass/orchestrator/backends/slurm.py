@@ -1,12 +1,22 @@
 """Generate Slurm arrays using built-in or server-owned shell templates."""
 
+from __future__ import annotations
+
 from pathlib import Path
 from shlex import quote
 from string import Template
+from typing import TYPE_CHECKING
 
 from pep_compass.orchestrator.backends.base import ExecutionBackend
 from pep_compass.orchestrator.backends.subprocess import worker_command
 from pep_compass.utils.logger import get_custom_logger
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
+
+    from pep_compass.orchestrator.planning import ExecutionPlan
+    from pep_compass.orchestrator.runner import Orchestrator
+
 
 logger = get_custom_logger(__name__)
 DEFAULT_TEMPLATE_PATH = (
@@ -23,7 +33,22 @@ class SlurmBackend(ExecutionBackend):
         cpus_per_task and gpus. Complex site setup belongs in the template.
     """
 
-    def __init__(self, template_path=None, template=None, settings=None):
+    def __init__(
+        self,
+        template_path: str | Path | None = None,
+        template: str | Path | None = None,
+        settings: Mapping[str, str | int | float] | None = None,
+    ) -> None:
+        """Initialize this object with the declared configuration.
+
+        :param template_path: Template path.
+        :type template_path: str | Path | None
+        :param template: Template.
+        :type template: str | Path | None
+        :param settings: Validated settings or a resolved settings manifest.
+        :type settings: Mapping[str, str | int | float] | None
+        :rtype: None
+        """
         if template_path is not None and template is not None:
             raise ValueError("Select template_path or inline template, not both.")
         self.template_path, self.template = template_path, template
@@ -46,7 +71,18 @@ class SlurmBackend(ExecutionBackend):
                 raise ValueError(f"Slurm {key} must be a positive integer.")
 
     @classmethod
-    def resolve_parameters(cls, parameters, working_directory):
+    def resolve_parameters(
+        cls, parameters: Mapping[str, object], working_directory: str | Path
+    ) -> dict[str, object]:
+        """Resolve parameters.
+
+        :param parameters: Named configuration values consumed by this operation.
+        :type parameters: Mapping[str, object]
+        :param working_directory: Working directory.
+        :type working_directory: str | Path
+        :return: Result of this operation.
+        :rtype: dict[str, object]
+        """
         values = dict(parameters)
         path = values.get("template_path")
         if path is not None and values.get("template") is not None:
@@ -59,7 +95,20 @@ class SlurmBackend(ExecutionBackend):
             values["template_path"] = None
         return values
 
-    def run(self, orchestrator, plan, plan_path):
+    def run(
+        self, orchestrator: Orchestrator, plan: ExecutionPlan, plan_path: Path
+    ) -> Path:
+        """Run.
+
+        :param orchestrator: Orchestrator.
+        :type orchestrator: Orchestrator
+        :param plan: Plan.
+        :type plan: ExecutionPlan
+        :param plan_path: Plan path.
+        :type plan_path: Path
+        :return: Result of this operation.
+        :rtype: Path
+        """
         if orchestrator.autoencoder is not None:
             raise ValueError(
                 "Slurm jobs require serializable resource declarations with direct import targets."

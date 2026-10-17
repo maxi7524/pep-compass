@@ -6,25 +6,47 @@ import html
 import json
 import re
 from collections.abc import Mapping
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from typing import Literal
+
+    import pandas as pd
 
 
-def _text(value):
+def _text(value: object) -> str:
+    """Text.
+
+    :param value: Value consumed by this conversion or transformation.
+    :type value: object
+    :return: Result of this operation.
+    :rtype: str
+    """
     if isinstance(value, (Mapping, list, tuple)):
         return json.dumps(value, ensure_ascii=False, default=str)
     return "None" if value is None else str(value)
 
 
-def _prose(value):
-    """Normalize inline reStructuredText without interpreting HTML."""
+def _prose(value: str) -> str:
+    """Normalize inline reStructuredText without interpreting HTML.
+
+    :param value: Value consumed by this conversion or transformation.
+    :type value: str
+    :return: Result of this operation.
+    :rtype: str
+    """
     value = re.sub(r":(?:class|func|meth|mod|attr|obj):`([^`]+)`", r"\1", value)
     return " ".join(value.replace("``", "").split())
 
 
-def _doc_parts(value):
+def _doc_parts(value: str) -> tuple[str, dict[str, str]]:
     """Separate narrative and parameter descriptions from Sphinx fields.
 
     :param value: Raw factory documentation, optionally containing escaped newlines.
     :return: Narrative text and a mapping of parameter names to help text.
+
+    :type value: str
+    :rtype: tuple[str, dict[str, str]]
     """
     narrative, parameters = [], {}
     current = None
@@ -47,8 +69,26 @@ def _doc_parts(value):
     }
 
 
-def _definition_rows(definition, section="", values=None, *, technical=False):
-    """Flatten nested definitions without discarding internal-stage parameters."""
+def _definition_rows(
+    definition: Mapping[str, object],
+    section: str = "",
+    values: Mapping[str, object] | None = None,
+    *,
+    technical: bool = False,
+) -> list[dict[str, object]]:
+    """Flatten nested definitions without discarding internal-stage parameters.
+
+    :param definition: Definition.
+    :type definition: Mapping[str, object]
+    :param section: Section.
+    :type section: str
+    :param values: Values consumed by this conversion or transformation.
+    :type values: Mapping[str, object] | None
+    :param technical: Whether to include internal resource and batch-field contracts.
+    :type technical: bool
+    :return: Result of this operation.
+    :rtype: list[dict[str, object]]
+    """
     rows = []
     prose, parameter_help = _doc_parts(definition.get("description", ""))
     fields = ["component", "strategy", "description"]
@@ -102,12 +142,18 @@ def _definition_rows(definition, section="", values=None, *, technical=False):
     return rows
 
 
-def description_frame(value, *, technical=False):
+def description_frame(
+    value: dict[str, object] | list[dict[str, object]], *, technical: bool = False
+) -> pd.DataFrame:
     """Return one DataFrame for public choices or a complete detailed definition.
 
     :param value: Raw wrapper description records.
     :return: Catalog table or long-form detail table, retaining nested definitions.
-    :rtype: pandas.DataFrame
+    :rtype: pd.DataFrame
+
+    :type value: dict[str, object] | list[dict[str, object]]
+    :param technical: Whether to include internal resource and batch-field contracts.
+    :type technical: bool
     """
     import pandas as pd
 
@@ -175,7 +221,12 @@ def description_frame(value, *, technical=False):
     )
 
 
-def _notebook_available():
+def _notebook_available() -> bool:
+    """Notebook available.
+
+    :return: Result of this operation.
+    :rtype: bool
+    """
     try:
         from IPython import get_ipython
     except ImportError:
@@ -183,8 +234,14 @@ def _notebook_available():
     return getattr(get_ipython(), "kernel", None) is not None
 
 
-def _readable(frame):
-    """Format containers for presentation without mutating the returned data table."""
+def _readable(frame: pd.DataFrame) -> pd.DataFrame:
+    """Format containers for presentation without mutating the returned data table.
+
+    :param frame: Frame.
+    :type frame: pd.DataFrame
+    :return: Result of this operation.
+    :rtype: pd.DataFrame
+    """
     return frame.map(
         lambda value: (
             _text(value)
@@ -194,8 +251,14 @@ def _readable(frame):
     ).fillna("")
 
 
-def _html(frame):
-    """Render detail sections with collapsed internal strategies and escaped text."""
+def _html(frame: pd.DataFrame) -> str:
+    """Render detail sections with collapsed internal strategies and escaped text.
+
+    :param frame: Frame.
+    :type frame: pd.DataFrame
+    :return: Result of this operation.
+    :rtype: str
+    """
     parts = [
         '<div class="pep-description"><style>.pep-description table{border-collapse:collapse;text-align:left;font-size:13px}.pep-description td,.pep-description th{padding:6px 10px;border-bottom:1px solid #dde3ec;white-space:pre-wrap;max-width:560px;vertical-align:top}.pep-description summary{cursor:pointer;font-weight:600;margin:12px 0}.pep-description{overflow:auto}</style>'
     ]
@@ -218,13 +281,24 @@ def _html(frame):
     return "".join(parts)
 
 
-def present_description(value, mode="display", *, technical=False):
+def present_description(
+    value: dict[str, object] | list[dict[str, object]],
+    mode: Literal["raw", "pd", "display"] = "display",
+    *,
+    technical: bool = False,
+) -> dict[str, object] | list[dict[str, object]] | pd.DataFrame | None:
     """Return raw records/a DataFrame or display readable tables automatically.
 
     :param value: Raw wrapper description; never changed by presentation.
     :param mode: ``raw``, ``pd`` or ``display`` (default).
     :return: Unchanged records, a DataFrame, or None after displaying tables.
     :raises ValueError: If the presentation mode is unsupported.
+
+    :type value: dict[str, object] | list[dict[str, object]]
+    :type mode: Literal['raw', 'pd', 'display']
+    :param technical: Whether to include internal resource and batch-field contracts.
+    :type technical: bool
+    :rtype: dict[str, object] | list[dict[str, object]] | pd.DataFrame | None
     """
     if mode not in {"raw", "pd", "display"}:
         raise ValueError("display must be 'raw', 'pd' or 'display'.")
@@ -248,12 +322,18 @@ def present_description(value, mode="display", *, technical=False):
     return None
 
 
-def definition(value):
-    """Describe the real constructor and its resolved values without loading weights."""
+def definition(value: object) -> dict[str, object]:
+    """Describe the real constructor and its resolved values without loading weights.
+
+    :param value: Value consumed by this conversion or transformation.
+    :type value: object
+    :return: Result of this operation.
+    :rtype: dict[str, object]
+    """
     import inspect
 
-    from pep_compass.configuration.objects import Configurable, plain
     from pep_compass.steps.base import Step
+    from pep_compass.utils.configuration import Configurable, plain
 
     target = (
         value if inspect.isclass(value) or inspect.isfunction(value) else type(value)
@@ -316,8 +396,14 @@ def definition(value):
     return result
 
 
-def available(category=None):
-    """Read __all__ from public namespaces; no mutable catalogs or plugin scans."""
+def available(category: str | None = None) -> list[dict[str, object]]:
+    """Read __all__ from public namespaces; no mutable catalogs or plugin scans.
+
+    :param category: Optional public component category used to restrict the listing.
+    :type category: str | None
+    :return: Result of this operation.
+    :rtype: list[dict[str, object]]
+    """
     from importlib import import_module
 
     names = (
@@ -339,7 +425,10 @@ def available(category=None):
             "pep_compass." + (name if name == "autoencoder" else "steps." + name)
         )
         for exported in module.__all__:
-            item = definition(getattr(module, exported))
+            target = getattr(module, exported)
+            if getattr(target, "_is_protocol", False):
+                continue
+            item = definition(target)
             item["component"] = name
             records.append(item)
     return records

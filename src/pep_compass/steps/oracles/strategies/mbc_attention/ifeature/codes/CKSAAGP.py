@@ -1,13 +1,21 @@
-#!/usr/bin/env python
-#_*_coding:utf-8_*_
+from __future__ import annotations
 
+#!/usr/bin/env python
+# _*_coding:utf-8_*_
+import os
 import re
-import sys, os
+import sys
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+
 pPath = os.path.split(os.path.realpath(__file__))[0]
 sys.path.append(pPath)
+import checkFasta
 import readFasta
 import saveCode
-import checkFasta
 
 USAGE = """
 USAGE:
@@ -18,80 +26,109 @@ USAGE:
 	output:           the encoding file, default: 'encodings.tsv'
 """
 
-def generateGroupPairs(groupKey):
-	gPair = {}
-	for key1 in groupKey:
-		for key2 in groupKey:
-			gPair[key1+'.'+key2] = 0
-	return gPair
 
-def CKSAAGP(fastas, gap = 5, **kw):
-	if gap < 0:
-		print('Error: the gap should be equal or greater than zero' + '\n\n')
-		return 0
+def generateGroupPairs(groupKey: Sequence[str]) -> dict[object, object]:
+    """Generate group pairs.
 
-	if checkFasta.minSequenceLength(fastas) < gap+2:
-		print('Error: all the sequence length should be greater than the (gap value) + 2 = ' + str(gap+2) + '\n\n')
-		return 0
+    :param groupKey: Groupkey.
+    :type groupKey: Sequence[str]
+    :return: Result of this operation.
+    :rtype: dict[object, object]
+    """
+    gPair = {}
+    for key1 in groupKey:
+        for key2 in groupKey:
+            gPair[key1 + "." + key2] = 0
+    return gPair
 
-	group = {
-		'alphaticr': 'GAVLMI',
-		'aromatic': 'FYW',
-		'postivecharger': 'KRH',
-		'negativecharger': 'DE',
-		'uncharger': 'STCPNQ'
-	}
 
-	AA = 'ARNDCQEGHILKMFPSTWYV'
+def CKSAAGP(
+    fastas: Sequence[Sequence[str]], gap: int = 5, **kw: object
+) -> int | list[object]:
+    """Cksaagp.
 
-	groupKey = group.keys()
+    :param fastas: Sequence records in the layout expected by the feature encoder.
+    :type fastas: Sequence[Sequence[str]]
+    :param gap: Gap.
+    :type gap: int
+    :param kw: Additional feature-encoder options.
+    :type kw: object
+    :return: Result of this operation.
+    :rtype: int | list[object]
+    """
+    if gap < 0:
+        print("Error: the gap should be equal or greater than zero" + "\n\n")
+        return 0
 
-	index = {}
-	for key in groupKey:
-		for aa in group[key]:
-			index[aa] = key
+    if checkFasta.minSequenceLength(fastas) < gap + 2:
+        print(
+            "Error: all the sequence length should be greater than the (gap value) + 2 = "
+            + str(gap + 2)
+            + "\n\n"
+        )
+        return 0
 
-	gPairIndex = []
-	for key1 in groupKey:
-		for key2 in groupKey:
-			gPairIndex.append(key1+'.'+key2)
+    group = {
+        "alphaticr": "GAVLMI",
+        "aromatic": "FYW",
+        "postivecharger": "KRH",
+        "negativecharger": "DE",
+        "uncharger": "STCPNQ",
+    }
 
-	encodings = []
-	header = ['#']
-	for g in range(gap + 1):
-		for p in gPairIndex:
-			header.append(p+'.gap'+str(g))
-	encodings.append(header)
+    AA = "ARNDCQEGHILKMFPSTWYV"
 
-	for i in fastas:
-		name, sequence = i[0], re.sub('-', '', i[1])
-		code = [name]
-		for g in range(gap + 1):
-			gPair = generateGroupPairs(groupKey)
-			sum = 0
-			for p1 in range(len(sequence)):
-				p2 = p1 + g + 1
-				if p2 < len(sequence) and sequence[p1] in AA and sequence[p2] in AA:
-					gPair[index[sequence[p1]]+'.'+index[sequence[p2]]] = gPair[index[sequence[p1]]+'.'+index[sequence[p2]]] + 1
-					sum = sum + 1
+    groupKey = group.keys()
 
-			if sum == 0:
-				for gp in gPairIndex:
-					code.append(0)
-			else:
-				for gp in gPairIndex:
-					code.append(gPair[gp] / sum)
+    index = {}
+    for key in groupKey:
+        for aa in group[key]:
+            index[aa] = key
 
-		encodings.append(code)
+    gPairIndex = []
+    for key1 in groupKey:
+        for key2 in groupKey:
+            gPairIndex.append(key1 + "." + key2)
 
-	return encodings
+    encodings = []
+    header = ["#"]
+    for g in range(gap + 1):
+        for p in gPairIndex:
+            header.append(p + ".gap" + str(g))
+    encodings.append(header)
 
-if __name__ == '__main__':
-	if len(sys.argv) == 1:
-		print(USAGE)
-		sys.exit(1)
-	fastas = readFasta.readFasta(sys.argv[1])
-	gap = int(sys.argv[2]) if len(sys.argv) >= 3 else 5
-	output = sys.argv[3] if len(sys.argv) >= 4 else 'encoding.tsv'
-	encodings = CKSAAGP(fastas, gap)
-	saveCode.savetsv(encodings, output)
+    for i in fastas:
+        name, sequence = i[0], re.sub("-", "", i[1])
+        code = [name]
+        for g in range(gap + 1):
+            gPair = generateGroupPairs(groupKey)
+            sum = 0
+            for p1 in range(len(sequence)):
+                p2 = p1 + g + 1
+                if p2 < len(sequence) and sequence[p1] in AA and sequence[p2] in AA:
+                    gPair[index[sequence[p1]] + "." + index[sequence[p2]]] = (
+                        gPair[index[sequence[p1]] + "." + index[sequence[p2]]] + 1
+                    )
+                    sum = sum + 1
+
+            if sum == 0:
+                for gp in gPairIndex:
+                    code.append(0)
+            else:
+                for gp in gPairIndex:
+                    code.append(gPair[gp] / sum)
+
+        encodings.append(code)
+
+    return encodings
+
+
+if __name__ == "__main__":
+    if len(sys.argv) == 1:
+        print(USAGE)
+        sys.exit(1)
+    fastas = readFasta.readFasta(sys.argv[1])
+    gap = int(sys.argv[2]) if len(sys.argv) >= 3 else 5
+    output = sys.argv[3] if len(sys.argv) >= 4 else "encoding.tsv"
+    encodings = CKSAAGP(fastas, gap)
+    saveCode.savetsv(encodings, output)

@@ -85,7 +85,11 @@ class Fragment(NamedTuple):
 
     @property
     def length(self) -> int:
-        """Return the number of residues in the fragment."""
+        """Return the number of residues in the fragment.
+
+        :return: Result of this operation.
+        :rtype: int
+        """
 
         return self.end - self.start
 
@@ -94,6 +98,9 @@ class Fragment(NamedTuple):
 
         :param parent: Parent peptide sequence.
         :return: The fragment as a string.
+
+        :type parent: str
+        :rtype: str
         """
 
         return parent[self.start : self.end]
@@ -131,6 +138,10 @@ class ProteaseKinetics:
     slope: float = 1.0
 
     def __post_init__(self) -> None:
+        """Post init.
+
+        :rtype: None
+        """
         if self.matrices.shape[0] != len(self.geometries):
             raise ValueError("one geometry is required per protease matrix.")
         if self.matrices.shape[0] != self.weights.shape[0]:
@@ -147,7 +158,7 @@ def fragment_events(
     kinetics: ProteaseKinetics,
     background: np.ndarray | None = None,
 ) -> list[CleavageEvent]:
-    r"""Enumerate every admissible cleavage of a state, with its intensity.
+    """Enumerate every admissible cleavage of a state, with its intensity.
 
     :param parent: Parent peptide sequence.
     :param fragments: Fragments making up the current state.
@@ -156,6 +167,12 @@ def fragment_events(
         default.
     :return: One entry per admissible (fragment, protease, bond) triple. Proteases
         with zero weight and fragments too short to cut contribute nothing.
+
+    :type parent: str
+    :type fragments: Sequence[Fragment]
+    :type kinetics: ProteaseKinetics
+    :type background: np.ndarray | None
+    :rtype: list[CleavageEvent]
     """
 
     events: list[CleavageEvent] = []
@@ -197,6 +214,10 @@ def apply_event(
     :param event: The cleavage that fired.
     :return: The fragments of the resulting state.
     :raises ValueError: If the event does not name a bond of its fragment.
+
+    :type fragments: Sequence[Fragment]
+    :type event: CleavageEvent
+    :rtype: tuple[Fragment, ...]
     """
 
     target = fragments[event.fragment_index]
@@ -222,7 +243,7 @@ def apply_event(
 
 
 def hazard_concentration(events: Sequence[CleavageEvent]) -> float:
-    r"""Measure how far a hazard profile is from a uniform one.
+    """Measure how far a hazard profile is from a uniform one.
 
     The value is the normalized entropy of the intensities: one when every
     admissible event is equally likely, and approaching zero when a single event
@@ -235,6 +256,9 @@ def hazard_concentration(events: Sequence[CleavageEvent]) -> float:
     :param events: Admissible events of a state.
     :return: Normalized entropy in ``[0, 1]``, or ``0.0`` when there is at most
         one event.
+
+    :type events: Sequence[CleavageEvent]
+    :rtype: float
     """
 
     if len(events) < 2:
@@ -283,6 +307,14 @@ def simulate_trajectory(
     :param max_events: Guard against a pathological rate profile.
     :return: The state after each event, starting from the intact peptide at
         time zero.
+
+    :type parent: str
+    :type kinetics: ProteaseKinetics
+    :type generator: np.random.Generator
+    :type horizon: float
+    :type background: np.ndarray | None
+    :type max_events: int
+    :rtype: list[TrajectoryStep]
     """
 
     fragments: tuple[Fragment, ...] = (Fragment(0, len(parent)),)
@@ -316,6 +348,10 @@ def state_at(steps: Sequence[TrajectoryStep], time: float) -> tuple[Fragment, ..
     :param time: Time to evaluate.
     :return: The fragments of the state holding at that time.
     :raises ValueError: If the time precedes the start of the trajectory.
+
+    :type steps: Sequence[TrajectoryStep]
+    :type time: float
+    :rtype: tuple[Fragment, ...]
     """
 
     if time < steps[0].time:
@@ -342,6 +378,11 @@ def first_cut_distribution(
     :return: Tuple of the probability that the first cut falls at each bond,
         shape ``(L - 1,)``, the share of the hazard contributed by each protease,
         shape ``(N,)``, and the expected time to the first event.
+
+    :type parent: str
+    :type kinetics: ProteaseKinetics
+    :type background: np.ndarray | None
+    :rtype: tuple[np.ndarray, np.ndarray, float]
     """
 
     events = fragment_events(parent, (Fragment(0, len(parent)),), kinetics, background)

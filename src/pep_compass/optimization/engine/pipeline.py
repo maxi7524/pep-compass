@@ -2,19 +2,16 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import torch
 
 from pep_compass.autoencoder.base import Autoencoder
 from pep_compass.data_schemas.candidates import (
-    Candidate,
     CandidateBatch,
-    ObjectField,
-    OptionalField,
-    SharedField,
     TensorField,
 )
 from pep_compass.data_schemas.execution import OptimizationLimits
-from pep_compass.data_schemas.results import OptimizationResult
 from pep_compass.optimization.engine.execution.context import OptimizationContext
 from pep_compass.optimization.engine.execution.state import OptimizationState
 from pep_compass.optimization.stability_estimation.monitoring import (
@@ -24,6 +21,16 @@ from pep_compass.optimization.stability_estimation.monitoring import (
 from pep_compass.optimization.tracking import NullStepTracker, StepTracker
 from pep_compass.steps.base import Step
 from pep_compass.utils.logger import get_custom_logger
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping, Sequence
+    from typing import Literal, Self
+
+    from pep_compass.core.wrapper.visualization import GraphView
+    from pep_compass.data_schemas.execution import RunnerSettings
+    from pep_compass.data_schemas.graph import PipelineSchema
+    from pep_compass.data_schemas.results import RunResult
+
 
 logger = get_custom_logger(__name__)
 
@@ -46,14 +53,34 @@ class ExecutablePipeline:
         self,
         *,
         autoencoder: Autoencoder,
-        schema,
-        model_manifest=(),
-        settings=None,
+        schema: PipelineSchema | None,
+        model_manifest: Sequence[Mapping[str, object]] = (),
+        settings: RunnerSettings | None = None,
         root: Step,
         tracker: StepTracker | None = None,
         limits: OptimizationLimits | None = None,
         stability_monitor: StabilityMonitor | NullStabilityMonitor | None = None,
     ) -> None:
+        """Initialize this object with the declared configuration.
+
+        :param autoencoder: Shared numerical model or deferred resource, as declared by the parameter type.
+        :type autoencoder: Autoencoder
+        :param schema: Immutable declaration or its explicitly supported serialized representation.
+        :type schema: PipelineSchema | None
+        :param model_manifest: Model manifest.
+        :type model_manifest: Sequence[Mapping[str, object]]
+        :param settings: Validated settings or a resolved settings manifest.
+        :type settings: RunnerSettings | None
+        :param root: Root resource directory or root graph node, as declared by its type.
+        :type root: Step
+        :param tracker: Tracker.
+        :type tracker: StepTracker | None
+        :param limits: Limits.
+        :type limits: OptimizationLimits | None
+        :param stability_monitor: Stability monitor.
+        :type stability_monitor: StabilityMonitor | NullStabilityMonitor | None
+        :rtype: None
+        """
         from pep_compass.data_schemas.execution import RunnerSettings
 
         self.runner_settings = settings or RunnerSettings()
@@ -65,8 +92,24 @@ class ExecutablePipeline:
         self.limits = limits or OptimizationLimits()
         self.stability_monitor = stability_monitor or NullStabilityMonitor()
 
-    def run(self, sequences, *, settings=None, seed=None):
-        """Execute with fresh run state and the common saver contract."""
+    def run(
+        self,
+        sequences: Sequence[str],
+        *,
+        settings: RunnerSettings | None = None,
+        seed: int | None = None,
+    ) -> RunResult:
+        """Execute with fresh run state and the common saver contract.
+
+        :param sequences: Peptide sequences in input order.
+        :type sequences: Sequence[str]
+        :param settings: Validated settings or a resolved settings manifest.
+        :type settings: RunnerSettings | None
+        :param seed: Random seed; None leaves the caller-selected unseeded behavior.
+        :type seed: int | None
+        :return: Result of this operation.
+        :rtype: RunResult
+        """
         from pep_compass.optimization.engine.runner import Runner
 
         settings = settings or self.runner_settings
@@ -74,21 +117,51 @@ class ExecutablePipeline:
             settings = settings.update(execution={"seed": seed})
         return Runner(self, self.schema, settings, self.model_manifest).run(sequences)
 
-    def set_runner_settings(self, *, execution=None, storage=None, results=None):
-        """Update defaults for runs performed directly on this compiled graph."""
+    def set_runner_settings(
+        self,
+        *,
+        execution: Mapping[str, object] | None = None,
+        storage: Mapping[str, object] | None = None,
+        results: Mapping[str, object] | None = None,
+    ) -> Self:
+        """Update defaults for runs performed directly on this compiled graph.
+
+        :param execution: Execution settings or a mapping overriding their defaults.
+        :type execution: Mapping[str, object] | None
+        :param storage: Storage settings or a mapping overriding their defaults.
+        :type storage: Mapping[str, object] | None
+        :param results: Result-view settings or a mapping overriding their defaults.
+        :type results: Mapping[str, object] | None
+        :return: Result of this operation.
+        :rtype: Self
+        """
         self.runner_settings = self.runner_settings.update(
             execution=execution, storage=storage, results=results
         )
         return self
 
-    def to_schema(self, format="object"):
-        """Return the exact declaration snapshot compiled into this graph."""
+    def to_schema(
+        self, format: Literal["object", "json", "text", "mermaid", "svg"] = "object"
+    ) -> PipelineSchema | str:
+        """Return the exact declaration snapshot compiled into this graph.
+
+        :param format: Format.
+        :type format: Literal['object', 'json', 'text', 'mermaid', 'svg']
+        :return: Result of this operation.
+        :rtype: PipelineSchema | str
+        """
         from pep_compass.core.wrapper.visualization import render
 
         return render(self.schema, format=format)
 
-    def show(self, format="svg"):
-        """Render the compiled snapshot through the common notebook graph view."""
+    def show(self, format: Literal["text", "mermaid", "svg"] = "svg") -> GraphView:
+        """Render the compiled snapshot through the common notebook graph view.
+
+        :param format: Format.
+        :type format: Literal['text', 'mermaid', 'svg']
+        :return: Result of this operation.
+        :rtype: GraphView
+        """
         from pep_compass.core.wrapper.visualization import graph_view
 
         return graph_view(self.schema, format)
@@ -98,10 +171,22 @@ class ExecutablePipeline:
         sequences: list[str],
         *,
         seed: int | None,
-        context=None,
-        close_tracker=True,
-    ) -> OptimizationResult:
-        """Execute one run inside the deterministic random-state boundary."""
+        context: OptimizationContext | None = None,
+        close_tracker: bool = True,
+    ) -> CandidateBatch:
+        """Execute one run inside the deterministic random-state boundary.
+
+        :param sequences: Peptide sequences in input order.
+        :type sequences: list[str]
+        :param seed: Random seed; None leaves the caller-selected unseeded behavior.
+        :type seed: int | None
+        :param context: Scoped execution services, shared run state and random generator.
+        :type context: OptimizationContext | None
+        :param close_tracker: Close tracker.
+        :type close_tracker: bool
+        :return: Result of this operation.
+        :rtype: CandidateBatch
+        """
         # Sanity check: Empty sequences
         if not sequences:
             raise ValueError("At least one starting sequence is required.")
@@ -139,127 +224,7 @@ class ExecutablePipeline:
             )
             result = self.root(batch, context)
             self.stability_monitor.sample("pipeline.output", result, context.state)
-            return self._summarize(result, context.state)
+            return result
         finally:
             if close_tracker:
                 context.tracker.close()
-
-    @staticmethod
-    def _summarize(
-        batch: CandidateBatch,
-        state: OptimizationState,
-    ) -> OptimizationResult:
-        """Return the complete evaluated archive for the terminal objective."""
-        terminal = batch
-        archives = {}
-        for objective, observations in state.observations.items():
-            latents = state.observation_latents.get(objective, {})
-            if not observations or not all(
-                sequence in latents for sequence in observations
-            ):
-                continue
-            sequences = tuple(observations)
-            fields = {
-                f"oracle.{objective}.score": TensorField(
-                    torch.tensor(
-                        list(observations.values()),
-                        dtype=torch.float64,
-                    )
-                ),  # (N,)
-                f"oracle.{objective}.direction": SharedField(
-                    state.objective_directions.get(objective, "minimize")
-                ),
-                f"oracle.{objective}.name": SharedField(objective),
-            }
-            lineage = state.observation_lineage.get(objective, {})
-            lineage_names = sorted(
-                {name for values in lineage.values() for name in values}
-            )
-            for name in lineage_names:
-                if all(name in lineage.get(sequence, {}) for sequence in sequences):
-                    fields[name] = TensorField(
-                        torch.tensor(
-                            [lineage[sequence][name] for sequence in sequences],
-                            dtype=torch.long,
-                        )
-                    )  # (N,)
-            archives[objective] = CandidateBatch(
-                sequences,
-                torch.stack([latents[sequence] for sequence in sequences]),
-                fields,
-            )  # latent origins: (N, D)
-
-        # Objective identity is execution state, independent of field iteration order.
-        objective = state.last_objective
-        if objective in archives:
-            batch = archives[objective]
-        score_names = [
-            name
-            for name, value in batch.fields.items()
-            if name.startswith("oracle.")
-            and name.endswith(".score")
-            and isinstance(value, (TensorField, OptionalField))
-        ]
-        if objective is None and score_names:
-            objective = score_names[-1].removeprefix("oracle.").removesuffix(".score")
-        prefix = f"oracle.{objective}"
-        score_field = batch.fields.get(f"{prefix}.score")
-        valid = None
-        if isinstance(score_field, OptionalField):
-            valid = score_field.valid
-            score_field = score_field.values
-        if (
-            not isinstance(score_field, TensorField)
-            or score_field.values.ndim != 1
-            or not len(batch)
-        ):
-            return OptimizationResult(
-                candidates=batch,
-                terminal_candidates=terminal,
-                evaluated_archives=archives,
-            )
-        scores = score_field.values  # (N,)
-        finite = torch.isfinite(scores)  # (N,)
-        if valid is not None:
-            finite &= valid.to(scores.device)
-        if not finite.any():
-            return OptimizationResult(
-                candidates=batch,
-                terminal_candidates=terminal,
-                evaluated_archives=archives,
-            )
-        direction_field = batch.fields.get(f"{prefix}.direction")
-        if isinstance(direction_field, OptionalField):
-            metadata_indices = direction_field.valid.nonzero(as_tuple=True)[
-                0
-            ]  # (N_valid,)
-            direction_field = direction_field.values
-            direction = (
-                direction_field.values[int(metadata_indices[0])]
-                if isinstance(direction_field, ObjectField) and len(metadata_indices)
-                else "minimize"
-            )
-        else:
-            direction = (
-                direction_field.value
-                if isinstance(direction_field, SharedField)
-                else "minimize"
-            )
-        direction = state.objective_directions.get(objective, direction)
-        indices = finite.nonzero(as_tuple=True)[0]  # (N_valid,)
-        valid_scores = scores[indices]  # (N_valid,)
-        offset = (
-            valid_scores.argmax() if direction == "maximize" else valid_scores.argmin()
-        )  # ()
-        best_index = int(indices[offset])
-        return OptimizationResult(
-            candidates=batch,
-            best_candidate=Candidate(
-                batch.sequences[best_index], batch.latent_origins[best_index]
-            ),
-            best_score=float(scores[best_index]),
-            objective_name=objective,
-            objective_direction=direction,
-            terminal_candidates=terminal,
-            evaluated_archives=archives,
-        )

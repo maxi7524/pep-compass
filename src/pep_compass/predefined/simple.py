@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from pep_compass import Pipeline
 from pep_compass.autoencoder import HydrAMP
 from pep_compass.steps.filters import (
@@ -11,8 +13,19 @@ from pep_compass.steps.walkers import Sorbes
 
 """Small deterministic local-enumeration example with a scalar oracle."""
 
+from typing import TYPE_CHECKING
 
-def create(*, device="cpu", seed=7, mutation_candidates=4, oracle_calls=3):
+if TYPE_CHECKING:
+    import torch
+
+
+def create(
+    *,
+    device: str | torch.device = "cpu",
+    seed: int = 7,
+    mutation_candidates: int = 4,
+    oracle_calls: int = 3,
+) -> Pipeline:
     """Return a bounded example without loading model weights.
 
     :param device: Shared autoencoder device.
@@ -20,6 +33,12 @@ def create(*, device="cpu", seed=7, mutation_candidates=4, oracle_calls=3):
     :param mutation_candidates: Local mutation allocation bound.
     :param oracle_calls: Soft complete-batch evaluation threshold.
     :return: Editable pipeline with one local enumeration and hydrophobicity scores.
+
+    :type device: str | torch.device
+    :type seed: int
+    :type mutation_candidates: int
+    :type oracle_calls: int
+    :rtype: Pipeline
     """
     pipeline = Pipeline(
         steps=[

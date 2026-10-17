@@ -194,6 +194,9 @@ def _strip_residue_prefix(token: str) -> str:
 
     :param token: Lowercase token such as ``"l-ala"``.
     :return: Token without a leading configuration prefix.
+
+    :type token: str
+    :rtype: str
     """
 
     changed = True
@@ -216,6 +219,9 @@ def parse_substrate(text: str | None) -> SubstrateParse:
 
     :param text: Substrate description as reported by the source database.
     :return: The parse outcome, with an empty sequence when nothing was resolved.
+
+    :type text: str | None
+    :rtype: SubstrateParse
     """
 
     raw = (text or "").strip()
@@ -288,6 +294,9 @@ def infer_cleavage_bond(parse: SubstrateParse) -> tuple[int | None, CleavageSite
     :param parse: Outcome of :func:`parse_substrate`.
     :return: Tuple of bond index (``None`` when unresolved) and how it was
         determined.
+
+    :type parse: SubstrateParse
+    :rtype: tuple[int | None, CleavageSiteSource]
     """
 
     if not parse.sequence:
@@ -314,6 +323,9 @@ def reporter_window_indices(parse: SubstrateParse) -> np.ndarray:
     :param parse: Outcome of :func:`parse_substrate`.
     :return: Residue index per subsite, ``-1`` where the subsite has no residue,
         shape ``(P,)``.
+
+    :type parse: SubstrateParse
+    :rtype: np.ndarray
     """
 
     indices = np.full(len(MEROPS_SUBSITES), -1, dtype=int)  # (P,)
@@ -340,6 +352,9 @@ def resolvable_subsites(parse: SubstrateParse) -> int:
     :param parse: Outcome of :func:`parse_substrate`.
     :return: Number of subsites carrying a genuine peptide residue, ``0`` when the
         window cannot be built.
+
+    :type parse: SubstrateParse
+    :rtype: int
     """
 
     bond, source = infer_cleavage_bond(parse)

@@ -1,6 +1,9 @@
 """Direct random controls for Local Enumeration experiments."""
 
+from __future__ import annotations
+
 from collections import defaultdict
+from typing import TYPE_CHECKING
 
 import torch
 
@@ -16,6 +19,12 @@ from pep_compass.steps.filters.strategies.ranked.selection.nucleus import (
     NucleusSelection,
 )
 
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+    from pep_compass.data_schemas.candidates import CandidateBatch
+    from pep_compass.optimization.engine.execution.context import OptimizationContext
+
 
 class RandomMutationPool(Step):
     """Apply random proposals or random ranking to each MUTANG parent pool."""
@@ -24,14 +33,32 @@ class RandomMutationPool(Step):
 
     def __init__(
         self,
-        mode="walker",
-        selection_fraction=0.6,
-        temperature=1.0,
-        maximum_positions=5,
-        residues_per_position=4,
-        maximum_candidates=30000,
-        alphabet=None,
-    ):
+        mode: str = "walker",
+        selection_fraction: float = 0.6,
+        temperature: float = 1.0,
+        maximum_positions: int = 5,
+        residues_per_position: int = 4,
+        maximum_candidates: int = 30000,
+        alphabet: Sequence[str] | None = None,
+    ) -> None:
+        """Initialize this object with the declared configuration.
+
+        :param mode: Mode.
+        :type mode: str
+        :param selection_fraction: Selection fraction.
+        :type selection_fraction: float
+        :param temperature: Temperature.
+        :type temperature: float
+        :param maximum_positions: Maximum positions.
+        :type maximum_positions: int
+        :param residues_per_position: Residues per position.
+        :type residues_per_position: int
+        :param maximum_candidates: Maximum materialized candidates allowed by this local strategy.
+        :type maximum_candidates: int
+        :param alphabet: Ordered residue alphabet.
+        :type alphabet: Sequence[str] | None
+        :rtype: None
+        """
         self._configure(
             {
                 "mode": mode,
@@ -53,7 +80,18 @@ class RandomMutationPool(Step):
         self.alphabet = alphabet or DEFAULT_ALPHABET
         self.selection = NucleusSelection(selection_fraction, temperature)
 
-    def _execute(self, batch, context):
+    def _execute(
+        self, batch: CandidateBatch, context: OptimizationContext
+    ) -> CandidateBatch:
+        """Execute.
+
+        :param batch: Incoming aligned candidate batch.
+        :type batch: CandidateBatch
+        :param context: Scoped execution services, shared run state and random generator.
+        :type context: OptimizationContext
+        :return: Result of this operation.
+        :rtype: CandidateBatch
+        """
         parents = batch.fields.get("mutation.parent_sequence")
         options = batch.fields.get("mutation.options")
         if not isinstance(parents, ObjectField) or not isinstance(options, ObjectField):

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pep_compass.analysis.reader.dataset import SelectionTableHandle
 from pep_compass.analysis.reader.entities import (
@@ -20,8 +20,20 @@ from pep_compass.data_schemas.dataset import (
 )
 from pep_compass.optimization.saving.reader import AnalysisReader
 
+if TYPE_CHECKING:
+    import pandas as pd
+
 
 def _flatten(values: dict[str, Any], prefix: str = "") -> dict[str, Any]:
+    """Flatten.
+
+    :param values: Values consumed by this conversion or transformation.
+    :type values: dict[str, Any]
+    :param prefix: Prefix.
+    :type prefix: str
+    :return: Result of this operation.
+    :rtype: dict[str, Any]
+    """
     result: dict[str, Any] = {}
     for key, value in values.items():
         path = f"{prefix}.{key}" if prefix else key
@@ -39,7 +51,13 @@ class ExperimentReader:
     :raises FileNotFoundError: If no settings.json/results.sqlite bundle exists.
     """
 
-    def __init__(self, path):
+    def __init__(self, path: str | Path) -> None:
+        """Initialize this object with the declared configuration.
+
+        :param path: Input or output path used by this operation.
+        :type path: str | Path
+        :rtype: None
+        """
         self.root = Path(path).resolve()
         paths = (
             [self.root]
@@ -107,23 +125,49 @@ class ExperimentReader:
         )
 
     @property
-    def experiments(self):
+    def experiments(self) -> tuple[Experiment, ...]:
+        """Experiments.
+
+        :return: Result of this operation.
+        :rtype: tuple[Experiment, ...]
+        """
         return self.collection.experiments
 
     @property
-    def runs(self):
+    def runs(self) -> tuple[ExperimentRun, ...]:
+        """Runs.
+
+        :return: Result of this operation.
+        :rtype: tuple[ExperimentRun, ...]
+        """
         return self.collection.runs
 
-    def select(self, **selectors):
-        """Create an immutable lazy selection using resolved run metadata."""
+    def select(self, **selectors: object) -> ExperimentSelection:
+        """Create an immutable lazy selection using resolved run metadata.
+
+        :param selectors: Selectors.
+        :type selectors: object
+        :return: Result of this operation.
+        :rtype: ExperimentSelection
+        """
         return ExperimentSelection(self, self.runs, {}).select(**selectors)
 
-    def cached_analyses(self):
-        """List completed cached analyses without materializing run tables."""
+    def cached_analyses(self) -> pd.DataFrame:
+        """List completed cached analyses without materializing run tables.
+
+        :return: Result of this operation.
+        :rtype: pd.DataFrame
+        """
         return self.metrics.list_analyses()
 
-    def replay(self, run_id):
-        """Open the canonical reader for one unambiguous run identity."""
+    def replay(self, run_id: str) -> AnalysisReader:
+        """Open the canonical reader for one unambiguous run identity.
+
+        :param run_id: Run id.
+        :type run_id: str
+        :return: Result of this operation.
+        :rtype: AnalysisReader
+        """
         matches = [run for run in self.runs if run.run_id == run_id]
         if len(matches) != 1:
             raise KeyError(run_id)

@@ -1,55 +1,81 @@
-#!/usr/bin/env python
-#_*_coding:utf-8_*_
+from __future__ import annotations
 
-import sys, os, re
+#!/usr/bin/env python
+# _*_coding:utf-8_*_
+import os
+import re
 import shutil
-pPath = re.sub(r'scripts$', '', os.path.split(os.path.realpath(__file__))[0])
+import sys
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+    from pathlib import Path
+
+
+pPath = re.sub(r"scripts$", "", os.path.split(os.path.realpath(__file__))[0])
 sys.path.append(pPath)
-from codes import readFasta
 import argparse
 
+from codes import readFasta
 
-def generateSecondaryStructure(fastas, outDir, psipred):
-	"""
-	Generate predicted protein secondary structure by using the 'PSIPRED Version 4.01' program.
 
-	Parameters
-	----------
-	file : file
-		the file, which include the protein sequences in fasta format.
+def generateSecondaryStructure(
+    fastas: Sequence[Sequence[str]], outDir: str | Path, psipred: str | Path
+) -> None:
+    """Generate predicted protein secondary structure by using the 'PSIPRED Version 4.01' program.
 
-	psipred: string
-		the path of PSIPRED Version 4.01 program, the PSIPRED Version 4.01 program could be download at: http://bioinfadmin.cs.ucl.ac.uk/downloads/psipred/.
+    Parameters
+    ----------
+    file : file
+            the file, which include the protein sequences in fasta format.
 
-	Returns
-	-------
-	a string: 
-		A directory name, which include the predicted protein secondary structure information.
-	"""
+    psipred: string
+            the path of PSIPRED Version 4.01 program, the PSIPRED Version 4.01 program could be download at: http://bioinfadmin.cs.ucl.ac.uk/downloads/psipred/.
 
-	if os.path.exists(outDir) == False:
-		os.mkdir(outDir)
+    Returns
+    -------
+    a string:
+            A directory name, which include the predicted protein secondary structure information.
 
-	for i in fastas:
-		name, sequence = re.sub('\|', '', i[0]), i[1]
-		with open(name + '.txt', 'w') as f:
-			f.write('>'+name+'\n'+sequence + '\n')
-		myCmd = psipred + ' ' + name + '.txt'
-		if os.path.exists(outDir + '/' + name + '.ss2') == False:
-			os.system(myCmd)
-			os.remove(name + '.txt')
-			os.remove(name + '.ss')
-			os.remove(name + '.horiz')
-			shutil.move(name+'.ss2', outDir)
-	return outDir
+    :param fastas: Sequence records in the layout expected by the feature encoder.
+    :type fastas: Sequence[Sequence[str]]
+    :param outDir: Outdir.
+    :type outDir: str | Path
+    :param psipred: Psipred.
+    :type psipred: str | Path
+    :rtype: None
+    """
 
-if __name__ == '__main__':
-	parser = argparse.ArgumentParser(usage="it's usage tip.", description="generate protein secondary structure profile")
-	parser.add_argument("--file", required=True, help="protein sequence file in fasta format")
-	parser.add_argument("--psipred", help="the path of psipred program")
-	args = parser.parse_args()
+    if os.path.exists(outDir) == False:
+        os.mkdir(outDir)
 
-	psipred = args.psipred if args.psipred != None else 'runpsipred'
-	fastas = readFasta.readFasta(args.file)
-	outputDir = generateSecondaryStructure(fastas, 'out', psipred)
-	print('The predicted secodnary structure are stored in: ' + outputDir)
+    for i in fastas:
+        name, sequence = re.sub(r"\|", "", i[0]), i[1]
+        with open(name + ".txt", "w") as f:
+            f.write(">" + name + "\n" + sequence + "\n")
+        myCmd = psipred + " " + name + ".txt"
+        if os.path.exists(outDir + "/" + name + ".ss2") == False:
+            os.system(myCmd)
+            os.remove(name + ".txt")
+            os.remove(name + ".ss")
+            os.remove(name + ".horiz")
+            shutil.move(name + ".ss2", outDir)
+    return outDir
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(
+        usage="it's usage tip.",
+        description="generate protein secondary structure profile",
+    )
+    parser.add_argument(
+        "--file", required=True, help="protein sequence file in fasta format"
+    )
+    parser.add_argument("--psipred", help="the path of psipred program")
+    args = parser.parse_args()
+
+    psipred = args.psipred if args.psipred != None else "runpsipred"
+    fastas = readFasta.readFasta(args.file)
+    outputDir = generateSecondaryStructure(fastas, "out", psipred)
+    print("The predicted secodnary structure are stored in: " + outputDir)

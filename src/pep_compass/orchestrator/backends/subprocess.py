@@ -1,24 +1,41 @@
 """Bounded independent worker processes consuming immutable plans."""
 
+from __future__ import annotations
+
 import json
 import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import TYPE_CHECKING
 
 from pep_compass.orchestrator.backends.base import ExecutionBackend
 from pep_compass.utils.logger import get_custom_logger
 from pep_compass.utils.validation import validate_integer
 
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from pep_compass.orchestrator.planning import ExecutionPlan, PlannedRun
+    from pep_compass.orchestrator.runner import Orchestrator, RunExecution
+
+
 logger = get_custom_logger(__name__)
 
 
-def worker_command(plan_path, index, *, skip_completed=False):
+def worker_command(
+    plan_path: str | Path, index: int, *, skip_completed: bool = False
+) -> list[object]:
     """Return an argument vector, with no shell interpolation.
 
     :param plan_path: Frozen plan JSON.
     :param index: Zero-based job index.
     :param skip_completed: Explicit skip policy forwarded to the isolated worker.
     :return: Python executable and canonical CLI arguments.
+
+    :type plan_path: str | Path
+    :type index: int
+    :type skip_completed: bool
+    :rtype: list[object]
     """
     command = [
         sys.executable,
@@ -34,8 +51,20 @@ def worker_command(plan_path, index, *, skip_completed=False):
     return command
 
 
-def execute_worker(plan, entry, plan_path):
-    """Run one isolated worker and validate its structured terminal record."""
+def execute_worker(
+    plan: ExecutionPlan, entry: PlannedRun, plan_path: Path
+) -> RunExecution:
+    """Run one isolated worker and validate its structured terminal record.
+
+    :param plan: Plan.
+    :type plan: ExecutionPlan
+    :param entry: Entry.
+    :type entry: PlannedRun
+    :param plan_path: Plan path.
+    :type plan_path: Path
+    :return: Result of this operation.
+    :rtype: RunExecution
+    """
     from pep_compass.orchestrator.runner import RunExecution
 
     logger.info("Starting worker job=%s.", entry.job_id)
@@ -78,11 +107,30 @@ class SubprocessBackend(ExecutionBackend):
     :param max_workers: Maximum simultaneously running workers; default 1.
     """
 
-    def __init__(self, max_workers=1):
+    def __init__(self, max_workers: int = 1) -> None:
+        """Initialize this object with the declared configuration.
+
+        :param max_workers: Max workers.
+        :type max_workers: int
+        :rtype: None
+        """
         validate_integer(max_workers, "backend.max_workers", 1)
         self.max_workers = max_workers
 
-    def run(self, orchestrator, plan, plan_path):
+    def run(
+        self, orchestrator: Orchestrator, plan: ExecutionPlan, plan_path: Path
+    ) -> tuple[RunExecution, ...]:
+        """Run.
+
+        :param orchestrator: Orchestrator.
+        :type orchestrator: Orchestrator
+        :param plan: Plan.
+        :type plan: ExecutionPlan
+        :param plan_path: Plan path.
+        :type plan_path: Path
+        :return: Result of this operation.
+        :rtype: tuple[RunExecution, ...]
+        """
         if orchestrator.autoencoder is not None:
             raise ValueError(
                 "Isolated workers require serializable resource declarations with direct import targets."

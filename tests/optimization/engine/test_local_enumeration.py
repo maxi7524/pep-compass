@@ -140,9 +140,9 @@ def test_batched_trajectories_are_independent_and_seed_reproducible() -> None:
         schema=None, autoencoder=MockAutoencoder(), root=operation
     )
 
-    first = pipeline._run(["S"], seed=1234).candidates.sequences
-    second = pipeline._run(["S"], seed=1234).candidates.sequences
-    different_seed = pipeline._run(["S"], seed=1235).candidates.sequences
+    first = pipeline._run(["S"], seed=1234).sequences
+    second = pipeline._run(["S"], seed=1234).sequences
+    different_seed = pipeline._run(["S"], seed=1235).sequences
 
     assert first == second
     assert first != different_seed

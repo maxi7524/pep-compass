@@ -1,12 +1,22 @@
+from __future__ import annotations
+
 import math
 import os
 import sys
+from typing import TYPE_CHECKING
 
 import numpy as np
 import pandas as pd
 import tensorflow as tf
 from tensorflow import keras
 from tqdm import tqdm
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+    from pathlib import Path
+
+    import torch
+
 
 # Add local tools to path
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -27,13 +37,12 @@ class PredictorMBCAttention:
 
     def __init__(
         self,
-        device="cpu",
-        batch_size=3000,
-        model="default",
-        models_directory=None,
-    ):
-        """
-        Initialize the MBC Attention predictor.
+        device: str | torch.device = "cpu",
+        batch_size: int = 3000,
+        model: str = "default",
+        models_directory: str | Path | None = None,
+    ) -> None:
+        """Initialize the MBC Attention predictor.
 
         Args:
             device (str): Device to use for computation ("cpu" or "cuda").
@@ -41,6 +50,16 @@ class PredictorMBCAttention:
             batch_size (int): Batch size for processing sequences.
             model (str): Registered MBC-Attention model variant.
             models_directory (str, optional): Replacement strategy package root.
+
+        :param device: Computation device accepted by the numerical backend.
+        :type device: str | torch.device
+        :param batch_size: Batch size.
+        :type batch_size: int
+        :param model: Named model variant.
+        :type model: str
+        :param models_directory: Optional external model root replacing packaged artifacts.
+        :type models_directory: str | Path | None
+        :rtype: None
         """
         self.device = device
         self.batch_size = batch_size
@@ -77,9 +96,8 @@ class PredictorMBCAttention:
         self.bias = def_bias
         self.scale = def_scale
 
-    def predict(self, seq_list, use_tqdm: bool = False):
-        """
-        Predict antimicrobial activity (MIC values) for a list of peptide sequences.
+    def predict(self, seq_list: Sequence[str], use_tqdm: bool = False) -> np.ndarray:
+        """Predict antimicrobial activity (MIC values) for a list of peptide sequences.
 
         Args:
             seq_list (list): List of peptide sequences as strings.
@@ -88,6 +106,13 @@ class PredictorMBCAttention:
         Returns:
             np.ndarray: Predicted MIC values with shape (N, 1) where N is the number of sequences.
                        Values are in μM units (normal MIC, not log10).
+
+        :param seq_list: Seq list.
+        :type seq_list: Sequence[str]
+        :param use_tqdm: Use tqdm.
+        :type use_tqdm: bool
+        :return: Result of this operation.
+        :rtype: np.ndarray
         """
         data_len = len(seq_list)
 

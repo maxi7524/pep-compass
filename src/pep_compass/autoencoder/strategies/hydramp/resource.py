@@ -1,7 +1,19 @@
 """Lightweight declaration of one shared HydrAMP model resource."""
 
-from pep_compass.configuration.objects import Configurable
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+from pep_compass.utils.configuration import Configurable
 from pep_compass.utils.validation import validate_positive
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+    from typing import Literal
+
+    import torch
+
+    from pep_compass.autoencoder.base import Autoencoder
 
 
 class HydrAMP(Configurable):
@@ -19,14 +31,32 @@ class HydrAMP(Configurable):
     def __init__(
         self,
         *,
-        model="article_25",
-        device="cpu",
-        jacobian_mode="strict",
-        jacobian_eps=0.001,
-        field_eps=0.001,
-        temp=1.0,
-        default_condition=None,
-    ):
+        model: str = "article_25",
+        device: str | torch.device = "cpu",
+        jacobian_mode: Literal["strict", "approx"] = "strict",
+        jacobian_eps: float = 0.001,
+        field_eps: float = 0.001,
+        temp: float = 1.0,
+        default_condition: Sequence[float] | None = None,
+    ) -> None:
+        """Initialize this object with the declared configuration.
+
+        :param model: Named model variant.
+        :type model: str
+        :param device: Computation device accepted by the numerical backend.
+        :type device: str | torch.device
+        :param jacobian_mode: Jacobian mode.
+        :type jacobian_mode: Literal['strict', 'approx']
+        :param jacobian_eps: Jacobian eps.
+        :type jacobian_eps: float
+        :param field_eps: Field eps.
+        :type field_eps: float
+        :param temp: Temp.
+        :type temp: float
+        :param default_condition: Default condition.
+        :type default_condition: Sequence[float] | None
+        :rtype: None
+        """
         validate_positive(jacobian_eps, "HydrAMP.jacobian_eps")
         validate_positive(field_eps, "HydrAMP.field_eps")
         validate_positive(temp, "HydrAMP.temp")
@@ -47,12 +77,18 @@ class HydrAMP(Configurable):
             )
         )
 
-    def build(self, *, device=None):
-        """Initialize the numerical model using this immutable constructor snapshot."""
+    def build(self, *, device: str | None = None) -> Autoencoder:
+        """Initialize the numerical model using this immutable constructor snapshot.
+
+        :param device: Computation device accepted by the numerical backend.
+        :type device: str | None
+        :return: Result of this operation.
+        :rtype: Autoencoder
+        """
         import torch
 
         from pep_compass.autoencoder.strategies.hydramp.adapter import (
-            HydrampAutoencoder,
+            HydrAMPModel,
         )
 
         values = self.configuration
@@ -61,4 +97,4 @@ class HydrAMP(Configurable):
         values["default_condition"] = torch.tensor(
             values["default_condition"], device=values["device"]
         )
-        return HydrampAutoencoder(**values)
+        return HydrAMPModel(**values)

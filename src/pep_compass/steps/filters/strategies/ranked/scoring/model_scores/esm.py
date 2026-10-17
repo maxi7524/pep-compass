@@ -2,9 +2,17 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import torch
 
 from pep_compass.steps.filters.strategies.ranked.scoring.base import ScoreFunction
+
+if TYPE_CHECKING:
+    from pep_compass.autoencoder.base import Autoencoder
+    from pep_compass.data_schemas.candidates import CandidateBatch
+    from pep_compass.optimization.engine.execution.context import OptimizationContext
+
 
 ESM2_MODEL_NAMES = (
     "esm2_t6_8M_UR50D",
@@ -26,6 +34,14 @@ class ESM2PPLScorer(ScoreFunction):
         model_name: str = "esm2_t6_8M_UR50D",
         device: str = "cpu",
     ) -> None:
+        """Initialize this object with the declared configuration.
+
+        :param model_name: Named model variant.
+        :type model_name: str
+        :param device: Computation device accepted by the numerical backend.
+        :type device: str
+        :rtype: None
+        """
         self._configure({"model_name": model_name, "device": device})
         if model_name not in ESM2_MODEL_NAMES:
             available = ", ".join(sorted(ESM2_MODEL_NAMES))
@@ -35,7 +51,13 @@ class ESM2PPLScorer(ScoreFunction):
 
         self.model_name, self.device = model_name, device
 
-    def _initialize(self, autoencoder=None):
+    def _initialize(self, autoencoder: Autoencoder | None = None) -> None:
+        """Initialize.
+
+        :param autoencoder: Shared numerical model or deferred resource, as declared by the parameter type.
+        :type autoencoder: Autoencoder | None
+        :rtype: None
+        """
         try:
             import esm
         except ImportError as exc:
@@ -62,6 +84,13 @@ class ESM2PPLScorer(ScoreFunction):
 
     @torch.no_grad()
     def pll(self, sequence: str) -> float:
+        """Pll.
+
+        :param sequence: One peptide sequence.
+        :type sequence: str
+        :return: Result of this operation.
+        :rtype: float
+        """
         if not sequence:
             raise ValueError("Sequence cannot be empty.")
 
@@ -87,10 +116,29 @@ class ESM2PPLScorer(ScoreFunction):
         return float(selected.mean().item())
 
     def passes_threshold(self, sequence: str, threshold: float) -> bool:
+        """Passes threshold.
+
+        :param sequence: One peptide sequence.
+        :type sequence: str
+        :param threshold: Threshold.
+        :type threshold: float
+        :return: Result of this operation.
+        :rtype: bool
+        """
         return self.pll(sequence) >= threshold
 
-    def __call__(self, batch, context) -> torch.Tensor:
-        """Return ESM pseudo-log-likelihood scores aligned with the batch."""
+    def __call__(
+        self, batch: CandidateBatch, context: OptimizationContext
+    ) -> torch.Tensor:
+        """Return ESM pseudo-log-likelihood scores aligned with the batch.
+
+        :param batch: Incoming aligned candidate batch.
+        :type batch: CandidateBatch
+        :param context: Scoped execution services, shared run state and random generator.
+        :type context: OptimizationContext
+        :return: Result of this operation.
+        :rtype: torch.Tensor
+        """
         del context
         return torch.as_tensor(
             [self.pll(sequence) for sequence in batch.sequences],

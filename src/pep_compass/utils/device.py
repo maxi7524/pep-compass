@@ -19,6 +19,8 @@ def inspect_torch_runtime() -> TorchRuntime:
     """Inspect Torch without allocating model tensors.
 
     :return: Installed Torch version and CUDA availability.
+
+    :rtype: TorchRuntime
     """
     import torch
 
@@ -37,6 +39,10 @@ def validate_execution_device(device: str, runtime: TorchRuntime) -> None:
     :param device: Torch device configured for the autoencoder.
     :param runtime: Inspected Torch runtime.
     :raises RuntimeError: If CUDA was requested but cannot be used.
+
+    :type device: str
+    :type runtime: TorchRuntime
+    :rtype: None
     """
     if not device.startswith("cuda"):
         return

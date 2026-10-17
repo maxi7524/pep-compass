@@ -129,6 +129,9 @@ def geometry_from_ec(ec_number: str | None) -> EventGeometry:
     :param ec_number: Full EC number such as ``"3.4.21.5"``. Empty or malformed
         values resolve to :attr:`EventGeometry.UNKNOWN`.
     :return: The geometry implied by the EC number.
+
+    :type ec_number: str | None
+    :rtype: EventGeometry
     """
 
     if not ec_number:
@@ -153,6 +156,9 @@ def geometry_from_name(name: str | None) -> EventGeometry:
 
     :param name: MEROPS peptidase name.
     :return: The geometry implied by the name, or ``UNKNOWN``.
+
+    :type name: str | None
+    :rtype: EventGeometry
     """
 
     if not name:
@@ -177,6 +183,11 @@ def resolve_geometry(
         hydrolysis model, which resolve to :attr:`EventGeometry.NON_HYDROLASE`.
     :return: Tuple of geometry and provenance label (``"ec"``, ``"name"``,
         ``"manifest_exclusion"`` or ``"unresolved"``).
+
+    :type ec_number: str | None
+    :type name: str | None
+    :type include_in_hydrolysis_model: bool
+    :rtype: tuple[EventGeometry, str]
     """
 
     if not include_in_hydrolysis_model:
@@ -200,6 +211,10 @@ def allowed_cut_positions(length: int, geometry: EventGeometry) -> np.ndarray:
     :param geometry: Event geometry of the peptidase.
     :return: Boolean mask over bonds, shape ``(L - 1,)``.
     :raises ValueError: If ``length`` is negative.
+
+    :type length: int
+    :type geometry: EventGeometry
+    :rtype: np.ndarray
     """
 
     if length < 0:
@@ -239,6 +254,10 @@ def subsite_observability_mask(length: int, bond: int) -> np.ndarray:
     :param bond: Zero-based bond index, between residues ``bond`` and ``bond + 1``.
     :return: Boolean mask over ``P4 … P4'``, shape ``(P,)``.
     :raises ValueError: If ``bond`` is not a bond of a peptide of this length.
+
+    :type length: int
+    :type bond: int
+    :rtype: np.ndarray
     """
 
     if not 0 <= bond < max(length - 1, 0):
@@ -256,6 +275,10 @@ def window_residue_indices(length: int, bond: int) -> np.ndarray:
     :param length: Peptide length ``L`` in residues.
     :param bond: Zero-based bond index.
     :return: Residue indices per subsite, shape ``(P,)``.
+
+    :type length: int
+    :type bond: int
+    :rtype: np.ndarray
     """
 
     positions = bond + np.asarray(MEROPS_SUBSITE_OFFSETS)  # (P,)
@@ -268,7 +291,7 @@ def enumerate_window_scores(
     geometry: EventGeometry = EventGeometry.ENDOPEPTIDASE,
     background: np.ndarray | None = None,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    r"""Score every bond of a peptide that the geometry admits.
+    """Score every bond of a peptide that the geometry admits.
 
     A substrate whose cleavage site was not reported still has a well-defined set
     of candidate bonds. Scoring all of them turns the unknown site into a latent
@@ -282,6 +305,12 @@ def enumerate_window_scores(
     :return: Tuple of per-bond scores ``(L - 1,)``, the number of observed
         subsites per bond ``(L - 1,)`` and the admissibility mask ``(L - 1,)``.
         Inadmissible bonds carry ``-inf`` so that they cannot win a maximum.
+
+    :type sequence: str
+    :type matrix: np.ndarray
+    :type geometry: EventGeometry
+    :type background: np.ndarray | None
+    :rtype: tuple[np.ndarray, np.ndarray, np.ndarray]
     """
 
     length = len(sequence)
@@ -303,7 +332,7 @@ def implied_cleavage_bond(
     background: np.ndarray | None = None,
     min_observed_subsites: int = 1,
 ) -> tuple[int | None, float, float]:
-    r"""Return the bond a specificity matrix ranks highest, and how clearly.
+    """Return the bond a specificity matrix ranks highest, and how clearly.
 
     The returned bond is **implied by the matrix**, not measured. It is a
     hypothesis about where the enzyme cut, and it must never be recorded as an
@@ -321,6 +350,13 @@ def implied_cleavage_bond(
     :return: Tuple of the implied bond (``None`` when no bond qualifies), its
         score, and the margin to the next best bond (``inf`` when it is the only
         candidate).
+
+    :type sequence: str
+    :type matrix: np.ndarray
+    :type geometry: EventGeometry
+    :type background: np.ndarray | None
+    :type min_observed_subsites: int
+    :rtype: tuple[int | None, float, float]
     """
 
     scores, observed, admissible = enumerate_window_scores(
@@ -354,6 +390,10 @@ def restrict_window_indices(
         :data:`MEROPS_SUBSITES`.
     :return: A copy with every other subsite set to ``-1``, shape ``(P,)``.
     :raises ValueError: If a name is not a known subsite.
+
+    :type residue_indices: np.ndarray
+    :type subsites: Sequence[str]
+    :rtype: np.ndarray
     """
 
     unknown = set(subsites) - set(MEROPS_SUBSITES)
@@ -372,7 +412,7 @@ def masked_score_from_indices(
     matrix: np.ndarray,
     background: np.ndarray | None = None,
 ) -> tuple[float, int]:
-    r"""Score one window given the residue index of each subsite.
+    """Score one window given the residue index of each subsite.
 
     This is the scoring step shared by every window convention. The caller
     decides which residue each subsite sees and marks absent subsites with
@@ -388,6 +428,12 @@ def masked_score_from_indices(
     :return: Tuple of the masked score and the number of observed subsites.
     :raises ValueError: If the sequence holds a residue outside the MEROPS
         alphabet.
+
+    :type sequence: str
+    :type residue_indices: np.ndarray
+    :type matrix: np.ndarray
+    :type background: np.ndarray | None
+    :rtype: tuple[float, int]
     """
 
     residue_column = {
@@ -432,6 +478,12 @@ def masked_window_score(
     :return: Tuple of the masked score and the number of observed subsites.
     :raises ValueError: If the sequence holds a residue outside the MEROPS
         alphabet.
+
+    :type sequence: str
+    :type bond: int
+    :type matrix: np.ndarray
+    :type background: np.ndarray | None
+    :rtype: tuple[float, int]
     """
 
     return masked_score_from_indices(

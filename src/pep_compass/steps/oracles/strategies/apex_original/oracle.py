@@ -1,5 +1,7 @@
 """APEX sequence black box adapted to the common PepCompass oracle step."""
 
+from __future__ import annotations
+
 import numpy as np
 from poli.core.abstract_black_box import AbstractBlackBox
 from poli.core.black_box_information import BlackBoxInformation
@@ -29,14 +31,38 @@ class APEXBlackBox(AbstractBlackBox):
         mic_aggregate: str = "mean",
         mic_bacteria: str | list = "all",
         model: str = "default",
-        batch_size: int = None,
+        batch_size: int | None = None,
         parallelize: bool = False,
-        num_workers: int = None,
+        num_workers: int | None = None,
         evaluation_budget: int = float("inf"),
         force_isolation: bool = False,
         device: str = "cpu",
         models_directory: str | None = None,
-    ):
+    ) -> None:
+        """Initialize this object with the declared configuration.
+
+        :param mic_aggregate: Mic aggregate.
+        :type mic_aggregate: str
+        :param mic_bacteria: Mic bacteria.
+        :type mic_bacteria: str | list
+        :param model: Named model variant.
+        :type model: str
+        :param batch_size: Batch size.
+        :type batch_size: int | None
+        :param parallelize: Parallelize.
+        :type parallelize: bool
+        :param num_workers: Num workers.
+        :type num_workers: int | None
+        :param evaluation_budget: Evaluation budget.
+        :type evaluation_budget: int
+        :param force_isolation: Force isolation.
+        :type force_isolation: bool
+        :param device: Computation device accepted by the numerical backend.
+        :type device: str
+        :param models_directory: Optional external model root replacing packaged artifacts.
+        :type models_directory: str | None
+        :rtype: None
+        """
         super().__init__(
             batch_size=batch_size,
             parallelize=parallelize,
@@ -56,9 +82,7 @@ class APEXBlackBox(AbstractBlackBox):
             self._bacteria_indices: tuple[int, ...] | None = None
         elif isinstance(mic_bacteria, list):
             if not mic_bacteria or any(
-                isinstance(index, bool)
-                or not isinstance(index, int)
-                or index < 0
+                isinstance(index, bool) or not isinstance(index, int) or index < 0
                 for index in mic_bacteria
             ):
                 raise ValueError(
@@ -84,7 +108,13 @@ class APEXBlackBox(AbstractBlackBox):
         self.maximize = False
 
     def score(self, sequences: list[str]) -> np.ndarray:
-        """Return aggregated log2 MIC scores shaped ``(B,)``."""
+        """Return aggregated log2 MIC scores shaped ``(B,)``.
+
+        :param sequences: Peptide sequences in input order.
+        :type sequences: list[str]
+        :return: Result of this operation.
+        :rtype: np.ndarray
+        """
         predictions = self.apex_predictor.predict(sequences)  # (B, P)
         if self._bacteria_indices is not None:
             predictions = predictions[:, self._bacteria_indices]  # (B, P_selected)
@@ -93,6 +123,11 @@ class APEXBlackBox(AbstractBlackBox):
         return self._aggregate(np.log2(predictions))  # (B,)
 
     def get_black_box_info(self) -> BlackBoxInformation:
+        """Get black box info.
+
+        :return: Result of this operation.
+        :rtype: BlackBoxInformation
+        """
         return BlackBoxInformation(
             name="APEX",
             max_sequence_length=25,
@@ -105,8 +140,16 @@ class APEXBlackBox(AbstractBlackBox):
             padding_token=" ",
         )
 
-    def _black_box(self, x: np.ndarray, context: dict = None) -> np.ndarray:
-        """Translate POLI token rows and return scores shaped ``(B, 1)``."""
+    def _black_box(self, x: np.ndarray, context: dict | None = None) -> np.ndarray:
+        """Translate POLI token rows and return scores shaped ``(B, 1)``.
+
+        :param x: X.
+        :type x: np.ndarray
+        :param context: Scoped execution services, shared run state and random generator.
+        :type context: dict | None
+        :return: Result of this operation.
+        :rtype: np.ndarray
+        """
         sequences = ["".join(seq) for seq in x]
         predictions = self.score(sequences)
 
