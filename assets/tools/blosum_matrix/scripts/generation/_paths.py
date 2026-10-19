@@ -6,8 +6,8 @@ import sys
 from pathlib import Path
 
 SCRIPTS_DIR = Path(__file__).resolve().parent
-REPO_ROOT = SCRIPTS_DIR.parents[2]
-PACKAGE_ROOT = REPO_ROOT / "assets" / "tools" / "blosum_matrix"
+PACKAGE_ROOT = SCRIPTS_DIR.parents[1]
+REPO_ROOT = PACKAGE_ROOT.parents[2]
 PACKAGE_SRC = PACKAGE_ROOT / "src"
 
 DEFAULT_OUT_DIR = REPO_ROOT / "data" / "peptides_data" / "blosum_matrix"

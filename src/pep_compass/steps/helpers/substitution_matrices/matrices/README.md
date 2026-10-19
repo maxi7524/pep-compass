@@ -3,7 +3,7 @@
 Alphabet for all files: `ARNDCQEGHILKMFPSTWYV` (NCBI order, 20 standard amino acids).
 
 Matrix construction: [`assets/tools/blosum_matrix`](../../../../../../assets/tools/blosum_matrix) (`blosum-matrix` package).
-Regeneration scripts: [`assets/scripts/blosum_matrix`](../../../../../../assets/scripts/blosum_matrix).
+Regeneration scripts: [`assets/scripts/generation/blosum_matrix`](../../../../../../assets/scripts/generation/blosum_matrix).
 
 ## Files
 

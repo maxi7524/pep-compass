@@ -62,6 +62,6 @@ default (override with `merops_root`). The MEROPS datasets are expected to
 contain `index.json` plus per-dataset `matrices_logprob.npy` and `codes.json`.
 
 `data/*` is gitignored, so fetch the curated matrices with
-`assets/scripts/downloads/merops/download_merops_matrices.sh` (mirrors the
+`assets/scripts/downloads/pep_compass/merops/download_merops_matrices.sh` (mirrors the
 APEX / HydrAMP model download scripts; provide the source via
 `MEROPS_REPOSITORY`).

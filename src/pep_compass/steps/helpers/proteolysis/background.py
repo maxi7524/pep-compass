@@ -12,7 +12,7 @@ separate from the metrics in
 :mod:`~pep_compass.steps.helpers.proteolysis.specificity`,
 which accept :math:`q` as an argument. Acquisition of the source proteome is a
 separate concern again and lives in
-``assets/scripts/downloads/serum_proteolysis_calibration/download_human_proteome.py``.
+an external data-acquisition workflow.
 
 Dimension symbols: ``A`` amino acids (20).
 """

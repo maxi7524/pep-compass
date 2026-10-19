@@ -52,7 +52,7 @@ We provide helper scripts for downloading those models. If model is already pres
 
 ```bash
 # HydraAMP from article (peptides of length equal to 25)
-bash assets/scripts/downloads/hydraAMP/download_hydramp_model.sh 
+bash assets/scripts/downloads/pep_compass/hydramp/download_hydramp_model.sh
 ```
 
 > Each script installs weights below
@@ -63,10 +63,10 @@ bash assets/scripts/downloads/hydraAMP/download_hydramp_model.sh
 
 ```bash
 # model: default (8-pathogen article set)
-assets/scripts/downloads/apex/download_apex_models_default.sh  
+assets/scripts/downloads/pep_compass/apex/download_apex_models_default.sh
 
 # model: full (34-pathogen set, ~1 GB)
-assets/scripts/downloads/apex/download_apex_models_full.sh     
+assets/scripts/downloads/pep_compass/apex/download_apex_models_full.sh
 ```
 
 > Each script installs weights below

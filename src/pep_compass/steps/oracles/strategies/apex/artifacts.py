@@ -69,14 +69,14 @@ APEX_MODELS = {
         "APEX_*",
         8,
         _DEFAULT_PATHOGENS,
-        "assets/scripts/downloads/apex/download_apex_models_default.sh",
+        "assets/scripts/downloads/pep_compass/apex/download_apex_models_default.sh",
     ),
     "full": APEXModelDescriptor(
         "full",
         "trained_*",
         40,
         _FULL_PATHOGENS,
-        "assets/scripts/downloads/apex/download_apex_models_full.sh",
+        "assets/scripts/downloads/pep_compass/apex/download_apex_models_full.sh",
     ),
 }
 

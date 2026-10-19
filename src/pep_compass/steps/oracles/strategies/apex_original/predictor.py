@@ -88,14 +88,14 @@ APEX_MODEL_VARIANTS: dict[str, APEXModelVariant] = {
         directory="default",
         glob_pattern="APEX_*",
         pathogen_list=_DEFAULT_PATHOGEN_LIST,
-        download_script="assets/scripts/downloads/apex/download_apex_models_default.sh",
+        download_script="assets/scripts/downloads/pep_compass/apex/download_apex_models_default.sh",
         expected_models=8,
     ),
     "full": APEXModelVariant(
         directory="full",
         glob_pattern="trained_*",
         pathogen_list=_FULL_PATHOGEN_LIST,
-        download_script="assets/scripts/downloads/apex/download_apex_models_full.sh",
+        download_script="assets/scripts/downloads/pep_compass/apex/download_apex_models_full.sh",
         expected_models=40,
     ),
 }

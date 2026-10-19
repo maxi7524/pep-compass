@@ -34,7 +34,7 @@ def _repository_root() -> Path:
     :returns: Absolute path to the repository root.
     :rtype: pathlib.Path
     """
-    return Path(__file__).resolve().parents[4]
+    return Path(__file__).resolve().parents[3]
 
 
 def _download_archive(destination: Path) -> None:
