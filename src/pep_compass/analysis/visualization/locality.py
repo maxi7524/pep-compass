@@ -1,0 +1,306 @@
+"""Consistent visualizations for locality analysis results."""
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+from pep_compass.analysis.result import AnalysisResult
+from pep_compass.analysis.visualization.theme import PlotTheme
+
+if TYPE_CHECKING:
+    from matplotlib.axes import Axes
+
+
+class LocalityVisualizer:
+    """Render locality results using one shared theme."""
+
+    def __init__(self, theme: PlotTheme) -> None:
+        """Initialize this object with the declared configuration.
+
+        :param theme: Theme.
+        :type theme: PlotTheme
+        :rtype: None
+        """
+        self.theme = theme
+
+    @staticmethod
+    def share_y_limits(figures: dict) -> None:
+        """Apply one common y-range across every ``Axes`` in a figures dict.
+
+        Plotting methods that return multiple independent figures (e.g.
+        :meth:`latent_jump`, :meth:`latent_jump_by_iteration`) deliberately
+        don't equalize axes themselves -- call this on the returned dict
+        before displaying when the figures need to be visually comparable.
+
+        :param figures: A ``{key: Axes}`` mapping, e.g. one method's return value.
+
+        :type figures: dict
+        :rtype: None
+        """
+        axes_list = list(figures.values())
+        if not axes_list:
+            return
+        bottom = min(axes.get_ylim()[0] for axes in axes_list)
+        top = max(axes.get_ylim()[1] for axes in axes_list)
+        for axes in axes_list:
+            axes.set_ylim(bottom, top)
+
+    def _axes(self) -> tuple[object, object]:
+        """Axes.
+
+        :return: Result of this operation.
+        :rtype: tuple[object, object]
+        """
+        with sns.axes_style(self.theme.style), sns.plotting_context(self.theme.context):
+            figure, axes = plt.subplots(
+                figsize=self.theme.figure_size, dpi=self.theme.dpi
+            )
+        return figure, axes
+
+    def latent_jump(
+        self, result: AnalysisResult
+    ) -> dict[tuple[bool, object], "plt.Axes"]:
+        """Plot Euclidean latent distance vs. Levenshtein distance, one figure
+        per ``(sorbes_moved, grid_value)`` combination.
+
+        Separate figures rather than facets/hues for two reasons: comparing
+        "mutang acceptance" (grid) settings as whole plots was the explicit
+        requirement, and pooling seeds whose SORBES walker never moved with
+        seeds where it did would average away exactly the effect this plot is
+        meant to show (see ``sorbes_moved`` in :func:`latent_jump`'s docstring).
+        Keyed and iterated movement-first so stationary-seed and moving-seed
+        figures are each contiguous rather than interleaved by grid value.
+
+        :param result: Output of ``LocalityAnalysis.latent_jump``.
+        :return: Mapping from ``(sorbes_moved, grid_value)`` to its ``Axes``.
+
+        :type result: AnalysisResult
+        :rtype: dict[tuple[bool, object], 'plt.Axes']
+        """
+        data = result.data
+        if data.empty:
+            raise ValueError("Cannot visualize an empty latent-jump result")
+        labels = {
+            "candidate_to_origin": "candidate → trajectory origin",
+            "candidate_to_sorbes_parent": "candidate → generating SORBES point",
+            "sorbes_to_origin": "SORBES point → trajectory origin",
+        }
+        figures = {}
+        # Grouped by movement first so stationary-seed figures and
+        # moving-seed figures are each contiguous when iterated/displayed,
+        # rather than interleaving by grid value.
+        for (sorbes_moved, grid_value), panel in data.groupby(
+            ["sorbes_moved", "grid_value"], dropna=False, sort=True
+        ):
+            with (
+                sns.axes_style(self.theme.style),
+                sns.plotting_context(self.theme.context),
+            ):
+                figure, axes = plt.subplots(
+                    figsize=(
+                        self.theme.figure_size[0] * 1.6,
+                        self.theme.figure_size[1],
+                    ),
+                    dpi=self.theme.dpi,
+                )
+            plot_data = panel.copy()
+            plot_data["distance_kind"] = plot_data["distance_kind"].map(labels)
+            sns.violinplot(
+                data=plot_data,
+                x="levenshtein_distance",
+                y="euclidean_distance",
+                hue="distance_kind",
+                palette=self.theme.palette,
+                cut=0,
+                density_norm="width",
+                ax=axes,
+            )
+            movement_label = "moving" if sorbes_moved else "stationary"
+            axes.set(
+                title=(
+                    "Euclidean latent distance vs. Levenshtein edit distance\n"
+                    f"direction_significance_threshold={grid_value:g}, "
+                    f"SORBES {movement_label} seeds"
+                ),
+                xlabel="Levenshtein distance",
+                ylabel="Euclidean latent distance",
+            )
+            axes.legend(title="", loc="upper left", fontsize="small")
+            figure.tight_layout()
+            figures[(sorbes_moved, grid_value)] = axes
+        return figures
+
+    def latent_jump_by_iteration(
+        self, result: AnalysisResult
+    ) -> dict[tuple[bool, object], "plt.Axes"]:
+        """Plot Euclidean latent distance vs. local-enumeration iteration.
+
+        Same three distance kinds and same ``(sorbes_moved, grid_value)``
+        figure split as :meth:`latent_jump`, but x is ``trajectory_step``
+        (the generating SORBES iteration) instead of Levenshtein distance --
+        i.e. how each distance's *distribution* evolves step by step, not how
+        it relates to edit distance. Rows with no resolved ``trajectory_step``
+        (unmatched SORBES parent) are dropped.
+
+        :param result: Output of ``LocalityAnalysis.latent_jump``.
+        :return: Mapping from ``(sorbes_moved, grid_value)`` to its ``Axes``.
+
+        :type result: AnalysisResult
+        :rtype: dict[tuple[bool, object], 'plt.Axes']
+        """
+        data = result.data.dropna(subset=["trajectory_step"])
+        if data.empty:
+            raise ValueError("Cannot visualize an empty latent-jump result")
+        labels = {
+            "candidate_to_origin": "candidate → trajectory origin",
+            "candidate_to_sorbes_parent": "candidate → generating SORBES point",
+            "sorbes_to_origin": "SORBES point → trajectory origin",
+        }
+        figures = {}
+        for (sorbes_moved, grid_value), panel in data.groupby(
+            ["sorbes_moved", "grid_value"], dropna=False, sort=True
+        ):
+            with (
+                sns.axes_style(self.theme.style),
+                sns.plotting_context(self.theme.context),
+            ):
+                figure, axes = plt.subplots(
+                    figsize=(
+                        self.theme.figure_size[0] * 1.6,
+                        self.theme.figure_size[1],
+                    ),
+                    dpi=self.theme.dpi,
+                )
+            plot_data = panel.copy()
+            plot_data["trajectory_step"] = plot_data["trajectory_step"].astype(int)
+            plot_data["distance_kind"] = plot_data["distance_kind"].map(labels)
+            sns.violinplot(
+                data=plot_data,
+                x="trajectory_step",
+                y="euclidean_distance",
+                hue="distance_kind",
+                palette=self.theme.palette,
+                cut=0,
+                density_norm="width",
+                ax=axes,
+            )
+            movement_label = "moving" if sorbes_moved else "stationary"
+            axes.set(
+                title=(
+                    "Euclidean latent distance vs. local-enumeration iteration\n"
+                    f"direction_significance_threshold={grid_value:g}, "
+                    f"SORBES {movement_label} seeds"
+                ),
+                xlabel="Local-enumeration iteration",
+                ylabel="Euclidean latent distance",
+            )
+            axes.legend(title="", loc="upper left", fontsize="small")
+            figure.tight_layout()
+            figures[(sorbes_moved, grid_value)] = axes
+        return figures
+
+    def sorbes_trajectory_profile(self, result: AnalysisResult) -> Axes:
+        """Plot each trajectory's latent drift from its origin, by iteration.
+
+        One thin line per trajectory (``units="trajectory_id"``, unaggregated),
+        colored by seed sequence, so stationary and moving seeds are visible
+        as flat-vs-rising line bundles at a glance.
+
+        :param result: Output of ``LocalityAnalysis.sorbes_trajectory_profile``.
+
+        :type result: AnalysisResult
+        :return: Result of this operation.
+        :rtype: Axes
+        """
+        data = result.data
+        if data.empty:
+            raise ValueError("Cannot visualize an empty SORBES trajectory profile")
+        _, axes = self._axes()
+        sns.lineplot(
+            data=data,
+            x="trajectory_step",
+            y="euclidean_distance",
+            hue="seed_sequence",
+            units="trajectory_id",
+            estimator=None,
+            alpha=0.6,
+            palette=self.theme.palette,
+            ax=axes,
+        )
+        axes.set(
+            title="SORBES latent drift from trajectory origin",
+            xlabel="Local-enumeration iteration",
+            ylabel="Euclidean latent distance",
+        )
+        axes.legend(title="seed", loc="upper left", fontsize="small")
+        return axes
+
+    def ambient_jump(self, result: AnalysisResult) -> Axes:
+        """Plot latent- vs. ambient-space distance by decode condition, side by side.
+
+        Two panels sharing one y-axis: left is ``latent_distance`` by
+        ``condition`` -- a control, expected to look identical across
+        conditions since HydrAMP's encoder never sees ``c`` -- right is
+        ``ambient_distance`` by ``condition`` for the SAME pairs, which can
+        differ since decoding does depend on ``c``. Putting them side by
+        side on one shared scale makes that contrast directly visible,
+        rather than only asserted from separate summary statistics.
+
+        :param result: Output of ``LocalityAnalysis.ambient_jump`` -- ``data``
+            carries the same candidate pair's ``latent_distance`` and
+            ``ambient_distance`` decoded under every named ``condition``,
+            split by ``distance_kind``.
+        :return: The two-panel ``Axes`` array (``[latent, ambient]``).
+
+        :type result: AnalysisResult
+        :rtype: Axes
+        """
+        data = result.data
+        if data.empty:
+            raise ValueError("Cannot visualize an empty ambient-jump result")
+        labels = {
+            "candidate_to_origin": "candidate -> trajectory origin",
+            "candidate_to_sorbes_parent": "candidate -> generating SORBES point",
+        }
+        plot_data = data.copy()
+        plot_data["distance_kind"] = plot_data["distance_kind"].map(labels)
+
+        with sns.axes_style(self.theme.style), sns.plotting_context(self.theme.context):
+            figure, axes = plt.subplots(
+                1,
+                2,
+                figsize=(self.theme.figure_size[0] * 2.4, self.theme.figure_size[1]),
+                dpi=self.theme.dpi,
+                sharey=True,
+                constrained_layout=True,
+            )
+        panels = (
+            (
+                axes[0],
+                "latent_distance",
+                "Latent distance (control -- should not vary)",
+            ),
+            (axes[1], "ambient_distance", "Ambient (decoder-output) distance"),
+        )
+        for panel_axes, column, title in panels:
+            sns.violinplot(
+                data=plot_data,
+                x="condition",
+                y=column,
+                hue="distance_kind",
+                palette=self.theme.palette,
+                cut=0,
+                density_norm="width",
+                ax=panel_axes,
+            )
+            panel_axes.set(
+                title=title,
+                xlabel="default_condition (c_AMP, c_MIC)",
+                ylabel="Euclidean distance",
+            )
+            panel_axes.legend(title="", loc="upper left", fontsize="small")
+        figure.suptitle("Same candidate pairs, decoded under each target condition")
+        return axes

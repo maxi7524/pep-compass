@@ -1,80 +1,130 @@
 # PepCompass
 
-### Installation
+## Introduction
 
-We suggest using [uv](https://docs.astral.sh/uv/) for dependency management. To install the package with dependencies, run:
+PepCompass is a research library for peptide optimisation with latent-space
+geometry, composable candidate-generation steps, decision filters and
+biological oracles.
 
-Install uv
+### Research Context
+
+The repository contains implementations and migrated model code used to study
+latent-space locality and peptide optimisation. Scientific equivalence of
+migrated strategies must be validated against their source implementations and
+associated research material before reported results are treated as reproduced.
+
+## Installation
+
+### Library 
+
+PepCompass uses [uv](https://docs.astral.sh/uv/) for environment management.
+Install uv:
+
 ```bash
 curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
-Create environment
+Create one supported environment:
 
 ```bash
-# CPU only enironment
-uv sync
-```
+# without torch
+uv sync 
 
-or
+# CPU
+uv sync --extra cpu
 
-```bash
+# CUDA 11.8
+uv sync --extra cu118
+
 # CUDA 12.6
 uv sync --extra cu126
-```
 
-or
-
-```bash
 # CUDA 12.8
 uv sync --extra cu128
 ```
 
-# Optimization runner
+### Models 
+To be able to run experiments you need to download models weights. 
+
+We provide helper scripts for downloading those models. If model is already present, script will not download it again. 
+
+#### BattleAMP
 
 ```bash
-uv run python scripts/run_optimization.py \
-  --config configs/optimization/lebo.json
+# HydraAMP from article (peptides of length equal to 25)
+bash assets/scripts/downloads/pep_compass/hydramp/download_hydramp_model.sh
 ```
 
-The same runner supports parameter grids, multiple starting sequences, Slurm
-`srun`, all LE-BO variants, random mutation, CMA-ES, SAASBO, and LaMBO2. See
-[`docs/optimization_runners.md`](docs/optimization_runners.md) for the complete
-configuration reference. For example, run random mutation with ESM filtering:
+> Each script installs weights below
+> `src/pep_compass/autoencoder/strategies/hydramp/models/<model>`.
+
+#### APEX Model
+
 
 ```bash
-uv run python scripts/run_optimization.py \
-  --config configs/optimization/random_mutation_esm.json
+# model: default (8-pathogen article set)
+assets/scripts/downloads/pep_compass/apex/download_apex_models_default.sh
+
+# model: full (34-pathogen set, ~1 GB)
+assets/scripts/downloads/pep_compass/apex/download_apex_models_full.sh
 ```
 
-# Baselines and BlackBoxes
+> Each script installs weights below
+> `src/pep_compass/steps/oracles/strategies/apex/models/<model>`.
 
-Different baselines and black-boxes needs different packages.
+## Python API
 
-To run toxi:
+```python
+from pep_compass import Pipeline
+from pep_compass.autoencoder import HydrAMP
+import pep_compass.steps as ps  # ps - PipelineSteps
 
+pipeline = Pipeline(
+    [ps.filters.CandidateSubset(count=3), ps.oracles.Hydrophobicity()],
+    autoencoder=HydrAMP(jacobian_mode="approx"),
+)
+pipeline.describe_component(ps.filters.CandidateSubset)
+pipeline.show()
+compiled = pipeline.build()
+result = pipeline.run(["FLYKWWIRIGRLKL"], seed=7)
+print(result.reader.get_archive())
+result.close()
 ```
-uv sync
-uv pip install "tensorflow[and-cuda]==2.20"
-uv pip install "numpy==2.3"
-```
 
-To run battle:
+See [the direct API tutorial](docs/artefacts/wrapper_new.md) and
+[the executable notebook](docs/tutorial/wrapper_tutorial.ipynb).
 
-TBA
-
-
-### Getting APEX model weights
-APEX weights are required for APEX-based evaluation/optimization.
-
-Run the initialization script from the repository root:
+## Run
 
 ```bash
-scripts/initialization/download_apex_models_article.sh
+uv run --extra cpu pep-compass plan pipeline=simple
+uv run --extra cpu pep-compass run pipeline=simple ++runner.execution.seed=7
+uv run --extra cpu pep-compass run --multirun pipeline=simple ++runner.execution.seed=7,8
 ```
 
-The script downloads only
-`optimization/apex_oracle/APEX_pathogen_models` from
-[APEXGo](https://github.com/Yimeng-Zeng/APEXGo) and installs it in
-`src/pep_compass/models/apex/APEX_pathogen_models`. Existing weights are never
-overwritten.
+The Hydra CLI lives in `src/pep_compass/orchestrator/cli.py` and executes the public
+Python wrapper. See the [orchestrator guide](docs/artefacts/orchestrator.md) for YAML
+composition, independent workers, Slurm templates and migration from old commands.
+
+## Guides
+
+- [User Guide](docs/user-guide.md) — configure and execute an experiment.
+- [Analysis Guide](docs/artefacts/analysis-guide.md) — inspect persisted results with
+  `analysis.reader`.
+- [Technical Architecture](docs/technical-architecture.md) — inspect internal
+  component and data flow.
+- [Developer Guide](docs/developer-guide.md) — extend and validate the package.
+
+## Documentation
+
+The complete documentation entry page is [docs/README.md](docs/README.md).
+
+- [User Guide](docs/user-guide.md)
+- [Technical Architecture](docs/technical-architecture.md)
+- [Developer Guide](docs/developer-guide.md)
+- [Analysis Guide](docs/artefacts/analysis-guide.md)
+- [Architecture Decisions](docs/architecture-decisions.md)
+
+## Citation
+
+If you use our model cite [this article](https://www.researchgate.net/publication/396142806_PepCompass_Navigating_peptide_embedding_spaces_using_Riemannian_Geometry)
